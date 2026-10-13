@@ -1,0 +1,12 @@
+.env
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+data/
+backend/data/
+*.db
+.chroma/
+.idea/
+.vscode/
