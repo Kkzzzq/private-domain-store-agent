@@ -34,7 +34,7 @@ python -m venv .venv
 .\.venv\Scripts\uvicorn app.main:app --reload
 ```
 
-打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)。
+打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)。买家端按店铺页来做：搜索、类目、销量/价格排序、规格、购物车、收货地址、满 99 元包邮、待支付/待发货/待收货。商家后台对应管理同一批商品和订单。
 
 - 商家：`merchant` / `merchant123`，后台在 `/b.html`
 - 买家：`alice` / `alice123`，进店链接 `/c.html?code=nanzhi`

@@ -12,13 +12,16 @@ from app.schemas.dto import (
     ReindexOut,
     ShopOut,
     ShopUpdate,
+    SkuIn,
     SkuUpdate,
     StatusAction,
 )
 from app.services.catalog import (
     change_product_status,
     change_sku_status,
+    add_sku,
     create_product,
+    dashboard,
     list_b_products,
     merchant_shop,
     serialize_shop,
@@ -41,9 +44,19 @@ def patch_shop(body: ShopUpdate, user: User = Depends(require_merchant), db: Ses
     return update_shop(db, user, body)
 
 
+@router.get("/dashboard")
+def read_dashboard(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return dashboard(db, user)
+
+
 @router.get("/products", response_model=list[ProductOut])
-def read_products(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
-    return list_b_products(db, user)
+def read_products(
+    keyword: str = "",
+    status: str = "",
+    user: User = Depends(require_merchant),
+    db: Session = Depends(get_db),
+):
+    return list_b_products(db, user, keyword=keyword, status=status)
 
 
 @router.post("/products", response_model=ProductOut)
@@ -71,6 +84,16 @@ def product_status(
     return change_product_status(db, user, product_id, body.action)
 
 
+@router.post("/products/{product_id}/skus", response_model=ProductOut)
+def create_sku(
+    product_id: int,
+    body: SkuIn,
+    user: User = Depends(require_merchant),
+    db: Session = Depends(get_db),
+):
+    return add_sku(db, user, product_id, body)
+
+
 @router.patch("/skus/{sku_id}", response_model=ProductOut)
 def patch_sku(
     sku_id: int,
@@ -92,8 +115,8 @@ def sku_status(
 
 
 @router.get("/orders", response_model=list[OrderOut])
-def read_orders(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
-    return list_b_orders(db, user)
+def read_orders(status: str = "", user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return list_b_orders(db, user, status)
 
 
 @router.post("/orders/{order_no}/ship", response_model=OrderOut)

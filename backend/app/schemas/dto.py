@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class RegisterIn(BaseModel):
@@ -63,6 +63,7 @@ class ProductIn(BaseModel):
 
 class ProductUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
+    category: str | None = Field(default=None, max_length=64)
     description: str | None = Field(default=None, max_length=2000)
     image_url: str | None = Field(default=None, max_length=500)
     sort_order: int | None = Field(default=None, ge=0, le=9999)
@@ -92,13 +93,62 @@ class ProductOut(BaseModel):
     image_url: str
     status: str
     sort_order: int
+    sales_count: int
+    price_from: float | None = None
     skus: list[SkuOut]
 
 
-class OrderCreate(BaseModel):
+class OrderLine(BaseModel):
     sku_id: int = Field(ge=1)
     quantity: int = Field(ge=1, le=20)
+
+
+class OrderCreate(BaseModel):
+    sku_id: int | None = Field(default=None, ge=1)
+    quantity: int = Field(default=1, ge=1, le=20)
+    items: list[OrderLine] | None = None
     address: str = Field(min_length=4, max_length=120)
+    receiver: str = Field(default="", max_length=32)
+    phone: str = Field(default="", max_length=20)
+
+    @model_validator(mode="after")
+    def require_lines(self):
+        if not self.items and self.sku_id is None:
+            raise ValueError("请选择商品")
+        return self
+
+
+class CartAdd(BaseModel):
+    sku_id: int = Field(ge=1)
+    quantity: int = Field(default=1, ge=1, le=20)
+
+
+class CartUpdate(BaseModel):
+    quantity: int = Field(ge=1, le=20)
+
+
+class CartCheckout(BaseModel):
+    address: str = Field(min_length=4, max_length=120)
+    receiver: str = Field(default="", max_length=32)
+    phone: str = Field(default="", max_length=20)
+    cart_item_ids: list[int] = Field(default_factory=list)
+
+
+class AddressIn(BaseModel):
+    receiver: str = Field(min_length=1, max_length=32)
+    phone: str = Field(min_length=6, max_length=20)
+    region: str = Field(min_length=2, max_length=80)
+    detail: str = Field(min_length=2, max_length=120)
+    is_default: bool = False
+
+
+class AddressOut(BaseModel):
+    id: int
+    receiver: str
+    phone: str
+    region: str
+    detail: str
+    is_default: bool
 
 
 class OrderItemOut(BaseModel):
@@ -116,7 +166,11 @@ class OrderOut(BaseModel):
     shop_name: str
     status: str
     status_label: str
+    goods_yuan: float
+    freight_yuan: float
     total_yuan: float
+    receiver: str = ""
+    phone: str = ""
     address: str
     buyer_nickname: str | None = None
     buyer_username: str | None = None

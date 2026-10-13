@@ -53,6 +53,7 @@ class Product(Base):
     image_url: Mapped[str] = mapped_column(String(500), default="")
     status: Mapped[str] = mapped_column(String(16), default="off")
     sort_order: Mapped[int] = mapped_column(default=0)
+    sales_count: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     shop: Mapped[Shop] = relationship(back_populates="products")
@@ -82,6 +83,9 @@ class Order(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")
     total_cents: Mapped[int] = mapped_column()
+    freight_cents: Mapped[int] = mapped_column(default=0)
+    receiver: Mapped[str] = mapped_column(String(32), default="")
+    phone: Mapped[str] = mapped_column(String(20), default="")
     address: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -107,3 +111,29 @@ class OrderItem(Base):
     order: Mapped[Order] = relationship(back_populates="items")
     product: Mapped[Product] = relationship()
     sku: Mapped[Sku] = relationship()
+
+
+class CartItem(Base):
+    __tablename__ = "cart_items"
+    __table_args__ = (UniqueConstraint("user_id", "sku_id", name="uq_cart_user_sku"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
+    sku_id: Mapped[int] = mapped_column(ForeignKey("skus.id"))
+    quantity: Mapped[int] = mapped_column(default=1)
+
+    sku: Mapped[Sku] = relationship()
+    shop: Mapped[Shop] = relationship()
+
+
+class Address(Base):
+    __tablename__ = "addresses"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    receiver: Mapped[str] = mapped_column(String(32))
+    phone: Mapped[str] = mapped_column(String(20))
+    region: Mapped[str] = mapped_column(String(80))
+    detail: Mapped[str] = mapped_column(String(120))
+    is_default: Mapped[bool] = mapped_column(default=False)

@@ -1,5 +1,5 @@
 from app.core.security import hash_password
-from app.models.tables import Order, OrderItem, Product, Shop, Sku, User
+from app.models.tables import Address, Order, OrderItem, Product, Shop, Sku, User
 
 
 def seed_if_empty(db) -> None:
@@ -41,8 +41,10 @@ def seed_if_empty(db) -> None:
         name="亚麻抱枕套",
         category="家居",
         description="可拆洗的亚麻抱枕套，冷水轻柔洗涤。",
+        image_url="/covers/pillow.svg",
         status="on",
         sort_order=1,
+        sales_count=26,
         skus=[
             Sku(spec="米白", price_cents=5900, stock=20),
             Sku(spec="雾蓝", price_cents=5900, stock=8),
@@ -53,8 +55,10 @@ def seed_if_empty(db) -> None:
         name="陶瓷马克杯",
         category="餐具",
         description="日用陶瓷杯，可放洗碗机上层。",
+        image_url="/covers/mug.svg",
         status="on",
         sort_order=2,
+        sales_count=18,
         skus=[Sku(spec="单只", price_cents=3900, stock=15)],
     )
     candle = Product(
@@ -62,8 +66,10 @@ def seed_if_empty(db) -> None:
         name="大豆香薰蜡烛",
         category="香氛",
         description="雪松香。点燃后不支持无理由退货。",
+        image_url="/covers/candle.svg",
         status="on",
         sort_order=3,
+        sales_count=11,
         skus=[Sku(spec="雪松", price_cents=4900, stock=0)],
     )
     box = Product(
@@ -71,12 +77,77 @@ def seed_if_empty(db) -> None:
         name="桌面收纳盒",
         category="家居",
         description="原木收纳盒，当前下架。",
+        image_url="/covers/box.svg",
         status="off",
         sort_order=4,
         skus=[Sku(spec="原木", price_cents=7900, stock=5)],
     )
-    db.add_all([pillow, mug, candle, box])
+    runner = Product(
+        shop_id=shop.id,
+        name="亚麻桌旗",
+        category="家居",
+        description="餐桌中间的一条亚麻桌旗，可机洗。",
+        image_url="/covers/runner.svg",
+        status="on",
+        sort_order=5,
+        sales_count=9,
+        skus=[Sku(spec="米白 140cm", price_cents=8900, stock=12), Sku(spec="雾蓝 180cm", price_cents=10900, stock=6)],
+    )
+    plate = Product(
+        shop_id=shop.id,
+        name="手作餐盘",
+        category="餐具",
+        description="不规则釉面餐盘，适合日常早餐。",
+        image_url="/covers/plate.svg",
+        status="on",
+        sort_order=6,
+        sales_count=7,
+        skus=[Sku(spec="暖白", price_cents=6900, stock=10)],
+    )
+    stone = Product(
+        shop_id=shop.id,
+        name="无火扩香石",
+        category="香氛",
+        description="石膏扩香石，滴上香薰油即可。",
+        image_url="/covers/stone.svg",
+        status="on",
+        sort_order=7,
+        sales_count=4,
+        skus=[Sku(spec="圆石", price_cents=4500, stock=16)],
+    )
+    notebook = Product(
+        shop_id=shop.id,
+        name="棉麻笔记本",
+        category="文具",
+        description="裸背线装，内页无酸纸。",
+        image_url="/covers/notebook.svg",
+        status="on",
+        sort_order=8,
+        sales_count=15,
+        skus=[Sku(spec="A5 空白", price_cents=3200, stock=30), Sku(spec="A5 横线", price_cents=3200, stock=22)],
+    )
+    patch = Product(
+        shop_id=shop.id,
+        name="刺绣姓名贴",
+        category="家居",
+        description="定制品。禁售期间买家不可见。",
+        image_url="/covers/patch.svg",
+        status="banned",
+        sort_order=9,
+        skus=[Sku(spec="单枚", price_cents=1900, stock=40)],
+    )
+    db.add_all([pillow, mug, candle, box, runner, plate, stone, notebook, patch])
     db.flush()
+    db.add(
+        Address(
+            user_id=alice.id,
+            receiver="小满",
+            phone="13800001111",
+            region="湖南省长沙市岳麓区",
+            detail="示范路 1 号",
+            is_default=True,
+        )
+    )
 
     white = next(sku for sku in pillow.skus if sku.spec == "米白")
     cedar = candle.skus[0]

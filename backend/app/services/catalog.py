@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.db.redis_client import get_redis
 from app.models.tables import Product, Shop, Sku, User
-from app.schemas.dto import ProductIn, ProductUpdate, ShopUpdate, SkuUpdate
+from app.schemas.dto import ProductIn, ProductUpdate, ShopUpdate, SkuIn, SkuUpdate
 from app.services.shelf import listed_on_c, next_status, visible_skus
 
 
@@ -73,6 +73,8 @@ def serialize_product(product: Product, *, audience: str) -> dict:
         "image_url": product.image_url,
         "status": product.status,
         "sort_order": product.sort_order,
+        "sales_count": product.sales_count,
+        "price_from": min((row["price_yuan"] for row in sku_rows), default=None),
         "skus": sku_rows,
     }
 
@@ -99,24 +101,76 @@ def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
     return serialize_shop(shop)
 
 
-def list_b_products(db: Session, user: User) -> list[dict]:
+def list_b_products(db: Session, user: User, keyword: str = "", status: str = "") -> list[dict]:
     shop = merchant_shop(db, user)
     products = db.scalars(_product_query().where(Product.shop_id == shop.id)).unique().all()
+    if status in {"on", "off", "banned"}:
+        products = [product for product in products if product.status == status]
+    if keyword:
+        products = [product for product in products if keyword in product.name]
     return [serialize_product(product, audience="b") for product in products]
 
 
-def list_c_products(db: Session, share_code: str) -> list[dict]:
+def list_c_products(db: Session, share_code: str, keyword: str = "", category: str = "", sort: str = "default") -> list[dict]:
     shop = shop_by_code(db, share_code)
     if shop.status != "open":
         return []
-    cache_key = f"cache:c-products:{shop.id}"
+    cache_key = f"cache:c-products:{shop.id}:{category or '-'}:{keyword or '-'}:{sort or 'default'}"
     cached = get_redis().get_json(cache_key)
     if cached is not None:
         return cached
     products = db.scalars(_product_query().where(Product.shop_id == shop.id)).unique().all()
-    data = [serialize_product(product, audience="c") for product in products if listed_on_c(product)]
+    visible = [product for product in products if listed_on_c(product)]
+    if category:
+        visible = [product for product in visible if product.category == category]
+    if keyword:
+        visible = [product for product in visible if keyword in product.name]
+    data = [serialize_product(product, audience="c") for product in visible]
+    if sort == "price_asc":
+        data.sort(key=lambda item: item["price_from"] or 0)
+    elif sort == "price_desc":
+        data.sort(key=lambda item: item["price_from"] or 0, reverse=True)
+    elif sort == "sales":
+        data.sort(key=lambda item: item["sales_count"], reverse=True)
     get_redis().set_json(cache_key, data, ex=60)
     return data
+
+
+def list_categories(db: Session, share_code: str) -> list[str]:
+    names: list[str] = []
+    for product in list_c_products(db, share_code):
+        if product["category"] and product["category"] not in names:
+            names.append(product["category"])
+    return names
+
+
+def get_c_product(db: Session, share_code: str, product_id: int) -> dict:
+    from fastapi import HTTPException
+
+    shop = shop_by_code(db, share_code)
+    product = db.scalars(_product_query().where(Product.id == product_id, Product.shop_id == shop.id)).unique().one_or_none()
+    if product is None or not listed_on_c(product):
+        raise HTTPException(status_code=404, detail="没有找到这个商品")
+    return serialize_product(product, audience="c")
+
+
+def dashboard(db: Session, user: User) -> dict:
+    from app.models.tables import Order
+
+    shop = merchant_shop(db, user)
+    products = db.scalars(select(Product).where(Product.shop_id == shop.id)).all()
+    orders = db.scalars(select(Order).where(Order.shop_id == shop.id)).all()
+    sold = [order for order in orders if order.status in {"paid", "shipped", "completed"}]
+    return {
+        "product_total": len(products),
+        "on_sale": sum(1 for product in products if product.status == "on"),
+        "off_shelf": sum(1 for product in products if product.status == "off"),
+        "banned": sum(1 for product in products if product.status == "banned"),
+        "pending_pay": sum(1 for order in orders if order.status == "pending"),
+        "pending_ship": sum(1 for order in orders if order.status == "paid"),
+        "shipped": sum(1 for order in orders if order.status == "shipped"),
+        "sales_yuan": yuan(sum(order.total_cents for order in sold)),
+    }
 
 
 def _owned_product(db: Session, user: User, product_id: int) -> Product:
@@ -150,10 +204,23 @@ def create_product(db: Session, user: User, body: ProductIn) -> dict:
     return serialize_product(saved, audience="b")
 
 
+def add_sku(db: Session, user: User, product_id: int, body: SkuIn) -> dict:
+    product = _owned_product(db, user, product_id)
+    spec = body.spec.strip()
+    if any(sku.spec == spec for sku in product.skus):
+        raise HTTPException(status_code=400, detail="这个规格已经存在")
+    product.skus.append(Sku(spec=spec, price_cents=to_cents(body.price_yuan), stock=body.stock, status="on"))
+    db.commit()
+    invalidate_catalog_cache()
+    return serialize_product(_owned_product(db, user, product_id), audience="b")
+
+
 def update_product(db: Session, user: User, product_id: int, body: ProductUpdate) -> dict:
     product = _owned_product(db, user, product_id)
     if body.name is not None:
         product.name = body.name.strip()
+    if body.category is not None:
+        product.category = body.category.strip()
     if body.description is not None:
         product.description = body.description.strip()
     if body.image_url is not None:

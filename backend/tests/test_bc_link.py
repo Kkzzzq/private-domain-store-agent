@@ -28,7 +28,8 @@ def test_c_only_sees_on_sale_products_from_the_same_shop(client):
     c_products = client.get("/api/v1/c/shops/nanzhi/products").json()
 
     assert find(b_products, "桌面收纳盒")["status"] == "off"
-    assert [item["name"] for item in c_products] == ["亚麻抱枕套", "陶瓷马克杯", "大豆香薰蜡烛"]
+    assert [item["name"] for item in c_products][:3] == ["亚麻抱枕套", "陶瓷马克杯", "大豆香薰蜡烛"]
+    assert "刺绣姓名贴" not in {item["name"] for item in c_products}
     assert "桌面收纳盒" not in {item["name"] for item in c_products}
 
 
@@ -134,7 +135,9 @@ def test_c_order_lands_on_b_and_cannot_cross_user_or_shop(client):
     )
     assert created.status_code == 200, created.text
     order_no = created.json()["order_no"]
-    assert created.json()["total_yuan"] == 78
+    assert created.json()["goods_yuan"] == 78
+    assert created.json()["freight_yuan"] == 8
+    assert created.json()["total_yuan"] == 86
 
     paid = client.post(f"/api/v1/c/orders/{order_no}/pay", headers=alice)
     assert paid.json()["status"] == "paid"

@@ -4,8 +4,11 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.tables import Order, OrderItem, User
+from app.models.tables import Order, OrderItem, Product, Sku, User
 from app.schemas.dto import OrderCreate
+
+FREE_SHIPPING_CENTS = 9900
+BASE_FREIGHT_CENTS = 800
 from app.services.catalog import invalidate_catalog_cache, load_sku_for_shop, merchant_shop, shop_by_code, yuan
 from app.services.shelf import purchase_block
 
@@ -25,7 +28,11 @@ def serialize_order(order: Order, *, audience: str) -> dict:
         "shop_name": order.shop.name if order.shop is not None else "",
         "status": order.status,
         "status_label": STATUS_LABELS.get(order.status, order.status),
+        "goods_yuan": yuan(sum(item.price_cents * item.quantity for item in order.items)),
+        "freight_yuan": yuan(order.freight_cents),
         "total_yuan": yuan(order.total_cents),
+        "receiver": order.receiver or "",
+        "phone": order.phone or "",
         "address": order.address,
         "items": [
             {
@@ -66,35 +73,60 @@ def _next_order_no(db: Session) -> str:
     return f"{prefix}{count:04d}"
 
 
+def freight_for(goods_cents: int) -> int:
+    if goods_cents <= 0 or goods_cents >= FREE_SHIPPING_CENTS:
+        return 0
+    return BASE_FREIGHT_CENTS
+
+
+def _order_lines(body: OrderCreate) -> list[tuple[int, int]]:
+    raw = [(item.sku_id, item.quantity) for item in body.items] if body.items else [(body.sku_id or 0, body.quantity)]
+    merged: dict[int, int] = {}
+    for sku_id, quantity in raw:
+        merged[sku_id] = min(20, merged.get(sku_id, 0) + quantity)
+    return list(merged.items())
+
+
 def create_order(db: Session, user: User, share_code: str, body: OrderCreate) -> dict:
     if user.role != "customer":
         raise HTTPException(status_code=403, detail="请使用买家账号下单")
     shop = shop_by_code(db, share_code)
-    sku = load_sku_for_shop(db, shop.id, body.sku_id)
-    if sku is None:
-        raise HTTPException(status_code=400, detail="没有找到这个商品")
-    reason = purchase_block(sku, body.quantity)
-    if reason:
-        raise HTTPException(status_code=400, detail=reason)
-    sku.stock -= body.quantity
+    chosen: list[tuple[Sku, int]] = []
+    for sku_id, quantity in _order_lines(body):
+        sku = load_sku_for_shop(db, shop.id, sku_id)
+        if sku is None:
+            raise HTTPException(status_code=400, detail="没有找到这个商品")
+        reason = purchase_block(sku, quantity)
+        if reason:
+            raise HTTPException(status_code=400, detail=reason)
+        chosen.append((sku, quantity))
+    goods_cents = 0
     order = Order(
         order_no=_next_order_no(db),
         shop_id=shop.id,
         user_id=user.id,
         status="pending",
-        total_cents=sku.price_cents * body.quantity,
+        total_cents=0,
+        freight_cents=0,
+        receiver=body.receiver.strip(),
+        phone=body.phone.strip(),
         address=body.address.strip(),
     )
-    order.items.append(
-        OrderItem(
-            product_id=sku.product_id,
-            sku_id=sku.id,
-            product_name=sku.product.name,
-            sku_spec=sku.spec,
-            price_cents=sku.price_cents,
-            quantity=body.quantity,
+    for sku, quantity in chosen:
+        sku.stock -= quantity
+        goods_cents += sku.price_cents * quantity
+        order.items.append(
+            OrderItem(
+                product_id=sku.product_id,
+                sku_id=sku.id,
+                product_name=sku.product.name,
+                sku_spec=sku.spec,
+                price_cents=sku.price_cents,
+                quantity=quantity,
+            )
         )
-    )
+    order.freight_cents = freight_for(goods_cents)
+    order.total_cents = goods_cents + order.freight_cents
     db.add(order)
     db.commit()
     invalidate_catalog_cache()
@@ -102,17 +134,22 @@ def create_order(db: Session, user: User, share_code: str, body: OrderCreate) ->
     return serialize_order(saved, audience="c")
 
 
-def list_b_orders(db: Session, user: User) -> list[dict]:
+def list_b_orders(db: Session, user: User, status: str = "") -> list[dict]:
     shop = merchant_shop(db, user)
-    orders = db.scalars(_orders().where(Order.shop_id == shop.id).order_by(Order.id.desc())).unique().all()
+    query = _orders().where(Order.shop_id == shop.id).order_by(Order.id.desc())
+    if status:
+        query = query.where(Order.status == status)
+    orders = db.scalars(query).unique().all()
     return [serialize_order(order, audience="b") for order in orders]
 
 
-def list_c_orders(db: Session, user: User, share_code: str | None) -> list[dict]:
+def list_c_orders(db: Session, user: User, share_code: str | None, status: str = "") -> list[dict]:
     query = _orders().where(Order.user_id == user.id).order_by(Order.id.desc())
     if share_code:
         shop = shop_by_code(db, share_code)
         query = query.where(Order.shop_id == shop.id)
+    if status:
+        query = query.where(Order.status == status)
     orders = db.scalars(query).unique().all()
     return [serialize_order(order, audience="c") for order in orders]
 
@@ -124,7 +161,12 @@ def pay_order(db: Session, user: User, order_no: str) -> dict:
     if order.status != "pending":
         raise HTTPException(status_code=400, detail="这个订单不需要支付")
     order.status = "paid"
+    for item in order.items:
+        product = db.get(Product, item.product_id)
+        if product is not None:
+            product.sales_count += item.quantity
     db.commit()
+    invalidate_catalog_cache()
     saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
     return serialize_order(saved, audience="c")
 
@@ -140,6 +182,35 @@ def ship_order(db: Session, user: User, order_no: str) -> dict:
     db.commit()
     saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
     return serialize_order(saved, audience="b")
+
+
+def cancel_order(db: Session, user: User, order_no: str) -> dict:
+    order = db.scalars(_orders().where(Order.order_no == order_no, Order.user_id == user.id)).unique().one_or_none()
+    if order is None:
+        raise HTTPException(status_code=404, detail="没有找到这个订单")
+    if order.status != "pending":
+        raise HTTPException(status_code=400, detail="只有待支付订单可以取消")
+    for item in order.items:
+        sku = db.get(Sku, item.sku_id)
+        if sku is not None:
+            sku.stock += item.quantity
+    order.status = "cancelled"
+    db.commit()
+    invalidate_catalog_cache()
+    saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
+    return serialize_order(saved, audience="c")
+
+
+def confirm_order(db: Session, user: User, order_no: str) -> dict:
+    order = db.scalars(_orders().where(Order.order_no == order_no, Order.user_id == user.id)).unique().one_or_none()
+    if order is None:
+        raise HTTPException(status_code=404, detail="没有找到这个订单")
+    if order.status != "shipped":
+        raise HTTPException(status_code=400, detail="只有已发货的订单可以确认收货")
+    order.status = "completed"
+    db.commit()
+    saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
+    return serialize_order(saved, audience="c")
 
 
 def describe_my_orders(db: Session, user_id: int, shop_id: int, order_no: str | None = None) -> str:
