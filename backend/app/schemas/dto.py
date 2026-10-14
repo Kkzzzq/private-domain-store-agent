@@ -291,6 +291,17 @@ class HomeSection(BaseModel):
     products: list[ProductOut]
 
 
+class CollectionOut(BaseModel):
+    key: str
+    title: str
+    subtitle: str
+    source: str
+    categories: list[str]
+    category_counts: dict[str, int] = {}
+    total: int
+    products: list[ProductOut]
+
+
 class HomeOut(BaseModel):
     banners: list[BannerOut]
     sections: list[HomeSection]

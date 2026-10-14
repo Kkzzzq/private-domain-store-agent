@@ -89,17 +89,30 @@ p { margin: 0; }
 .strip-shop:hover .strip-name { color: var(--primary); }
 .strip-login { color: var(--primary); }
 
-/* 搜索框，放在「全部商品」这一行右侧 */
+/* 搜索框，放在「全部商品」这一行标题旁边；右侧留给「查看全部」 */
 .search { display: flex; height: 38px; border: 2px solid var(--primary); border-radius: 8px; overflow: hidden; background: #fff; }
 .search input { flex: 1; border: 0; outline: none; padding: 0 14px; font-size: 14px; min-width: 0; }
 .search button { border: 0; background: var(--primary); color: #fff; padding: 0 24px; font-size: 14px; letter-spacing: 1px; }
 .search button:hover { background: var(--primary-dark); }
-.all-search { width: 300px; flex-shrink: 0; }
+.all-search { width: 280px; flex-shrink: 0; }
 
-/* ================= 首页两栏 ================= */
-.home { display: grid; grid-template-columns: 200px 1fr; gap: 14px; padding: 14px 0 0; align-items: start; }
-/* 网格子项默认 min-width:auto，会被内部内容撑开，这里统一压住 */
-.home > * { min-width: 0; }
+/* ================= 合集页：左侧筛选 + 右侧商品 ================= */
+.collection { display: grid; grid-template-columns: 200px 1fr; gap: 18px; align-items: start; padding-bottom: 40px; }
+.collection > * { min-width: 0; }
+.collection-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.collection-head {
+  background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;
+  gap: 18px; flex-wrap: wrap;
+}
+.collection-head h2 { font-size: 24px; letter-spacing: 1px; font-family: var(--serif); }
+.collection-head .muted { margin-top: 4px; }
+.collection-search { width: 300px; flex-shrink: 0; }
+.collection-main .grid { padding-bottom: 0; }
+.cat-sort { border-top: 1px solid var(--line-2); margin-top: 6px; padding-top: 6px; }
+.cat-sort-title { padding: 10px 16px 4px; font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+
+/* 左侧筛选栏 */
 .cat-side { background: #fff; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); min-width: 0; }
 .cat-side h3 {
   padding: 14px 16px; font-size: 14px; border-bottom: 1px solid var(--line-2);
@@ -162,22 +175,6 @@ p { margin: 0; }
 .section-title h2 { font-size: 20px; letter-spacing: 1px; }
 .section-title span { color: var(--muted); font-size: 13px; }
 .section-title .line { flex: 1; height: 1px; background: var(--line); }
-
-/* ================= 筛选条 ================= */
-.toolbar {
-  background: #fff; border-radius: var(--radius); padding: 10px 16px; margin-bottom: 14px;
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  flex-wrap: wrap; box-shadow: var(--shadow);
-}
-.sorts { display: flex; gap: 2px; }
-.sorts button {
-  border: 1px solid var(--line); background: #fff; padding: 6px 16px; font-size: 13px;
-  color: var(--ink-2); border-right: 0; transition: all 0.15s;
-}
-.sorts button:first-child { border-radius: 6px 0 0 6px; }
-.sorts button:last-child { border-radius: 0 6px 6px 0; border-right: 1px solid var(--line); }
-.sorts button:hover { color: var(--primary); }
-.sorts button.on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 
 /* ================= 商品卡 ================= */
 .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 17px; padding-bottom: 36px; }
@@ -520,10 +517,15 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 
 /* ================= 首页：横向商品位 ================= */
 .row-sec { margin-top: 46px; }
-.row-head { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 18px; }
-.row-head h2 { font-size: 21px; letter-spacing: 1px; font-family: var(--serif); }
-.row-head .sub { color: var(--muted); font-size: 13px; padding-bottom: 3px; }
+.row-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.row-head h2 { font-size: 30px; letter-spacing: 2px; font-family: var(--serif); }
+.row-head .sub { color: var(--muted); font-size: 13px; }
 .row-head .spacer { flex: 1; }
+.row-head .see-all {
+  color: var(--ink-2); font-size: 14px; white-space: nowrap;
+  transition: color 0.2s;
+}
+.row-head .see-all:hover { color: var(--primary); }
 
 /* 左右箭头浮在图片两侧、垂直居中，和轮播主视觉一致 */
 .rail { position: relative; }
@@ -545,7 +547,7 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .rail-nav.next { right: 10px; }
 
 .track {
-  display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 51px) / 4);
+  display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 34px) / 3);
   gap: 17px; overflow-x: auto; scroll-snap-type: x mandatory;
   scrollbar-width: none; padding-bottom: 4px;
 }
@@ -923,15 +925,16 @@ wa-dialog .field input:focus { border-color: var(--primary); }
 @media (max-width: 1100px) {
   .grid { grid-template-columns: repeat(3, 1fr); }
   .stats, .two-col, .promises { grid-template-columns: repeat(2, 1fr); }
-  .home { grid-template-columns: 1fr; }
-  .cat-side { display: flex; overflow-x: auto; }
+  .cat-side { display: flex; overflow-x: auto; overflow-y: hidden; }
   .cat-side h3 { display: none; }
   .cat-side button { width: auto; white-space: nowrap; border-left: 0; border-bottom: 3px solid transparent; }
   .cat-side button.on { border-left: 0; border-bottom-color: var(--primary); }
-  .track { grid-auto-columns: calc((100% - 34px) / 3); }
+  .track { grid-auto-columns: calc((100% - 28px) / 3); }
 }
 @media (max-width: 900px) {
   .detail, .checkout { grid-template-columns: 1fr; }
+  .collection { grid-template-columns: 1fr; }
+  .collection-search { width: 100%; }
   .header .wrap { flex-wrap: wrap; gap: 16px; }
   .searchbox { order: 3; width: 100%; max-width: none; }
   .admin-body { grid-template-columns: 1fr; }
@@ -965,7 +968,9 @@ wa-dialog .field input:focus { border-color: var(--primary); }
   .hero .nav { width: 32px; height: 32px; font-size: 22px; }
   .rail-nav { width: 30px; height: 30px; font-size: 21px; }
   .track { grid-auto-columns: calc((100% - 17px) / 2); }
-  .row-head h2 { font-size: 18px; }
+  .row-head h2 { font-size: 22px; }
+  .row-head { flex-wrap: wrap; gap: 10px; }
+  .all-search { width: 100%; order: 3; }
   .row-sec, .all-sec, .wall, .promises { margin-top: 30px; }
   .quote { width: 260px; }
   /* 购买按钮在窄屏排不下，让它们换行并平分宽度 */

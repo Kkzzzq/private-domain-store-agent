@@ -132,6 +132,88 @@ def home_content(db: Session, share_code: str, user: User | None = None) -> dict
     }
 
 
+def collection_page(
+    db: Session,
+    share_code: str,
+    key: str,
+    user: User | None = None,
+    keyword: str = "",
+    category: str = "",
+    sort: str = "default",
+) -> dict:
+    """合集页：某一行的完整商品列表，带左侧筛选。
+
+    key 为 "all" 时是全部在售商品；否则是某个栏目的商品。
+    栏目在首页只展示前 6 件，合集页给全量。
+    """
+    from fastapi import HTTPException
+
+    shop = shop_by_code(db, share_code)
+    visible = _visible_products(db, shop) if shop.status == "open" else []
+    source = "all"
+
+    if key == "all":
+        title, subtitle, pool = "全部商品", "店里所有在售的东西", list(visible)
+    else:
+        try:
+            section_id = int(key)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="没有找到这个合集") from exc
+        section = db.scalars(
+            select(Section)
+            .options(joinedload(Section.items).joinedload(SectionItem.product))
+            .where(Section.id == section_id, Section.shop_id == shop.id, Section.enabled.is_(True))
+        ).unique().one_or_none()
+        if section is None:
+            raise HTTPException(status_code=404, detail="没有找到这个合集")
+        title, subtitle = section.title, section.subtitle
+        source = section.source
+        if section.source == "sales":
+            pool = sorted(visible, key=lambda product: product.sales_count, reverse=True)
+        else:
+            order = {item.product_id: item.sort_order for item in section.items}
+            pool = [product for product in visible if product.id in order]
+            pool.sort(key=lambda product: order[product.id])
+
+    # 左侧筛选用的类目，基于这个合集自己的商品统计
+    categories: list[str] = []
+    counts: dict[str, int] = {}
+    for product in pool:
+        if not product.category:
+            continue
+        counts[product.category] = counts.get(product.category, 0) + 1
+        if product.category not in categories:
+            categories.append(product.category)
+
+    rows = list(pool)
+    if category:
+        rows = [product for product in rows if product.category == category]
+    if keyword:
+        word = keyword.strip()
+        rows = [product for product in rows if word in product.name or word in product.category]
+    if sort == "price_asc":
+        rows.sort(key=lambda product: min((sku.price_cents for sku in product.skus), default=0))
+    elif sort == "price_desc":
+        rows.sort(key=lambda product: min((sku.price_cents for sku in product.skus), default=0), reverse=True)
+    elif sort == "sales":
+        rows.sort(key=lambda product: product.sales_count, reverse=True)
+
+    ratings = rating_map(db, [product.id for product in rows])
+    favorites = favorite_ids(db, user)
+    return {
+        "key": key,
+        "title": title,
+        "subtitle": subtitle,
+        "source": source,
+        "categories": categories,
+        "category_counts": counts,
+        "total": len(pool),
+        "products": [
+            serialize_product(product, audience="c", ratings=ratings, favorites=favorites) for product in rows
+        ],
+    }
+
+
 # ---------- 商家端 ----------
 def list_banners(db: Session, user: User) -> list[dict]:
     shop = merchant_shop(db, user)

@@ -13,6 +13,7 @@ from app.schemas.dto import (
     CartUpdate,
     ChatIn,
     ChatOut,
+    CollectionOut,
     HomeOut,
     OrderCreate,
     OrderOut,
@@ -25,7 +26,7 @@ from app.schemas.dto import (
     ShopOut,
 )
 from app.services.catalog import get_c_product, list_categories, list_c_products, serialize_product, serialize_shop, shop_by_code
-from app.services.home import home_content
+from app.services.home import collection_page, home_content
 from app.services.engagement import (
     clear_history,
     favorite_products,
@@ -74,6 +75,19 @@ def read_home(
     db: Session = Depends(get_db),
 ):
     return home_content(db, share_code, user)
+
+
+@router.get("/shops/{share_code}/collections/{key}", response_model=CollectionOut)
+def read_collection(
+    share_code: str,
+    key: str,
+    keyword: str = "",
+    category: str = "",
+    sort: str = "default",
+    user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    return collection_page(db, share_code, key, user, keyword=keyword, category=category, sort=sort)
 
 
 @router.get("/shops/{share_code}/products/{product_id}", response_model=ProductOut)

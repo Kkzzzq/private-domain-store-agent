@@ -194,6 +194,7 @@ function renderStrip() {
 async function renderView() {
   const current = route();
   if (current.name === "product") return renderProduct(current.id);
+  if (current.name === "collection") return renderCollection(current.id || "all");
   if (current.name === "cart") return renderCart();
   if (current.name === "checkout") return renderCheckout();
   if (current.name === "orders") return renderOrders(current.id);
@@ -205,8 +206,8 @@ async function renderView() {
 
 /* ---------------- 首页 ---------------- */
 async function renderHome() {
-  // 有搜索或类目筛选时走列表页，其余情况是编辑好的首页
-  if (keyword || category) return renderFiltered();
+  // 有搜索或类目筛选时也走合集页
+  if (keyword || category) return renderCollection("all");
 
   const home = await api(`/api/v1/c/shops/${code}/home`);
   const box = h("div");
@@ -216,6 +217,124 @@ async function renderHome() {
   if (home.testimonials.length) box.append(reviewWall(home.testimonials));
   box.append(renderPromises());
   return box;
+}
+
+/* ---------------- 合集页：左侧筛选，右侧商品 ---------------- */
+async function renderCollection(key) {
+  const query = new URLSearchParams({ keyword, category, sort });
+  let data;
+  try {
+    data = await api(`/api/v1/c/shops/${code}/collections/${key}?${query}`);
+  } catch (error) {
+    return h("div", "panel", error.message);
+  }
+
+  const box = h("div");
+  const crumb = h("div", "crumb");
+  const home = h("a", "", "首页");
+  home.href = "#/";
+  crumb.append(home, h("span", "", " / "), h("span", "", data.title));
+  box.append(crumb);
+
+  const layout = h("div", "collection");
+  layout.append(collectionSide(data), collectionMain(data));
+  box.append(layout);
+  return box;
+}
+
+/** 左侧：先按类目筛，再排序。 */
+function collectionSide(data) {
+  const side = h("aside", "cat-side");
+  const title = h("h3");
+  title.append(document.createTextNode("商品分类"), h("small", "", `${data.total} 件`));
+  side.append(title);
+
+  const all = h("button", category ? "" : "on");
+  all.append(h("span", "", "全部"), h("i", "", String(data.total)));
+  all.addEventListener("click", () => {
+    category = "";
+    keyword = "";
+    render();
+  });
+  side.append(all);
+  data.categories.forEach((item) => {
+    const button = h("button", category === item ? "on" : "");
+    button.append(h("span", "", item), h("i", "", String(data.category_counts?.[item] ?? "")));
+    button.addEventListener("click", () => {
+      category = category === item ? "" : item;
+      keyword = "";
+      render();
+    });
+    side.append(button);
+  });
+
+  const sortBlock = h("div", "cat-sort");
+  sortBlock.append(h("div", "cat-sort-title", "排序"));
+  [
+    ["default", "综合"],
+    ["sales", "销量"],
+    ["price_asc", "价格从低到高"],
+    ["price_desc", "价格从高到低"],
+  ].forEach(([value, label]) => {
+    const button = h("button", sort === value ? "on" : "");
+    button.append(h("span", "", label), h("i", "", ""));
+    button.addEventListener("click", () => {
+      sort = value;
+      render();
+    });
+    sortBlock.append(button);
+  });
+  side.append(sortBlock);
+  return side;
+}
+
+/** 右侧：上面一个搜索框，下面商品。 */
+function collectionMain(data) {
+  const main = h("div", "collection-main");
+
+  const head = h("div", "collection-head");
+  const words = h("div");
+  words.append(h("h2", "", data.title));
+  const parts = [`共 ${data.products.length} 件`];
+  if (keyword) parts.push(`关键词「${keyword}」`);
+  if (category) parts.push(`类目「${category}」`);
+  words.append(h("div", "muted", parts.join(" · ")));
+  head.append(words);
+
+  const form = h("form", "search collection-search");
+  const input = document.createElement("input");
+  input.placeholder = `在${data.title}里搜索`;
+  input.value = keyword;
+  form.append(input, h("button", "", "搜索"));
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    keyword = input.value.trim();
+    render();
+  });
+  head.append(form);
+  main.append(head);
+
+  if (!data.products.length) {
+    const empty = h("div", "empty");
+    empty.append(h("div", "icon", "🔍"));
+    empty.append(h("h3", "", "没有找到相关商品"));
+    empty.append(h("p", "", "换个关键词或类目试试"));
+    const reset = h("button", "btn", "清除筛选");
+    reset.addEventListener("click", () => {
+      keyword = "";
+      category = "";
+      sort = "default";
+      render();
+    });
+    empty.append(reset);
+    main.append(empty);
+    return main;
+  }
+
+  const grid = h("div", "grid");
+  data.products.forEach((product) => grid.append(productCard(product)));
+  main.append(grid);
+  return main;
 }
 
 /* 轮播主视觉：整张图可点，左右箭头浮在图片两侧 */
@@ -321,10 +440,7 @@ function renderFallbackHero() {
 function productRow(section) {
   const sec = h("section", "row-sec");
   sec.id = `sec-${section.id}`;
-  const head = h("div", "row-head");
-  head.append(h("h2", "", section.title));
-  if (section.subtitle) head.append(h("span", "sub", section.subtitle));
-  sec.append(head);
+  sec.append(rowHead(section.title, section.subtitle, `#/collection/${section.id}`));
 
   const rail = h("div", "rail");
   const track = h("div", "track");
@@ -337,7 +453,7 @@ function productRow(section) {
 
   const step = () => {
     const card = track.firstElementChild;
-    return card ? card.getBoundingClientRect().width + 14 : track.clientWidth;
+    return card ? card.getBoundingClientRect().width + 17 : track.clientWidth;
   };
   const sync = () => {
     const max = track.scrollWidth - track.clientWidth - 2;
@@ -357,14 +473,26 @@ function productRow(section) {
   return sec;
 }
 
-/* 全部商品：先给三行，点展开再给三行 */
+/** 每行的标题栏：标题 + 副标题 + 右侧「查看全部」，点了进对应的合集页。 */
+function rowHead(title, subtitle, href, extra = null) {
+  const head = h("div", "row-head");
+  head.append(h("h2", "", title));
+  if (subtitle) head.append(h("span", "sub", subtitle));
+  if (extra) head.append(extra);
+  head.append(h("div", "spacer"));
+  if (href) {
+    const more = h("a", "see-all hvr-underline-from-center", "查看全部 ›");
+    more.href = href;
+    head.append(more);
+  }
+  return head;
+}
+
+/* 全部商品：先给三行，点展开再给三行。搜索在这行标题旁边，右侧是「查看全部」 */
 function allProductsBlock() {
   const PAGE = 12;
   const sec = h("section", "all-sec");
-  const head = h("div", "row-head");
-  head.append(h("h2", "", "全部商品"));
-  head.append(h("div", "spacer"));
-  // 搜索放在「全部商品」这一行的右侧
+
   const form = h("form", "search all-search");
   const input = document.createElement("input");
   input.placeholder = "搜索本店商品";
@@ -374,10 +502,10 @@ function allProductsBlock() {
     event.preventDefault();
     keyword = input.value.trim();
     category = "";
-    go("#/");
+    go("#/collection/all");
   });
-  head.append(form);
-  sec.append(head);
+
+  sec.append(rowHead("全部商品", "店里所有在售的东西", "#/collection/all", form));
 
   const grid = h("div", "grid");
   const foot = h("div", "all-foot");
@@ -444,99 +572,6 @@ function reviewWall(rows) {
     wall.append(marquee);
   });
   return wall;
-}
-
-/* 带筛选的列表页 */
-async function renderFiltered() {
-  const box = h("div");
-  const query = new URLSearchParams({ keyword, category, sort });
-  const [filtered, all] = await Promise.all([
-    api(`/api/v1/c/shops/${code}/products?${query}`),
-    api(`/api/v1/c/shops/${code}/products?keyword=&category=&sort=default`),
-  ]);
-  const counts = all.reduce((acc, item) => {
-    acc[item.category] = (acc[item.category] || 0) + 1;
-    return acc;
-  }, {});
-  const layout = h("div", "home");
-  layout.append(renderCategorySide(all.length, counts), renderFilteredMain(filtered));
-  box.append(layout);
-  return box;
-}
-
-function renderCategorySide(total, counts) {
-  const side = h("aside", "cat-side");
-  const title = h("h3");
-  title.append(document.createTextNode("全部商品分类"), h("small", "", `${total} 件`));
-  side.append(title);
-  const all = h("button", category ? "" : "on");
-  all.append(h("span", "", "全部商品"), h("i", "", String(total)));
-  all.addEventListener("click", () => {
-    // 回到首页，关键词和类目一起清掉
-    category = "";
-    keyword = "";
-    go("#/");
-  });
-  side.append(all);
-  (cats || []).forEach((item) => {
-    const button = h("button", category === item ? "on" : "");
-    button.append(h("span", "", item), h("i", "", String(counts[item] || 0)));
-    button.addEventListener("click", () => {
-      category = category === item ? "" : item;
-      keyword = "";
-      go("#/");
-    });
-    side.append(button);
-  });
-  return side;
-}
-
-function renderFilteredMain(filtered) {
-  const main = h("div");
-  const bar = h("div", "toolbar");
-  const parts = [`共 ${filtered.length} 件商品`];
-  if (keyword) parts.push(`关键词「${keyword}」`);
-  if (category) parts.push(`类目「${category}」`);
-  const info = h("div", "row");
-  info.append(h("span", "muted", parts.join(" · ")));
-  const clear = h("button", "btn-ghost btn-mini", "回到首页");
-  clear.addEventListener("click", () => {
-    keyword = "";
-    category = "";
-    render();
-  });
-  info.append(clear);
-  const sorts = h("div", "sorts");
-  [["default", "综合"], ["sales", "销量"], ["price_asc", "价格 ↑"], ["price_desc", "价格 ↓"]].forEach(([value, text]) => {
-    const button = h("button", value === sort ? "on" : "", text);
-    button.addEventListener("click", () => {
-      sort = value;
-      render();
-    });
-    sorts.append(button);
-  });
-  bar.append(info, sorts);
-  main.append(bar);
-
-  if (!filtered.length) {
-    const empty = h("div", "empty");
-    empty.append(h("div", "icon", "🔍"));
-    empty.append(h("h3", "", "没有找到相关商品"));
-    empty.append(h("p", "", "换个关键词或类目试试"));
-    const reset = h("button", "btn", "看全部商品");
-    reset.addEventListener("click", () => {
-      keyword = "";
-      category = "";
-      render();
-    });
-    empty.append(reset);
-    main.append(empty);
-    return main;
-  }
-  const grid = h("div", "grid");
-  filtered.forEach((product) => grid.append(productCard(product)));
-  main.append(grid);
-  return main;
 }
 
 function renderPromises() {
