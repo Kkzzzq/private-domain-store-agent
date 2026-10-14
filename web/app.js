@@ -12,7 +12,7 @@ const STATUS = {
 };
 
 function money(value) {
-  return `¥${Number(value).toFixed(2)}`;
+  return `¥${Number(value || 0).toFixed(2)}`;
 }
 
 function detailOf(data) {
@@ -39,4 +39,21 @@ function statusActions(status) {
   if (status === "on") return [["off", "下架"], ["ban", "禁售"]];
   if (status === "off") return [["on", "上架"], ["ban", "禁售"]];
   return [["unban", "解禁"]];
+}
+
+function toast(message, kind = "info") {
+  let host = document.querySelector(".toast-host");
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "toast-host";
+    document.body.append(host);
+  }
+  const node = document.createElement("div");
+  node.className = `toast ${kind}`;
+  node.textContent = message;
+  host.append(node);
+  setTimeout(() => {
+    node.classList.add("out");
+    setTimeout(() => node.remove(), 280);
+  }, 2400);
 }

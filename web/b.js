@@ -1,4 +1,5 @@
 const api = createApi("token_b");
+let me = null;
 
 function h(tag, className, text) {
   const node = document.createElement(tag);
@@ -21,6 +22,10 @@ function loggedIn() {
   return Boolean(sessionStorage.getItem("token_b"));
 }
 
+function cover(url) {
+  return url || "/covers/pillow.svg";
+}
+
 async function render() {
   const root = document.querySelector("#app");
   root.replaceChildren();
@@ -28,78 +33,138 @@ async function render() {
     root.append(loginView());
     return;
   }
+  if (!me) {
+    try {
+      me = await api("/api/v1/auth/me");
+    } catch {
+      sessionStorage.removeItem("token_b");
+      root.append(loginView());
+      return;
+    }
+  }
   const frame = h("div", "admin");
-  frame.append(sidebar(), await mainView());
+  frame.append(sidebar());
+  const main = h("main", "main");
+  try {
+    main.append(await mainView());
+  } catch (error) {
+    main.append(h("div", "panel", error.message));
+  }
+  frame.append(main);
   root.append(frame);
 }
 
 function loginView() {
-  const form = h("form", "panel");
-  form.style.maxWidth = "420px";
-  form.style.margin = "48px auto";
-  form.append(h("h1", "", "商家后台"), field("账号", "username", "merchant"), field("密码", "password", "merchant123"));
-  const error = h("p", "error", "");
-  form.addEventListener("submit", async (event) => {
+  const panel = h("form", "panel stack");
+  panel.style.maxWidth = "400px";
+  panel.style.margin = "72px auto";
+  panel.append(h("h1", "", "商家后台"));
+  panel.append(h("p", "muted", "演示账号 merchant / merchant123"));
+  panel.append(field("账号", "username", "merchant"), field("密码", "password", "merchant123", false, "password"));
+  const error = h("p", "muted", "");
+  const submit = h("button", "btn", "进入后台");
+  submit.type = "submit";
+  submit.style.width = "100%";
+  panel.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
-      const data = await api("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ username: form.username.value, password: form.password.value }) });
+      const data = await api("/api/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username: panel.username.value, password: panel.password.value }),
+      });
       if (data.user.role !== "merchant") throw new Error("请使用商家账号");
       sessionStorage.setItem("token_b", data.access_token);
+      me = data.user;
+      toast(`欢迎回来，${data.user.nickname}`, "ok");
       render();
-    } catch (err) { error.textContent = err.message; }
+    } catch (err) {
+      error.textContent = err.message;
+    }
   });
-  form.append(error, h("button", "btn", "进入后台"));
-  return form;
+  panel.append(error, submit);
+  return panel;
 }
 
 function sidebar() {
   const side = h("aside", "side");
-  side.append(h("div", "logo", "南枝手作"));
-  [["dashboard", "概览"], ["products", "商品"], ["orders", "订单"], ["shop", "店铺"]].forEach(([name, label]) => {
+  const brand = h("div", "side-brand", "南枝手作");
+  brand.append(h("small", "", "MERCHANT"));
+  side.append(brand);
+  [["dashboard", "经营概览"], ["products", "商品管理"], ["orders", "订单管理"], ["shop", "店铺设置"]].forEach(([name, label]) => {
     const link = h("a", route().name === name ? "on" : "", label);
     link.href = `#/${name}`;
     side.append(link);
   });
-  const logout = h("button", "", "退出");
-  logout.addEventListener("click", () => { sessionStorage.removeItem("token_b"); render(); });
-  side.append(logout);
+  side.append(h("div", "spacer"));
+  const user = h("div", "side-user");
+  user.append(h("div", "", me ? `${me.nickname}（${me.username}）` : ""));
+  const logout = h("button", "side-item", "退出登录");
+  logout.addEventListener("click", () => {
+    sessionStorage.removeItem("token_b");
+    me = null;
+    render();
+  });
+  user.append(logout);
+  side.append(user);
   return side;
 }
 
 async function mainView() {
-  const main = h("main", "main");
   const current = route();
-  try {
-    if (current.name === "products" && current.id) main.append(await productEditor(current.id));
-    else if (current.name === "products") main.append(await productList());
-    else if (current.name === "orders") main.append(await orderList(current.id));
-    else if (current.name === "shop") main.append(await shopForm());
-    else main.append(await dashboard());
-  } catch (error) {
-    main.append(h("p", "error", error.message));
+  if (current.name === "products") {
+    return current.id ? productEditor(current.id) : productList();
   }
-  return main;
+  if (current.name === "orders") return orderList(current.id);
+  if (current.name === "shop") return shopForm();
+  return dashboard();
 }
 
 async function dashboard() {
-  const data = await api("/api/v1/b/dashboard");
   const box = h("div");
-  box.append(h("h2", "", "店铺概览"));
+  box.append(h("h1", "page-title", "经营概览"));
+  box.append(h("p", "page-sub", "库存和订单状态一变，这里和买家端同时更新"));
+  const data = await api("/api/v1/b/dashboard");
   const stats = h("div", "stats");
-  [["在售", data.on_sale], ["下架", data.off_shelf], ["禁售", data.banned], ["待发货", data.pending_ship], ["待支付", data.pending_pay], ["已发货", data.shipped], ["成交额", money(data.sales_yuan)]].forEach(([label, value]) => {
-    const card = h("div", "stat");
-    card.append(h("span", "muted", label), h("b", "", String(value)));
+  const cards = [
+    ["在售商品", data.on_sale, false],
+    ["成交额", money(data.sales_yuan), true],
+    ["待发货", data.pending_ship, false],
+    ["待支付", data.pending_pay, false],
+    ["已发货", data.shipped, false],
+    ["下架商品", data.off_shelf, false],
+    ["禁售商品", data.banned, false],
+    ["商品总数", data.product_total, false],
+  ];
+  cards.forEach(([label, value, accent]) => {
+    const card = h("div", accent ? "stat accent" : "stat");
+    card.append(h("div", "k", label), h("div", "v", String(value)));
     stats.append(card);
   });
   box.append(stats);
+
+  const quick = h("div", "panel");
+  quick.append(h("h2", "panel-title", "常用操作"));
+  const row = h("div", "row");
+  const addProduct = h("button", "btn", "发布商品");
+  addProduct.addEventListener("click", () => go("#/products/new"));
+  const toOrders = h("button", "btn-ghost", "处理待发货订单");
+  toOrders.addEventListener("click", () => go("#/orders/paid"));
+  const toShop = h("button", "btn-ghost", "修改店铺公告");
+  toShop.addEventListener("click", () => go("#/shop"));
+  row.append(addProduct, toOrders, toShop);
+  quick.append(row);
+  box.append(quick);
   return box;
 }
 
 async function productList() {
   const box = h("div");
-  const form = h("form", "row");
+  box.append(h("h1", "page-title", "商品管理"));
+  box.append(h("p", "page-sub", "上下架、禁售和价格库存都会立刻反映到买家端"));
+
+  const bar = h("div", "toolbar-inline");
   const keyword = document.createElement("input");
-  keyword.placeholder = "商品名";
+  keyword.placeholder = "搜索商品名";
   const status = document.createElement("select");
   [["", "全部状态"], ["on", "在售"], ["off", "下架"], ["banned", "禁售"]].forEach(([value, label]) => {
     const option = document.createElement("option");
@@ -107,211 +172,379 @@ async function productList() {
     option.textContent = label;
     status.append(option);
   });
-  form.append(keyword, status, h("button", "btn", "筛选"));
-  const tableHost = h("div");
+  const search = h("button", "btn-ghost", "筛选");
+  const add = h("button", "btn", "发布商品");
+  add.addEventListener("click", () => go("#/products/new"));
+  bar.append(keyword, status, search, add);
+  box.append(bar);
+
+  const host = h("div");
+  box.append(host);
+
   async function load() {
     const products = await api(`/api/v1/b/products?keyword=${encodeURIComponent(keyword.value)}&status=${status.value}`);
-    tableHost.replaceChildren(productTable(products));
+    host.replaceChildren(products.length ? productTable(products) : h("div", "panel empty", "没有匹配的商品"));
   }
-  form.addEventListener("submit", (event) => { event.preventDefault(); load(); });
-  const create = h("a", "btn", "发布商品");
-  create.href = "#/products/new";
-  box.append(h("h2", "", "商品管理"), form, create, tableHost);
+  search.addEventListener("click", load);
+  keyword.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") load();
+  });
   await load();
   return box;
 }
 
 function productTable(products) {
   const table = h("table", "table");
-  const head = document.createElement("tr");
-  ["商品", "类目", "价格", "状态", "销量", "操作"].forEach((text) => head.append(h("th", "", text)));
-  table.append(head);
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  ["商品", "类目", "价格", "库存", "状态", "销量", "操作"].forEach((text) => headRow.append(h("th", "", text)));
+  head.append(headRow);
+  const body = document.createElement("tbody");
   products.forEach((product) => {
     const tr = document.createElement("tr");
-    const name = document.createElement("td");
-    name.textContent = product.name;
+    const info = document.createElement("td");
+    const wrap = h("div", "row");
+    const image = document.createElement("img");
+    image.className = "thumb";
+    image.src = cover(product.image_url);
+    image.alt = product.name;
+    const words = h("div");
+    words.append(h("div", "", product.name));
+    words.append(h("div", "muted", `${product.skus.length} 个规格`));
+    wrap.append(image, words);
+    info.append(wrap);
+
     const category = document.createElement("td");
-    category.textContent = product.category;
+    category.textContent = product.category || "-";
     const price = document.createElement("td");
     price.textContent = product.price_from == null ? "-" : money(product.price_from);
+    const stock = document.createElement("td");
+    stock.textContent = String(product.skus.reduce((sum, sku) => sum + sku.stock, 0));
     const state = document.createElement("td");
-    state.textContent = { on: "在售", off: "下架", banned: "禁售" }[product.status] || product.status;
+    state.append(h("span", `pill ${product.status}`, STATUS[product.status] || product.status));
     const sales = document.createElement("td");
     sales.textContent = String(product.sales_count);
-    const ops = document.createElement("td");
+
+    const ops = h("td");
+    const opsRow = h("div", "ops");
     const edit = h("a", "", "编辑");
     edit.href = `#/products/${product.id}`;
-    ops.append(edit);
-    statusActions(product.status).forEach(([action, label]) => {
-      const button = h("button", "btn-ghost", label);
+    opsRow.append(edit);
+    statusActions(product.status).forEach(([act, label]) => {
+      const button = h("button", act === "ban" ? "danger" : "", label);
       button.addEventListener("click", async () => {
-        await api(`/api/v1/b/products/${product.id}/status`, { method: "POST", body: JSON.stringify({ action }) });
-        render();
+        try {
+          await api(`/api/v1/b/products/${product.id}/status`, { method: "POST", body: JSON.stringify({ action: act }) });
+          toast(`${product.name} 已${label}`, "ok");
+          render();
+        } catch (error) {
+          toast(error.message, "bad");
+        }
       });
-      ops.append(button);
+      opsRow.append(button);
     });
-    tr.append(name, category, price, state, sales, ops);
-    table.append(tr);
+    ops.append(opsRow);
+
+    tr.append(info, category, price, stock, state, sales, ops);
+    body.append(tr);
   });
+  table.append(head, body);
   return table;
 }
 
 async function productEditor(id) {
   const creating = id === "new";
-  const products = creating ? [] : await api("/api/v1/b/products");
-  const product = creating ? { name: "", category: "家居", description: "", image_url: "", skus: [] } : products.find((item) => String(item.id) === id);
-  if (!product) return h("p", "error", "没有找到这个商品");
-  const box = h("form", "panel");
-  box.append(h("h2", "", creating ? "发布商品" : `编辑 ${product.name}`));
-  box.append(field("名称", "name", product.name), field("类目", "category", product.category), field("说明", "description", product.description), field("图片地址", "image_url", product.image_url));
-  const error = h("p", "error", "");
+  const box = h("div");
+  box.append(h("h1", "page-title", creating ? "发布商品" : "编辑商品"));
+  box.append(h("p", "page-sub", creating ? "新商品默认是下架状态，确认无误再上架" : "改动会立即生效到买家端"));
+  const back = h("button", "btn-ghost", "← 返回商品列表");
+  back.addEventListener("click", () => go("#/products"));
+  box.append(back);
+
+  const panel = h("form", "panel stack");
+  panel.style.marginTop = "16px";
+  let product = { name: "", category: "家居", description: "", image_url: "", skus: [] };
+  if (!creating) {
+    const products = await api("/api/v1/b/products");
+    product = products.find((item) => String(item.id) === id);
+    if (!product) return h("div", "panel", "没有找到这个商品");
+  }
+
+  panel.append(h("h2", "panel-title", "基本信息"));
+  const grid = h("div", "form-grid");
+  grid.append(
+    field("商品名称", "name", product.name),
+    field("类目", "category", product.category),
+    field("图片地址", "image_url", product.image_url, true),
+    field("商品说明", "description", product.description, true, "textarea")
+  );
+  panel.append(grid);
+
   if (creating) {
-    box.append(field("规格", "spec", "默认"), field("价格", "price", "39"), field("库存", "stock", "10"));
-    box.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      try {
-        await api("/api/v1/b/products", {
-          method: "POST",
-          body: JSON.stringify({
-            name: box.name.value,
-            category: box.category.value,
-            description: box.description.value,
-            image_url: box.image_url.value,
-            skus: [{ spec: box.spec.value, price_yuan: Number(box.price.value), stock: Number(box.stock.value) }],
-          }),
+    panel.append(h("h2", "panel-title", "首个规格"));
+    const skuGrid = h("div", "form-grid");
+    skuGrid.append(field("规格名", "spec", "默认"), field("价格", "price", "39"), field("库存", "stock", "10"));
+    panel.append(skuGrid);
+  }
+
+  const error = h("p", "muted", "");
+  const submit = h("button", "btn", creating ? "创建并保存" : "保存修改");
+  submit.type = "submit";
+  panel.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const payload = {
+        name: val(panel, "name"),
+        category: val(panel, "category"),
+        description: val(panel, "description"),
+        image_url: val(panel, "image_url"),
+      };
+      if (creating) {
+        payload.skus = [
+          { spec: val(panel, "spec"), price_yuan: Number(val(panel, "price")), stock: Number(val(panel, "stock")) },
+        ];
+        await api("/api/v1/b/products", { method: "POST", body: JSON.stringify(payload) });
+        toast("商品已创建，记得上架", "ok");
+      } else {
+        await api(`/api/v1/b/products/${product.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+        toast("已保存", "ok");
+      }
+      go("#/products");
+    } catch (err) {
+      error.textContent = err.message;
+    }
+  });
+  panel.append(error, submit);
+
+  if (!creating) {
+    const skuPanel = h("div", "panel");
+    skuPanel.append(h("h2", "panel-title", "规格与库存"));
+    const table = h("table", "table");
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    ["规格", "价格", "库存", "状态", "操作"].forEach((text) => headRow.append(h("th", "", text)));
+    head.append(headRow);
+    const tbody = document.createElement("tbody");
+    product.skus.forEach((sku) => {
+      const tr = document.createElement("tr");
+      const priceCell = document.createElement("td");
+      const priceInput = document.createElement("input");
+      priceInput.value = sku.price_yuan;
+      priceInput.style.width = "90px";
+      priceInput.style.border = "1px solid var(--line)";
+      priceInput.style.borderRadius = "6px";
+      priceInput.style.padding = "6px 8px";
+      priceCell.append(priceInput);
+      const stockCell = document.createElement("td");
+      const stockInput = document.createElement("input");
+      stockInput.value = sku.stock;
+      stockInput.style.width = "80px";
+      stockInput.style.border = "1px solid var(--line)";
+      stockInput.style.borderRadius = "6px";
+      stockInput.style.padding = "6px 8px";
+      stockCell.append(stockInput);
+      const state = document.createElement("td");
+      state.append(h("span", `pill ${sku.status}`, STATUS[sku.status] || sku.status));
+      const ops = h("td");
+      const opsRow = h("div", "ops");
+      const save = h("button", "", "保存");
+      save.addEventListener("click", async () => {
+        try {
+          await api(`/api/v1/b/skus/${sku.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ price_yuan: Number(priceInput.value), stock: Number(stockInput.value) }),
+          });
+          toast(`${sku.spec} 已更新`, "ok");
+          render();
+        } catch (error) {
+          toast(error.message, "bad");
+        }
+      });
+      opsRow.append(save);
+      statusActions(sku.status).forEach(([act, label]) => {
+        const button = h("button", act === "ban" ? "danger" : "", label);
+        button.addEventListener("click", async () => {
+          try {
+            await api(`/api/v1/b/skus/${sku.id}/status`, { method: "POST", body: JSON.stringify({ action: act }) });
+            toast(`${sku.spec} 已${label}`, "ok");
+            render();
+          } catch (error) {
+            toast(error.message, "bad");
+          }
         });
-        go("#/products");
-      } catch (err) { error.textContent = err.message; }
+        opsRow.append(button);
+      });
+      ops.append(opsRow);
+      tr.append(h("td", "", sku.spec), priceCell, stockCell, state, ops);
+      tbody.append(tr);
     });
-  } else {
-    const skus = h("div");
-    product.skus.forEach((sku) => skus.append(skuRow(product.id, sku)));
+    table.append(head, tbody);
+    skuPanel.append(table);
+
+    const addRow = h("div", "toolbar-inline");
+    addRow.style.marginTop = "16px";
     const spec = document.createElement("input");
-    spec.placeholder = "新规格";
+    spec.placeholder = "新规格名";
     const price = document.createElement("input");
     price.placeholder = "价格";
     const stock = document.createElement("input");
     stock.placeholder = "库存";
     const add = h("button", "btn-ghost", "添加规格");
-    add.type = "button";
     add.addEventListener("click", async () => {
-      await api(`/api/v1/b/products/${product.id}/skus`, { method: "POST", body: JSON.stringify({ spec: spec.value, price_yuan: Number(price.value), stock: Number(stock.value) }) });
-      render();
-    });
-    box.addEventListener("submit", async (event) => {
-      event.preventDefault();
       try {
-        await api(`/api/v1/b/products/${product.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ name: box.name.value, category: box.category.value, description: box.description.value, image_url: box.image_url.value }),
+        await api(`/api/v1/b/products/${product.id}/skus`, {
+          method: "POST",
+          body: JSON.stringify({ spec: spec.value, price_yuan: Number(price.value), stock: Number(stock.value) }),
         });
-        go("#/products");
-      } catch (err) { error.textContent = err.message; }
+        toast("规格已添加", "ok");
+        render();
+      } catch (error) {
+        toast(error.message, "bad");
+      }
     });
-    box.append(h("h3", "", "规格"), skus, h("div", "row"));
-    box.lastChild.append(spec, price, stock, add);
+    addRow.append(spec, price, stock, add);
+    skuPanel.append(addRow);
+    box.append(panel, skuPanel);
+  } else {
+    box.append(panel);
   }
-  box.append(error, h("button", "btn", "保存"));
   return box;
-}
-
-function skuRow(productId, sku) {
-  const row = h("div", "row");
-  const price = document.createElement("input");
-  price.value = sku.price_yuan;
-  const stock = document.createElement("input");
-  stock.value = sku.stock;
-  const save = h("button", "btn-ghost", "保存价格库存");
-  save.type = "button";
-  save.addEventListener("click", async () => {
-    await api(`/api/v1/b/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify({ price_yuan: Number(price.value), stock: Number(stock.value) }) });
-    render();
-  });
-  row.append(h("span", "", `${sku.spec} · ${{ on: "在售", off: "下架", banned: "禁售" }[sku.status]}`), price, stock, save);
-  statusActions(sku.status).forEach(([action, label]) => {
-    const button = h("button", "btn-ghost", label);
-    button.type = "button";
-    button.addEventListener("click", async () => {
-      await api(`/api/v1/b/skus/${sku.id}/status`, { method: "POST", body: JSON.stringify({ action }) });
-      render();
-    });
-    row.append(button);
-  });
-  return row;
 }
 
 async function orderList(status) {
   const box = h("div");
+  box.append(h("h1", "page-title", "订单管理"));
+  box.append(h("p", "page-sub", "买家下单后这里能看到，付款后即可发货"));
   const tabs = h("div", "tabs");
   [["", "全部"], ["pending", "待支付"], ["paid", "待发货"], ["shipped", "已发货"], ["completed", "已完成"], ["cancelled", "已取消"]].forEach(([value, label]) => {
     const button = h("button", value === status ? "on" : "", label);
     button.addEventListener("click", () => go(value ? `#/orders/${value}` : "#/orders"));
     tabs.append(button);
   });
+  box.append(tabs);
+
   const orders = await api(`/api/v1/b/orders?status=${status}`);
+  if (!orders.length) {
+    box.append(h("div", "panel empty", "这里还没有订单"));
+    return box;
+  }
   const table = h("table", "table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  ["订单号", "买家", "商品", "地址", "金额", "状态", "操作"].forEach((text) => headRow.append(h("th", "", text)));
+  head.append(headRow);
+  const body = document.createElement("tbody");
   orders.forEach((order) => {
     const tr = document.createElement("tr");
-    [order.order_no, order.buyer_nickname, order.status_label, money(order.total_yuan), order.items.map((item) => `${item.product_name} ${item.sku_spec} x${item.quantity}`).join("，"), order.address].forEach((text) => {
-      const td = document.createElement("td");
-      td.textContent = text;
-      tr.append(td);
-    });
-    const ops = document.createElement("td");
+    tr.append(h("td", "", order.order_no));
+    tr.append(h("td", "", order.buyer_nickname || "-"));
+    const goods = h("td");
+    order.items.forEach((item) => goods.append(h("div", "muted", `${item.product_name} ${item.sku_spec} x${item.quantity}`)));
+    tr.append(goods);
+    tr.append(h("td", "muted", `${order.receiver || ""} ${order.address}`));
+    tr.append(h("td", "", money(order.total_yuan)));
+    const state = document.createElement("td");
+    state.append(h("span", `pill ${order.status}`, order.status_label));
+    tr.append(state);
+    const ops = h("td");
+    const opsRow = h("div", "ops");
     if (order.status === "paid") {
-      const button = h("button", "btn", "发货");
-      button.addEventListener("click", async () => {
-        await api(`/api/v1/b/orders/${order.order_no}/ship`, { method: "POST" });
-        render();
+      const ship = h("button", "", "发货");
+      ship.addEventListener("click", async () => {
+        try {
+          await api(`/api/v1/b/orders/${order.order_no}/ship`, { method: "POST" });
+          toast(`${order.order_no} 已发货`, "ok");
+          render();
+        } catch (error) {
+          toast(error.message, "bad");
+        }
       });
-      ops.append(button);
+      opsRow.append(ship);
     }
+    ops.append(opsRow);
     tr.append(ops);
-    table.append(tr);
+    body.append(tr);
   });
-  box.append(h("h2", "", "订单"), tabs, table);
+  table.append(head, body);
+  box.append(table);
   return box;
 }
 
 async function shopForm() {
   const shop = await api("/api/v1/b/shop");
-  const form = h("form", "panel");
-  form.append(h("h2", "", "店铺设置"), field("店名", "name", shop.name), field("公告", "notice", shop.notice));
-  const status = document.createElement("select");
-  status.name = "status";
-  [["open", "营业中"], ["closed", "停业"]].forEach(([value, label]) => {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    if (shop.status === value) option.selected = true;
-    status.append(option);
-  });
-  const statusField = h("label", "field", "营业状态");
-  statusField.append(status);
-  const link = h("p", "", "");
-  const anchor = h("a", "", shop.share_path);
-  anchor.href = shop.share_path;
-  link.append("买家入口：", anchor);
-  const error = h("p", "error", "");
-  form.addEventListener("submit", async (event) => {
+  const box = h("div");
+  box.append(h("h1", "page-title", "店铺设置"));
+  box.append(h("p", "page-sub", "店铺信息和公告会显示在买家端的店头上"));
+  const panel = h("form", "panel stack");
+  panel.append(h("h2", "panel-title", "店铺信息"));
+  const grid = h("div", "form-grid");
+  grid.append(field("店铺名称", "name", shop.name), statusField(shop.status), field("店铺公告", "notice", shop.notice, true, "textarea"));
+  panel.append(grid);
+
+  const share = h("div", "panel");
+  share.append(h("h2", "panel-title", "买家入口"));
+  const link = h("a", "link", shop.share_path);
+  link.href = shop.share_path;
+  share.append(h("p", "muted", "买家从这条链接进店，只能看到你这家店"));
+  share.append(link);
+
+  const error = h("p", "muted", "");
+  const submit = h("button", "btn", "保存设置");
+  submit.type = "submit";
+  panel.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
-      await api("/api/v1/b/shop", { method: "PATCH", body: JSON.stringify({ name: form.name.value, notice: form.notice.value, status: status.value }) });
-      error.textContent = "已保存，买家端会读到同一份公告和营业状态";
-    } catch (err) { error.textContent = err.message; }
+      await api("/api/v1/b/shop", {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: val(panel, "name"),
+          notice: val(panel, "notice"),
+          status: val(panel, "status") || "open",
+        }),
+      });
+      toast("店铺设置已保存", "ok");
+      render();
+    } catch (err) {
+      error.textContent = err.message;
+    }
   });
-  form.append(statusField, link, error, h("button", "btn", "保存"));
-  return form;
+  panel.append(error, submit);
+  box.append(panel, share);
+  return box;
 }
 
-function field(label, name, value) {
-  const wrap = h("label", "field", label);
-  const input = name === "description" || name === "notice" ? document.createElement("textarea") : document.createElement("input");
+function statusField(value) {
+  const wrap = h("label", "field");
+  wrap.append(h("span", "", "营业状态"));
+  const select = document.createElement("select");
+  select.name = "status";
+  [["open", "营业中"], ["closed", "停业"]].forEach(([val, label]) => {
+    const option = document.createElement("option");
+    option.value = val;
+    option.textContent = label;
+    if (val === value) option.selected = true;
+    select.append(option);
+  });
+  wrap.append(select);
+  return wrap;
+}
+
+function field(label, name, value, full = false, type = "input") {
+  const wrap = h("label", full ? "field full" : "field");
+  wrap.append(h("span", "", label));
+  const input = type === "textarea" ? document.createElement("textarea") : document.createElement("input");
+  if (type === "textarea") input.rows = 3;
+  if (type === "password") input.type = "password";
   input.name = name;
   input.value = value || "";
-  if (name === "password") input.type = "password";
   wrap.append(input);
   return wrap;
+}
+
+// 表单上的 name / status 等属性和 DOM 自带属性重名，统一从 elements 里取。
+function val(form, name) {
+  const node = form.elements.namedItem(name);
+  return node ? String(node.value).trim() : "";
 }
 
 window.addEventListener("hashchange", render);

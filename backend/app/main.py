@@ -20,6 +20,7 @@ def init_db() -> None:
     for _ in range(30):
         try:
             Base.metadata.create_all(bind=engine)
+            _ensure_sqlite_columns()
             return
         except OperationalError as exc:
             last_error = exc
@@ -27,15 +28,44 @@ def init_db() -> None:
     raise last_error or RuntimeError("数据库初始化失败")
 
 
+def _ensure_sqlite_columns() -> None:
+    from app.core.config import settings
+
+    if not str(settings.database_url).startswith("sqlite"):
+        return
+    needed = {
+        "products": {
+            "image_url": "VARCHAR(500) DEFAULT ''",
+            "sort_order": "INTEGER DEFAULT 0",
+            "sales_count": "INTEGER DEFAULT 0",
+        },
+        "orders": {
+            "freight_cents": "INTEGER DEFAULT 0",
+            "receiver": "VARCHAR(32) DEFAULT ''",
+            "phone": "VARCHAR(20) DEFAULT ''",
+        },
+    }
+    with engine.begin() as conn:
+        for table, columns in needed.items():
+            rows = conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+            if not rows:
+                continue
+            existing = {row[1] for row in rows}
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO)
     init_db()
-    from app.seed import seed_if_empty
+    from app.seed import seed_if_empty, upgrade_demo
 
     db = SessionLocal()
     try:
         seed_if_empty(db)
+        upgrade_demo(db)
     finally:
         db.close()
     logger.info("私域店铺已启动")

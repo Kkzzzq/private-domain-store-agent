@@ -2,6 +2,34 @@
 
 商家后台和买家店铺读的是同一套店铺、商品和订单。买家只能从分享链接进入对应的那一家店。
 
+## 界面
+
+买家端按店铺页来做，可以搜索、筛类目、按销量或价格排序，进详情选规格加购或直接下单。
+
+![买家首页](docs/screenshots/buyer-home.png)
+
+![商品详情](docs/screenshots/buyer-detail.png)
+
+购物车、结算和订单状态在同一套数据上流转，商家改动会立刻反映到买家端。
+
+![购物车](docs/screenshots/buyer-cart.png)
+
+![确认订单](docs/screenshots/buyer-checkout.png)
+
+![我的订单](docs/screenshots/buyer-orders.png)
+
+店内助手只查当前这家店，订单只能看到自己的。
+
+![店内助手](docs/screenshots/buyer-agent.png)
+
+商家后台是一套数据看板，商品上下架、价格库存和订单发货都在这里。
+
+![经营概览](docs/screenshots/admin-dashboard.png)
+
+![商品管理](docs/screenshots/admin-products.png)
+
+![订单管理](docs/screenshots/admin-orders.png)
+
 ## 数据怎么连在一起
 
 ```text
@@ -64,8 +92,12 @@ cd Project\private-domain-store-agent\backend
 backend/app/api/b_api.py      商家后台接口
 backend/app/api/c_api.py      买家店铺接口
 backend/app/services/shelf.py 上下架、禁售、能不能买
-backend/app/models/tables.py  店铺、商品、SKU、订单
+backend/app/services/trade.py 购物车、收货地址、结算
+backend/app/models/tables.py  店铺、商品、SKU、购物车、订单
 backend/app/agent/            只查当前店铺的助手
-web/b.html                    商家后台
-web/c.html                    买家店铺
+web/mall.css                  两端共用的样式
+web/c.js                      买家店铺
+web/b.js                      商家后台
+web/covers/                   演示商品图
+docs/screenshots/             界面截图
 ```
