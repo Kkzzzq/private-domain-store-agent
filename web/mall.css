@@ -181,6 +181,7 @@ p { margin: 0; }
 
 /* ================= 商品卡 ================= */
 .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding-bottom: 30px; }
+/* 商品卡只在图片上叠加信息，不再有下方文字区 */
 .pcard {
   background: #fff; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
   display: flex; flex-direction: column; transition: box-shadow 0.22s, transform 0.22s;
@@ -212,6 +213,18 @@ p { margin: 0; }
   transition: transform 0.15s, background 0.15s;
 }
 .thumb-cart:hover { transform: scale(1.12); background: var(--primary-dark); }
+
+/* 图片上的名称，只在悬停时浮出来。上边留出折扣角标的位置 */
+.thumb-name {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 2;
+  padding: 44px 14px 18px; color: #fff; font-size: 14px; line-height: 1.4;
+  background: linear-gradient(180deg, rgba(26, 22, 19, 0.78), rgba(26, 22, 19, 0));
+  opacity: 0; transform: translateY(-6px); transition: opacity 0.22s, transform 0.22s;
+  pointer-events: none;
+}
+.pcard:hover .thumb-name { opacity: 1; transform: translateY(0); }
+
+/* 收藏 / 浏览记录里仍然需要名称、店铺和标签，所以保留文字区 */
 .pcard .body { padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
 .pcard .title {
   font-size: 14px; line-height: 1.5; height: 42px; overflow: hidden; color: var(--ink);
@@ -229,8 +242,6 @@ p { margin: 0; }
   font-size: 11px; color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 35%, #fff);
   border-radius: 3px; padding: 0 5px; background: color-mix(in srgb, var(--ok) 7%, #fff);
 }
-.sales-bar { height: 4px; border-radius: 2px; background: var(--line-2); overflow: hidden; }
-.sales-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 55%, #fff)); }
 
 /* 收藏 / 评分 */
 .fav {
@@ -462,7 +473,7 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 /* ================= 首页：轮播主视觉 ================= */
 .hero {
   position: relative; border-radius: var(--radius); overflow: hidden; background: #2a2521;
-  height: 340px; box-shadow: var(--shadow);
+  height: 500px; box-shadow: var(--shadow);
 }
 .hero .slide {
   position: absolute; inset: 0; opacity: 0; transition: opacity 0.6s ease;
@@ -914,11 +925,10 @@ wa-dialog .field input:focus { border-color: var(--primary); }
   .side .side-brand, .side .side-user { display: none; }
   .side a, .side button.side-item { width: auto; white-space: nowrap; border-left: 0; border-bottom: 3px solid transparent; }
   .side a.on { border-left: 0; border-bottom-color: var(--primary); }
-  .hero { height: 300px; }
+  .hero { height: 380px; }
   .hero .caption { left: 26px; right: 26px; max-width: none; }
   .hero .caption h1 { font-size: 27px; }
   .hero .dots { left: 26px; }
-  .hero .shop-badge { display: none; }
 }
 @media (max-width: 720px) {
   .grid { grid-template-columns: repeat(2, 1fr); }
@@ -934,7 +944,7 @@ wa-dialog .field input:focus { border-color: var(--primary); }
   .gallery .thumbs { flex-direction: row; }
   .chat { right: 12px; left: 12px; bottom: 12px; width: auto; }
   .footer .wrap { flex-direction: column; }
-  .hero { height: 260px; }
+  .hero { height: 280px; }
   .hero .caption h1 { font-size: 22px; letter-spacing: 1px; }
   .hero .caption p { font-size: 13px; }
   .hero .nav { width: 36px; height: 36px; font-size: 16px; }

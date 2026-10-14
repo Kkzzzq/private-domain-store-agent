@@ -579,11 +579,15 @@ function productCard(product) {
   const card = h("article", "pcard");
   const thumb = h("a", "thumb");
   thumb.href = `#/product/${code}/${product.id}`;
+  thumb.title = `${product.name} · ¥${Number(product.price_from || 0).toFixed(2)}`;
   const image = document.createElement("img");
   image.src = cover(product.image_url);
   image.alt = product.name;
   image.loading = "lazy";
   thumb.append(image);
+
+  // 悬停时在图片顶部浮出名称，平时只有图
+  thumb.append(h("div", "thumb-name", product.name));
 
   const off = discountOf(product.price_from, product.market_from);
   if (off) thumb.append(h("span", "tag", off));
@@ -614,22 +618,7 @@ function productCard(product) {
   if (product.market_from) badge.append(h("span", "price-was", `¥${Number(product.market_from).toFixed(2)}`));
   thumb.append(badge);
 
-  const body = h("div", "body");
-  const title = h("a", "title", product.name);
-  title.href = `#/product/${code}/${product.id}`;
-  body.append(title);
-
-  const meta = h("div", "meta");
-  const rating = h("span", "stars");
-  rating.append(
-    ratingStars(product.rating_avg || 0),
-    document.createTextNode(ratingText(product.rating_avg, product.review_count))
-  );
-  meta.append(rating, h("span", "", `已售 ${product.sales_count}`));
-  if (product.limit_per_user) meta.append(h("span", "ship-tag", `限购${product.limit_per_user}`));
-  body.append(meta);
-
-  card.append(thumb, body);
+  card.append(thumb);
   return card;
 }
 
