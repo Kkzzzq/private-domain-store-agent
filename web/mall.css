@@ -71,15 +71,21 @@ p { margin: 0; }
 .strip { background: #fff; border-bottom: 2px solid var(--primary); color: var(--ink-2); font-size: 16px; }
 /* 用店铺主题色兑出来的浅底，商家在「首页装修 → 首页样式」里可以关掉 */
 .strip.tinted {
-  position: relative;
   background: linear-gradient(180deg, color-mix(in srgb, var(--theme) 14%, #fff), color-mix(in srgb, var(--theme) 7%, #fff));
 }
-/* 浅色底越过下面那条主题色线继续淡出一点，边界不至于一刀切；
-   起点放在线的下方，所以那条线还是看得见的 */
-.strip.tinted::after {
-  content: ""; position: absolute; left: 0; right: 0; top: calc(100% + 2px); height: 16px;
-  pointer-events: none;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--theme) 6%, #fff), var(--bg));
+/* 过线的那一段渐变画在页面背景上（body），而不是盖在内容上。
+   这样它只出现在没有卡片的地方，购物车、订单页签、浏览记录的面板都不会被压住。
+   色值和 .strip 底部的 7% 对齐，所以在边框那里接得上。 */
+body.tinted {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme) 7%, #fff) 0,
+      color-mix(in srgb, var(--theme) 7%, #fff) 70px,
+      var(--bg) 130px
+    )
+    no-repeat top / 100% 130px,
+    var(--bg);
 }
 .strip .wrap { display: flex; align-items: center; justify-content: space-between; height: 68px; gap: 14px; overflow-x: auto; }
 .strip > .wrap > * { flex-shrink: 0; }
@@ -412,6 +418,9 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 
 /* ================= 购物车 ================= */
 .cart-panel { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+/* 一进来就是面板的页面（购物车 / 结算 / 浏览记录 / 待评价）留一点上边距，
+   顶栏那层浅色才有地方收口，面板也不会紧贴着那条线 */
+.cart-panel, .checkout, .panel.saved-panel, main.wrap > div > .panel:first-child { margin-top: 14px; }
 .cart-head, .cart-row {
   display: grid; grid-template-columns: 44px 92px 1fr 110px 132px 110px 70px;
   gap: 14px; align-items: center; padding: 14px 20px;

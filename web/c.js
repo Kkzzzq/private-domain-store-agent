@@ -110,6 +110,8 @@ async function render() {
   const page = h("main", "wrap");
   page.append(view);
   root.replaceChildren(renderStrip(), page, renderFooter(), renderChatToggle());
+  // 顶部那层浅色过线的渐变画在 body 背景上，内容永远不会被它盖住
+  document.body.classList.toggle("tinted", shop.strip_tint !== false);
   if (chatOpen) root.append(renderChat());
   // 换页才回顶，同页内的筛选、加购刷新不动滚动位置
   if (moved) window.scrollTo({ top: 0, left: 0 });
