@@ -45,7 +45,10 @@ def run_tool_loop(history: list[dict], summary: str, user_text: str, llm=None, m
             model=settings.ollama_model,
             base_url=settings.ollama_base_url,
             temperature=0,
-            client_kwargs={"timeout": 30},
+            reasoning=settings.ollama_reasoning,
+            num_ctx=settings.ollama_num_ctx,
+            num_predict=settings.ollama_num_predict,
+            client_kwargs={"timeout": settings.ollama_timeout_seconds},
         )
         if tools:
             llm = llm.bind_tools(tools)
@@ -102,7 +105,7 @@ class Assistant:
         if summary_llm is None and settings.agent_mode != "fallback":
             try:
                 from langchain_ollama import ChatOllama
-                summary_llm = ChatOllama(model=settings.ollama_model, base_url=settings.ollama_base_url, temperature=0, client_kwargs={"timeout": 30})
+                summary_llm = ChatOllama(model=settings.ollama_model, base_url=settings.ollama_base_url, temperature=0, reasoning=settings.ollama_reasoning, num_ctx=settings.ollama_num_ctx, num_predict=settings.ollama_num_predict, client_kwargs={"timeout": settings.ollama_timeout_seconds})
             except ImportError:
                 summary_llm = None
         state, notice = compact_messages(state, settings.session_max_chars, summary_llm)

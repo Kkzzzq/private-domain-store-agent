@@ -12,7 +12,7 @@ git push origin main
 
 GitHub Secrets：ALIYUN_DEPLOY_KEY、ALIYUN_KNOWN_HOSTS。部署密钥使用强制命令，只能调用服务器 /usr/local/sbin/private-store-receive；不允许 shell 或端口转发。原有管理密钥保留。
 
-服务器保持 /opt/private-store 和 private-store.service，不改 Nginx、域名或备案状态。数据库 backend/data、backend/.env、web/covers/uploads 不在更新范围。助手继续使用 fallback 模式；服务器依赖列表为 backend/requirements-server.txt。
+服务器保持 /opt/private-store 和 private-store.service，不改 Nginx、域名或备案状态。数据库 backend/data、backend/.env、web/covers/uploads 不在更新范围。助手模式由服务器 .env 决定；服务器依赖列表为 backend/requirements-server.txt，包含 CPU Ollama 接入依赖，配置见 OLLAMA.md。
 
 每次更新在 /root/private-store-backups/<时间>-<提交前缀> 保存代码、Python 环境和 SQLite 快照。更新期间服务会短暂停止；健康检查失败自动恢复原代码和依赖。数据库备份不会自动覆盖正在使用的数据。涉及表结构变更时必须单独设计迁移和回退，自动部署不等于自动数据库迁移。
 
