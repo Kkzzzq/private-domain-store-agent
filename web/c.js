@@ -809,9 +809,10 @@ async function renderProduct(id) {
   crumb.append(home, h("span", "", " / "), h("span", "", `${product.category} / ${product.name}`));
   box.append(crumb);
 
+  const state = createDetailState(product);
   const layout = h("div", "detail");
-  layout.append(renderGallery(product));
-  layout.append(renderProductInfo(product));
+  layout.append(renderGallery(product, state));
+  layout.append(renderProductInfo(product, state));
   box.append(layout);
   box.append(renderProductSection(product, reviews));
   box.append(renderRelated(product, all));
@@ -834,29 +835,120 @@ function renderRelated(product, all) {
   });
 }
 
-function renderGallery(product) {
+/** 详情页的共享状态：当前规格 + 当前看的是第几张图，两边互相联动。
+
+    图源按规格来：每个规格可以带一张自己的图（商家在后台传），
+    缩略图和左右箭头走的就是这份列表；点缩略图等于选那个规格，
+    选规格又会把主图跳到这张规格图上。
+*/
+function createDetailState(product) {
+  const images = [];
+  const seen = new Set();
+  product.skus.forEach((sku) => {
+    const url = (sku.image_url || "").trim();
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    images.push({ url, sku });
+  });
+  // 规格都没配图时退回商品主图，这张不对应任何规格
+  if (!images.length && product.image_url) images.push({ url: product.image_url, sku: null });
+
+  const listeners = new Set();
+  const state = {
+    product,
+    images,
+    index: 0,
+    sku: product.skus.find((item) => item.purchasable) || product.skus[0] || null,
+    onChange(fn) {
+      listeners.add(fn);
+    },
+    notify() {
+      listeners.forEach((fn) => fn());
+    },
+    /** 只翻图：翻到哪张，如果这张绑了规格就顺便把规格切过去。 */
+    showIndex(next) {
+      if (images.length < 2) return;
+      state.index = (next + images.length) % images.length;
+      const item = images[state.index];
+      if (item.sku) state.sku = item.sku;
+      state.notify();
+    },
+    /** 选规格：主图跳到这个规格的图。 */
+    selectSku(sku) {
+      if (!sku) return;
+      state.sku = sku;
+      const at = images.findIndex((item) => item.sku && item.sku.id === sku.id);
+      if (at >= 0) state.index = at;
+      state.notify();
+    },
+    /** 点缩略图：图和人一起切。 */
+    selectImage(at) {
+      state.index = at;
+      const item = images[at];
+      if (item.sku) state.sku = item.sku;
+      state.notify();
+    },
+  };
+
+  const first = images.findIndex((item) => item.sku && state.sku && item.sku.id === state.sku.id);
+  if (first >= 0) state.index = first;
+  return state;
+}
+
+function renderGallery(product, state) {
   const gallery = h("div", "gallery");
   const thumbs = h("div", "thumbs");
   const main = h("div", "main");
   const image = document.createElement("img");
-  image.src = cover(product.image_url);
-  image.alt = product.name;
-  main.append(image);
-  [["", "整体"], ["zoom-tl", "细节"], ["zoom-br", "局部"]].forEach(([cls, label], index) => {
-    const button = h("button", index === 0 ? "on" : "");
-    button.title = label;
+  const caption = h("span", "shot-spec", "");
+  const prev = h("button", "shot-nav prev", "‹");
+  const next = h("button", "shot-nav next", "›");
+  prev.type = "button";
+  next.type = "button";
+  prev.title = "上一张（对应上一个规格）";
+  next.title = "下一张（对应下一个规格）";
+  main.append(image, caption, prev, next);
+
+  prev.addEventListener("click", () => state.showIndex(state.index - 1));
+  next.addEventListener("click", () => state.showIndex(state.index + 1));
+
+  const paint = () => {
+    const item = state.images[state.index];
+    const url = item ? item.url : product.image_url;
+    image.src = cover(url || product.image_url);
+    image.alt = item && item.sku ? `${product.name} ${item.sku.spec}` : product.name;
+    if (item && item.sku) {
+      caption.textContent = item.sku.spec;
+      caption.hidden = false;
+    } else {
+      caption.hidden = true;
+    }
+    const many = state.images.length > 1;
+    prev.hidden = !many;
+    next.hidden = !many;
+    // 规格切换时高亮跟着走
+    [...thumbs.children].forEach((button, at) => button.classList.toggle("on", at === state.index));
+  };
+
+  // 缩略图一张对一个规格，点哪张就选哪个规格
+  state.images.forEach((item, at) => {
+    const button = h("button", "", "");
+    button.type = "button";
+    button.title = item.sku ? `${item.sku.spec} 效果图` : product.name;
     const thumb = document.createElement("img");
-    thumb.src = cover(product.image_url);
-    thumb.alt = `${product.name} ${label}`;
-    thumb.className = cls;
+    thumb.src = cover(item.url);
+    thumb.alt = item.sku ? `${product.name} ${item.sku.spec}` : product.name;
     button.append(thumb);
-    button.addEventListener("click", () => {
-      image.className = cls;
-      [...thumbs.children].forEach((item) => item.classList.remove("on"));
-      button.classList.add("on");
-    });
+    if (item.sku) {
+      const label = h("span", "thumb-spec", item.sku.spec);
+      button.append(label);
+    }
+    button.addEventListener("click", () => state.selectImage(at));
     thumbs.append(button);
   });
+
+  state.onChange(paint);
+  paint();
   gallery.append(thumbs, main);
   return gallery;
 }
@@ -911,7 +1003,7 @@ function renderBuyBar(product, ctx) {
   return bar;
 }
 
-function renderProductInfo(product) {
+function renderProductInfo(product, state) {
   const info = h("div", "info");
   info.append(h("h1", "", product.name));
   info.append(h("div", "sub-title", "店主直发 · 支持 7 天无理由退货 · 满 99 元包邮"));
@@ -926,7 +1018,7 @@ function renderProductInfo(product) {
   jump.href = "#reviews";
   info.append(ratingRow);
 
-  let current = product.skus.find((sku) => sku.purchasable) || product.skus[0];
+  let current = state.sku;
   const pricebox = h("div", "pricebox");
   const priceLine = h("div", "line");
   const big = h("span", "big");
@@ -949,6 +1041,7 @@ function renderProductInfo(product) {
   promotions.append(promo);
 
   function paint() {
+    current = state.sku;
     if (!current) {
       big.replaceChildren(document.createTextNode("暂无规格"));
       was.textContent = "";
@@ -963,20 +1056,18 @@ function renderProductInfo(product) {
     stockNote.textContent = current.purchasable
       ? `库存 ${current.stock} 件　·　${product.sales_count} 人已买`
       : "该规格暂时缺货，可以问问店主";
+    // 规格按钮的高亮跟着状态走，这样从缩略图或箭头切过来也会对上
+    [...specs.children].forEach((button) => button.classList.toggle("on", button.dataset.skuId === String(current.id)));
   }
 
   info.append(pricebox, promotions);
   info.append(h("div", "field-label", "选择规格"));
   const specs = h("div", "sku-list");
   product.skus.forEach((sku) => {
-    const button = h("button", sku.id === current.id ? "on" : "", sku.spec);
+    const button = h("button", sku.id === current?.id ? "on" : "", sku.spec);
+    button.dataset.skuId = String(sku.id);
     if (!sku.purchasable) button.classList.add("dead");
-    button.addEventListener("click", () => {
-      current = sku;
-      [...specs.children].forEach((item) => item.classList.remove("on"));
-      button.classList.add("on");
-      paint();
-    });
+    button.addEventListener("click", () => state.selectSku(sku));
     specs.append(button);
   });
   info.append(specs);
@@ -1014,8 +1105,12 @@ function renderProductInfo(product) {
   const add = h("button", "btn-cart btn-big", "加入购物车");
   const buy = h("button", "btn-buy btn-big", "立即购买");
   const fav = h("button", product.favorited ? "fav-btn on" : "fav-btn", product.favorited ? "♥ 已收藏" : "♡ 收藏");
-  add.disabled = !current || !current.purchasable;
-  buy.disabled = !current || !current.purchasable;
+  const syncActions = () => {
+    const usable = Boolean(current && current.purchasable);
+    add.disabled = !usable;
+    buy.disabled = !usable;
+  };
+  syncActions();
   const addToCart = async () => {
     if (!requireLogin()) return;
     try {
@@ -1056,6 +1151,9 @@ function renderProductInfo(product) {
   const services = h("div", "services");
   ["正品保障", "7 天无理由退货", "满 99 元包邮", "48 小时内发货"].forEach((text) => services.append(h("span", "", text)));
   info.append(services);
+  // 先注册 paint（它会把 current 同步成最新规格），再注册按钮状态
+  state.onChange(paint);
+  state.onChange(syncActions);
   paint();
   return info;
 }

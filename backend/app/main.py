@@ -40,6 +40,9 @@ def _ensure_sqlite_columns() -> None:
             "sales_count": "INTEGER DEFAULT 0",
             "limit_per_user": "INTEGER DEFAULT 0",
         },
+        "skus": {
+            "image_url": "VARCHAR(500) DEFAULT ''",
+        },
         "orders": {
             "freight_cents": "INTEGER DEFAULT 0",
             "receiver": "VARCHAR(32) DEFAULT ''",

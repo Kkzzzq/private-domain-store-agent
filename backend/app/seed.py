@@ -49,13 +49,39 @@ MARKET_PRICE = {
 }
 
 
-def sku(spec: str, price_cents: int, stock: int) -> Sku:
+def sku(spec: str, price_cents: int, stock: int, image: str = "") -> Sku:
     return Sku(
         spec=spec,
+        image_url=image,
         price_cents=price_cents,
         market_price_cents=MARKET_PRICE.get(spec, 0),
         stock=stock,
     )
+
+
+# 每个规格单独一张图，买家端详情页切规格（或点缩略图）时主图跟着换
+SKU_IMAGES = {
+    "亚麻抱枕套": {"米白": "/covers/pillow.jpg", "雾蓝": "/covers/pillow-blue.jpg"},
+    "亚麻桌旗": {"米白 140cm": "/covers/runner.jpg", "雾蓝 180cm": "/covers/runner-blue.jpg"},
+    "陶瓷马克杯": {"单只": "/covers/mug.jpg"},
+    "棉麻笔记本": {"A5 空白": "/covers/notebook.jpg"},
+}
+
+
+def apply_sku_images(db, shop: Shop) -> None:
+    """把演示用的规格图补上。只填空着的，商家自己换过的不会被覆盖。"""
+    changed = 0
+    for product in db.scalars(select(Product).where(Product.shop_id == shop.id)).all():
+        wanted = SKU_IMAGES.get(product.name)
+        if not wanted:
+            continue
+        for item in product.skus:
+            url = wanted.get(item.spec)
+            if url and not item.image_url:
+                item.image_url = url
+                changed += 1
+    if changed:
+        db.commit()
 
 
 # 再补一批，让"全部商品"够三行以上，能演示展开
@@ -135,7 +161,7 @@ def seed_if_empty(db) -> None:
         status="on",
         sort_order=1,
         sales_count=126,
-        skus=[sku("米白", 5900, 20), sku("雾蓝", 5900, 8)],
+        skus=[sku("米白", 5900, 20, "/covers/pillow.jpg"), sku("雾蓝", 5900, 8, "/covers/pillow-blue.jpg")],
     )
     mug = Product(
         shop_id=shop.id,
@@ -146,7 +172,7 @@ def seed_if_empty(db) -> None:
         status="on",
         sort_order=2,
         sales_count=88,
-        skus=[sku("单只", 3900, 15)],
+        skus=[sku("单只", 3900, 15, "/covers/mug.jpg")],
     )
     candle = Product(
         shop_id=shop.id,
@@ -178,7 +204,7 @@ def seed_if_empty(db) -> None:
         status="on",
         sort_order=5,
         sales_count=63,
-        skus=[sku("米白 140cm", 8900, 12), sku("雾蓝 180cm", 10900, 6)],
+        skus=[sku("米白 140cm", 8900, 12, "/covers/runner.jpg"), sku("雾蓝 180cm", 10900, 6, "/covers/runner-blue.jpg")],
     )
     plate = Product(
         shop_id=shop.id,
@@ -212,7 +238,7 @@ def seed_if_empty(db) -> None:
         sort_order=8,
         sales_count=74,
         limit_per_user=2,
-        skus=[sku("A5 空白", 3200, 30), sku("A5 横线", 3200, 22)],
+        skus=[sku("A5 空白", 3200, 30, "/covers/notebook.jpg"), sku("A5 横线", 3200, 22)],
     )
     patch = Product(
         shop_id=shop.id,
@@ -507,7 +533,7 @@ def upgrade_demo(db) -> None:
                     status="on",
                     sort_order=5,
                     sales_count=63,
-                    skus=[sku("米白 140cm", 8900, 12), sku("雾蓝 180cm", 10900, 6)],
+                    skus=[sku("米白 140cm", 8900, 12, "/covers/runner.jpg"), sku("雾蓝 180cm", 10900, 6, "/covers/runner-blue.jpg")],
                 ),
                 Product(
                     shop_id=shop.id,
@@ -541,7 +567,7 @@ def upgrade_demo(db) -> None:
                     sort_order=8,
                     sales_count=74,
                     limit_per_user=2,
-                    skus=[sku("A5 空白", 3200, 30), sku("A5 横线", 3200, 22)],
+                    skus=[sku("A5 空白", 3200, 30, "/covers/notebook.jpg"), sku("A5 横线", 3200, 22)],
                 ),
                 Product(
                     shop_id=shop.id,
@@ -593,3 +619,6 @@ def upgrade_demo(db) -> None:
     fresh = db.scalars(select(Product).where(Product.shop_id == shop.id)).all()
     seed_tags(db, shop, fresh)
     db.commit()
+
+    # 规格图：老库的规格没有图，按演示数据补上
+    apply_sku_images(db, shop)

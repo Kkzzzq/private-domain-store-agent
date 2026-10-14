@@ -187,7 +187,8 @@ async function uploadImage(file) {
 /** 图片选择：可以传本地文件，也可以直接填已有路径。 */
 function imageField(label, name, value) {
   const wrap = h("label", "field");
-  wrap.append(h("span", "", label));
+  // 表格里用的时候不需要上面那行标签，传空字符串就跳过
+  if (label) wrap.append(h("span", "", label));
   const row = h("div", "row");
   const input = document.createElement("input");
   input.name = name;
@@ -222,7 +223,8 @@ function imageField(label, name, value) {
   preview.style.borderRadius = "6px";
   preview.style.background = "#f7f7f7";
   const refresh = () => {
-    preview.src = input.value || "/covers/hero.jpg";
+    // 没填路径时给一个空图，别让预览挂着别的商品的图
+    preview.src = input.value || "";
   };
   input.addEventListener("input", refresh);
   refresh();
@@ -1332,12 +1334,18 @@ function renderSkuPanel(product) {
   const table = h("table", "table");
   const head = document.createElement("thead");
   const headRow = document.createElement("tr");
-  ["规格", "划线价", "售价", "库存", "状态", "操作"].forEach((text) => headRow.append(h("th", "", text)));
+  ["规格", "规格图", "划线价", "售价", "库存", "状态", "操作"].forEach((text) => headRow.append(h("th", "", text)));
   head.append(headRow);
   const tbody = document.createElement("tbody");
   product.skus.forEach((sku) => {
     const tr = document.createElement("tr");
     tr.append(h("td", "", sku.spec));
+
+    // 每个规格一张图，买家端详情页切规格就会换主图
+    const imageCell = document.createElement("td");
+    const imageWrap = imageField("", `sku-image-${sku.id}`, sku.image_url);
+    imageWrap.classList.add("sku-image");
+    imageCell.append(imageWrap);
 
     const marketCell = document.createElement("td");
     const marketInput = document.createElement("input");
@@ -1366,7 +1374,11 @@ function renderSkuPanel(product) {
     const save = h("button", "", "保存");
     save.addEventListener("click", async () => {
       try {
-        const payload = { price_yuan: Number(priceInput.value), stock: Number(stockInput.value) };
+        const payload = {
+          price_yuan: Number(priceInput.value),
+          stock: Number(stockInput.value),
+          image_url: imageWrap.querySelector("input").value.trim(),
+        };
         if (marketInput.value) payload.market_price_yuan = Number(marketInput.value);
         await api(`/api/v1/b/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify(payload) });
         toast(`${sku.spec} 已更新`, "ok");
@@ -1390,7 +1402,7 @@ function renderSkuPanel(product) {
       opsRow.append(button);
     });
     ops.append(opsRow);
-    tr.append(marketCell, priceCell, stockCell, state, ops);
+    tr.append(imageCell, marketCell, priceCell, stockCell, state, ops);
     tbody.append(tr);
   });
   table.append(head, tbody);

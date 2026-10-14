@@ -281,8 +281,8 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .crumb a:hover { color: var(--primary); }
 .detail {
   display: grid;
-  /* 三个竖栏：缩略图 / 主图 / 商品信息，主图最宽 */
-  grid-template-columns: 92px minmax(0, 1fr) 430px;
+  /* 三个竖栏：缩略图 / 主图 / 商品信息，主图最宽，信息栏收得比较窄 */
+  grid-template-columns: 100px minmax(0, 1fr) 400px;
   gap: 20px; align-items: start;
   background: #fff; border-radius: var(--radius); padding: 26px; box-shadow: var(--shadow);
 }
@@ -290,19 +290,46 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .detail > * { min-width: 0; }
 /* 让 .gallery 这一层不产生盒子，缩略图和主图各自占一栏 */
 .detail .gallery { display: contents; }
-.detail .thumbs { display: flex; flex-direction: column; gap: 12px; }
+.detail .thumbs { display: flex; flex-direction: column; gap: 12px; max-height: 640px; overflow-y: auto; }
+.detail .thumbs::-webkit-scrollbar { width: 4px; }
+.detail .thumbs::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
 .detail .thumbs button {
-  width: 100%; aspect-ratio: 1 / 1; border: 2px solid transparent; border-radius: 8px; overflow: hidden;
-  padding: 0; background: #f7f7f7;
+  position: relative; width: 100%; aspect-ratio: 1 / 1; border: 2px solid transparent;
+  border-radius: 8px; overflow: hidden; padding: 0; background: #f7f7f7;
+  transition: border-color 0.15s, transform 0.15s;
 }
+.detail .thumbs button:hover { border-color: color-mix(in srgb, var(--theme) 45%, #fff); }
 .detail .thumbs button.on { border-color: var(--primary); }
 .detail .thumbs img { width: 100%; height: 100%; object-fit: cover; }
-.detail .main { border-radius: 10px; overflow: hidden; background: #f7f7f7; }
-.detail .main img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+/* 缩略图下沿用规格名标一下，一眼看出这张图对应哪个规格 */
+.thumb-spec {
+  position: absolute; left: 0; right: 0; bottom: 0; font-size: 10px; line-height: 1.6;
+  color: #fff; background: linear-gradient(180deg, rgba(26, 22, 19, 0), rgba(26, 22, 19, 0.75));
+  padding: 10px 4px 3px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.detail .main { position: relative; border-radius: 10px; overflow: hidden; background: #f7f7f7; }
+.detail .main img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
+/* 主图上的当前规格角标 */
+.shot-spec {
+  position: absolute; left: 14px; bottom: 14px; z-index: 2;
+  background: rgba(26, 22, 19, 0.55); color: #fff; font-size: 13px; letter-spacing: 1px;
+  padding: 5px 12px; border-radius: 6px; backdrop-filter: blur(2px);
+}
+/* 主图两侧的左右箭头，和首页轮播一样是半透明圆钮 */
+.shot-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 42px;
+  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(26, 22, 19, 0.26); color: rgba(255, 255, 255, 0.95);
+  font-size: 29px; line-height: 1; padding-bottom: 4px; z-index: 2;
+  display: grid; place-items: center; backdrop-filter: blur(2px);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+  transition: background 0.2s, border-color 0.2s;
+}
+.shot-nav:hover { background: rgba(26, 22, 19, 0.45); border-color: rgba(255, 255, 255, 0.3); }
+.shot-nav[hidden] { display: none; }
+.shot-nav.prev { left: 14px; }
+.shot-nav.next { right: 14px; }
 .detail .info { padding: 0 4px; }
-.zoom-tl { object-position: 30% 28%; transform: scale(1.7); }
-.zoom-br { object-position: 70% 74%; transform: scale(1.7); }
-
 .detail h1 { font-size: 22px; line-height: 1.45; }
 .detail .sub-title { color: var(--ink-2); font-size: 13px; margin-top: 8px; }
 .pricebox {
@@ -633,8 +660,13 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
   box-shadow: 0 2px 8px color-mix(in srgb, var(--theme) 28%, transparent);
 }
 
-/* 后台首页样式：售后保障条一行一条 */
-.promise-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+/* 规格表里的图片格：缩到一列能放下的宽度 */
+.table td .field.sku-image { width: 132px; gap: 4px; }
+.table td .field.sku-image .row { gap: 6px; }
+.table td .field.sku-image .row input { min-width: 0; font-size: 12px; padding: 6px 8px; }
+.table td .field.sku-image .btn-mini { padding: 6px 8px; font-size: 12px; white-space: nowrap; }
+
+/* 后台首页样式：售后保障条一行一条 */.promise-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
 .promise-row { display: grid; grid-template-columns: 180px 1fr 76px; gap: 10px; align-items: center; }
 .promise-row input {
   border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; font-size: 14px;
@@ -1011,8 +1043,13 @@ wa-dialog .field input:focus { border-color: var(--primary); }
 .review-form textarea:focus { border-color: var(--primary); }
 
 /* ================= 响应式 ================= */
+@media (max-width: 1280px) {
+  /* 窗口变窄时先收信息栏，把地方让给主图 */
+  .detail { grid-template-columns: 88px minmax(0, 1fr) 340px; gap: 16px; padding: 20px; }
+}
 @media (max-width: 1100px) {
   .grid { grid-template-columns: repeat(3, 1fr); }
+  .detail { grid-template-columns: 80px minmax(0, 1fr) 300px; }
   .stats, .two-col, .promises { grid-template-columns: repeat(2, 1fr); }
   .cat-side { display: flex; overflow-x: auto; overflow-y: hidden; }
   .cat-side h3 { display: none; }
@@ -1053,8 +1090,9 @@ wa-dialog .field input:focus { border-color: var(--primary); }
   .cart-row img { width: 72px; height: 72px; }
   .detail { padding: 16px; }
   .detail .gallery { flex-direction: column; }
-  .detail .thumbs { flex-direction: row; }
+  .detail .thumbs { flex-direction: row; flex-wrap: wrap; }
   .detail .thumbs button { width: 64px; }
+  .detail .shot-nav { width: 34px; height: 34px; font-size: 24px; }
   .chat { right: 12px; left: 12px; bottom: 12px; width: auto; }
   .footer .wrap { flex-direction: column; }
   .hero { height: 300px; }

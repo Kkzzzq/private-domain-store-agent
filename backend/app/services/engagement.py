@@ -136,6 +136,7 @@ def serialize_saved(product: Product, *, ratings: dict | None = None, favorites:
         {
             "id": sku.id,
             "spec": sku.spec,
+            "image_url": sku.image_url or "",
             "price_yuan": yuan(sku.price_cents),
             "market_price_yuan": yuan(sku.market_price_cents) if sku.market_price_cents else None,
             "stock": sku.stock,

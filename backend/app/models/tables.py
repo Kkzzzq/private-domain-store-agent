@@ -76,6 +76,8 @@ class Sku(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     spec: Mapped[str] = mapped_column(String(64))
+    # 每个规格可以有自己的图，买家端详情页选到哪个规格就显示哪张
+    image_url: Mapped[str] = mapped_column(String(500), default="")
     price_cents: Mapped[int] = mapped_column()
     market_price_cents: Mapped[int] = mapped_column(default=0)
     stock: Mapped[int] = mapped_column(default=0)

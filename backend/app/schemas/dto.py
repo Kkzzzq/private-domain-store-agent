@@ -66,6 +66,7 @@ class TokenOut(BaseModel):
 
 class SkuIn(BaseModel):
     spec: str = Field(min_length=1, max_length=40)
+    image_url: str = Field(default="", max_length=500)
     price_yuan: float = Field(gt=0, le=100000)
     market_price_yuan: float | None = Field(default=None, gt=0, le=100000)
     stock: int = Field(ge=0, le=100000)
@@ -93,6 +94,7 @@ class ProductUpdate(BaseModel):
 
 class SkuUpdate(BaseModel):
     spec: str | None = Field(default=None, min_length=1, max_length=40)
+    image_url: str | None = Field(default=None, max_length=500)
     price_yuan: float | None = Field(default=None, gt=0, le=100000)
     market_price_yuan: float | None = Field(default=None, gt=0, le=100000)
     stock: int | None = Field(default=None, ge=0, le=100000)
@@ -101,6 +103,7 @@ class SkuUpdate(BaseModel):
 class SkuOut(BaseModel):
     id: int
     spec: str
+    image_url: str
     price_yuan: float
     market_price_yuan: float | None = None
     stock: int

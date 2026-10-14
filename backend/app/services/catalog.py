@@ -85,6 +85,7 @@ def serialize_sku(sku: Sku, *, purchasable: bool | None = None) -> dict:
     data = {
         "id": sku.id,
         "spec": sku.spec,
+        "image_url": sku.image_url or "",
         "price_yuan": yuan(sku.price_cents),
         "market_price_yuan": yuan(sku.market_price_cents) if sku.market_price_cents else None,
         "stock": sku.stock,
@@ -297,6 +298,7 @@ def _owned_product(db: Session, user: User, product_id: int) -> Product:
 def _sku_row(sku: SkuIn) -> Sku:
     return Sku(
         spec=sku.spec.strip(),
+        image_url=sku.image_url.strip(),
         price_cents=to_cents(sku.price_yuan),
         market_price_cents=to_cents(sku.market_price_yuan) if sku.market_price_yuan else 0,
         stock=sku.stock,
@@ -392,6 +394,8 @@ def update_sku(db: Session, user: User, sku_id: int, body: SkuUpdate) -> dict:
     sku = _owned_sku(db, user, sku_id)
     if body.spec is not None:
         sku.spec = body.spec.strip()
+    if body.image_url is not None:
+        sku.image_url = body.image_url.strip()
     if body.price_yuan is not None:
         sku.price_cents = to_cents(body.price_yuan)
     if body.market_price_yuan is not None:
