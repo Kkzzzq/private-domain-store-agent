@@ -35,3 +35,14 @@ def test_cloud_failure_does_not_leak_key(monkeypatch):
     with pytest.raises(RuntimeError, match="HTTP 403") as error:
         CloudChatModel().invoke([HumanMessage(content="你好")])
     assert "secret-never-log" not in str(error.value)
+
+
+def test_cloud_rate_limit_retries(monkeypatch):
+    monkeypatch.setattr(settings, "cloud_api_key", "test-secret")
+    monkeypatch.setattr(settings, "cloud_base_url", "https://example.test/v1")
+    responses = iter([httpx.Response(429), httpx.Response(200, json={"choices": [{"message": {"content": "成功"}}]})])
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: next(responses))
+    sleeps = []
+    monkeypatch.setattr("app.agent.model.time.sleep", sleeps.append)
+    assert CloudChatModel().invoke([HumanMessage(content="你好")]).content == "成功"
+    assert sleeps == [2]

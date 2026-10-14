@@ -1,4 +1,5 @@
 import json
+import time
 
 import httpx
 
@@ -28,11 +29,15 @@ class CloudChatModel:
         }
         if self.tools:
             body["tools"] = self.tools
-        response = httpx.post(
-            settings.cloud_base_url.rstrip("/") + "/chat/completions",
-            headers={"Authorization": "Bearer " + settings.cloud_api_key},
-            json=body, timeout=45,
-        )
+        for attempt in range(4):
+            response = httpx.post(
+                settings.cloud_base_url.rstrip("/") + "/chat/completions",
+                headers={"Authorization": "Bearer " + settings.cloud_api_key},
+                json=body, timeout=45,
+            )
+            if response.status_code not in (429, 503) or attempt == 3:
+                break
+            time.sleep(2 ** (attempt + 1))
         if not response.is_success:
             # Do not propagate response bodies or headers into application logs.
             raise RuntimeError(f"云端模型调用失败 HTTP {response.status_code}")
