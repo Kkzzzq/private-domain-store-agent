@@ -232,6 +232,22 @@ class BannerOut(BaseModel):
     enabled: bool
 
 
+class CategoryIn(BaseModel):
+    name: str = Field(min_length=1, max_length=32)
+
+
+class CategoryUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=32)
+    sort_order: int | None = Field(default=None, ge=0, le=9999)
+
+
+class CategoryOut(BaseModel):
+    id: int
+    name: str
+    sort_order: int
+    product_count: int
+
+
 class SectionIn(BaseModel):
     title: str = Field(min_length=1, max_length=64)
     subtitle: str = Field(default="", max_length=120)

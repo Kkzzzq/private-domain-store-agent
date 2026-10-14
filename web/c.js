@@ -150,47 +150,6 @@ function renderStrip() {
   return bar;
 }
 
-/* ---------------- 顶部一行：店铺名 + 购物车 / 订单 / 收藏 / 浏览记录 ---------------- */
-function renderStrip() {
-  const bar = h("div", "strip");
-  const inner = h("div", "wrap");
-
-  const left = h("div", "row");
-  const brand = h("a", "strip-shop");
-  brand.href = "#/";
-  if (shop.logo_url) {
-    const mark = document.createElement("img");
-    mark.className = "strip-mark";
-    mark.src = shop.logo_url;
-    mark.alt = shop.name;
-    brand.append(mark);
-  } else {
-    brand.append(h("span", "strip-mark", shop.name.slice(0, 1)));
-  }
-  brand.append(h("span", "strip-name", shop.name));
-  left.append(brand);
-  if (!loggedIn()) {
-    const login = h("button", "strip-login", "亲，请登录");
-    login.addEventListener("click", loginModal);
-    left.append(login);
-  }
-
-  const nav = h("nav");
-  const cart = h("a", "hvr-grow", cartCount ? `购物车（${cartCount}）` : "购物车");
-  cart.href = "#/cart";
-  const orders = h("a", "hvr-grow", "订单中心");
-  orders.href = "#/orders";
-  const favs = h("a", "hvr-grow", "我的收藏");
-  favs.href = "#/favorites";
-  const history = h("a", "hvr-grow", "浏览记录");
-  history.href = "#/history";
-  nav.append(cart, orders, favs, history);
-
-  inner.append(left, nav);
-  bar.append(inner);
-  return bar;
-}
-
 async function renderView() {
   const current = route();
   if (current.name === "product") return renderProduct(current.id);
@@ -213,8 +172,9 @@ async function renderHome() {
   const box = h("div");
   box.append(heroCarousel(home.banners));
   home.sections.forEach((section) => box.append(productRow(section)));
-  box.append(allProductsBlock());
+  // 评价墙放在全部商品上面，先让买家看到别人怎么说
   if (home.testimonials.length) box.append(reviewWall(home.testimonials));
+  box.append(allProductsBlock());
   box.append(renderPromises());
   return box;
 }
@@ -440,7 +400,8 @@ function renderFallbackHero() {
 function productRow(section) {
   const sec = h("section", "row-sec");
   sec.id = `sec-${section.id}`;
-  sec.append(rowHead(section.title, section.subtitle, `#/collection/${section.id}`));
+  const href = section.href === undefined ? `#/collection/${section.id}` : section.href;
+  sec.append(rowHead(section.title, section.subtitle, href));
 
   const rail = h("div", "rail");
   const track = h("div", "track");
@@ -488,9 +449,9 @@ function rowHead(title, subtitle, href, extra = null) {
   return head;
 }
 
-/* 全部商品：先给三行，点展开再给三行。搜索在这行标题旁边，右侧是「查看全部」 */
+/* 全部商品：默认两行（8 件），点展开继续往下给；到底后按钮变「收回」 */
 function allProductsBlock() {
-  const PAGE = 12;
+  const PAGE = 8;
   const sec = h("section", "all-sec");
 
   const form = h("form", "search all-search");
@@ -513,34 +474,56 @@ function allProductsBlock() {
   foot.append(expand);
   sec.append(grid, foot);
 
-  let offset = 0;
+  let items = []; // 已经拉到的商品
+  let hasMore = true; // 服务端还有没有下一批
+  let expanded = false; // 是否处于展开状态
   let busy = false;
+
+  const paint = () => {
+    const shown = expanded ? items : items.slice(0, PAGE);
+    grid.replaceChildren(...shown.map(productCard));
+    // 商品本来就不到两行、也没得再展开时，按钮就没必要出现了
+    if (!expanded && !hasMore && items.length <= PAGE) {
+      foot.hidden = true;
+      return;
+    }
+    foot.hidden = false;
+    expand.disabled = busy;
+    if (busy) expand.textContent = "加载中…";
+    else if (expanded && !hasMore) expand.textContent = "收回";
+    else expand.textContent = "展开更多";
+  };
+
   const load = async () => {
+    if (busy || !hasMore) return;
     busy = true;
-    expand.disabled = true;
-    expand.textContent = "加载中…";
+    paint();
     try {
-      const rows = await api(`/api/v1/c/shops/${code}/products?offset=${offset}&limit=${PAGE}`);
-      rows.forEach((product) => grid.append(productCard(product)));
-      offset += rows.length;
-      if (rows.length < PAGE) {
-        expand.textContent = "已经到底啦";
-        expand.disabled = true;
-      } else {
-        expand.textContent = "展开更多";
-        expand.disabled = false;
-      }
+      const rows = await api(`/api/v1/c/shops/${code}/products?offset=${items.length}&limit=${PAGE}`);
+      items = items.concat(rows);
+      if (rows.length < PAGE) hasMore = false;
     } catch (error) {
       toast(error.message, "bad");
-      expand.textContent = "展开更多";
-      expand.disabled = false;
     }
     busy = false;
+    paint();
   };
-  expand.addEventListener("click", () => {
-    if (!busy) load();
+
+  expand.addEventListener("click", async () => {
+    if (busy) return;
+    // 已经展开且到底了：点一下收回成两行
+    if (expanded && !hasMore) {
+      expanded = false;
+      paint();
+      sec.scrollIntoView({ block: "start", behavior: "smooth" });
+      return;
+    }
+    if (!expanded) expanded = true;
+    await load();
+    paint();
   });
-  requestAnimationFrame(() => load());
+
+  requestAnimationFrame(load);
   return sec;
 }
 
@@ -804,7 +787,7 @@ async function renderProduct(id) {
   const box = h("div");
   const crumb = h("div", "crumb");
   const home = h("a", "", "全部商品");
-  home.href = "#/";
+  home.href = "#/collection/all";
   crumb.append(home, h("span", "", " / "), h("span", "", `${product.category} / ${product.name}`));
   box.append(crumb);
 
@@ -827,6 +810,8 @@ function renderRelated(product, all) {
     id: "related",
     title: same.length ? `同类手作 · ${product.category}` : "看了还看",
     subtitle: "换一件也合适",
+    // 推荐位没有对应的合集页，不挂「查看全部」
+    href: "",
     products: picks,
   });
 }
@@ -909,7 +894,7 @@ function renderBuyBar(product, ctx) {
 }
 
 function renderProductInfo(product) {
-  const info = h("div");
+  const info = h("div", "info");
   info.append(h("h1", "", product.name));
   info.append(h("div", "sub-title", "店主直发 · 支持 7 天无理由退货 · 满 99 元包邮"));
 

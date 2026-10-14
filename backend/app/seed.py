@@ -11,6 +11,7 @@ from app.models.tables import (
     Section,
     SectionItem,
     Shop,
+    ShopCategory,
     Sku,
     Testimonial,
     User,
@@ -439,6 +440,13 @@ def seed_home(db, shop: Shop, products: list[Product]) -> None:
         ]
     )
 
+    db.add_all(
+        [
+            ShopCategory(shop_id=shop.id, name=name, sort_order=index)
+            for index, name in enumerate(["家居", "餐具", "香氛", "文具"], start=1)
+        ]
+    )
+
 
 def upgrade_demo(db) -> None:
     """旧库升级：补封面、补划线价、补默认地址，缺的商品也补齐。"""
@@ -549,3 +557,9 @@ def upgrade_demo(db) -> None:
         fresh = db.scalars(select(Product).where(Product.shop_id == shop.id)).all()
         seed_home(db, shop, fresh)
         db.commit()
+
+    # 分类标签：老库没有这张表的数据时，按商品现有的类目补一套出来
+    if db.scalar(select(ShopCategory).where(ShopCategory.shop_id == shop.id)) is None:
+        from app.services.categories import ensure_from_products
+
+        ensure_from_products(db, shop)

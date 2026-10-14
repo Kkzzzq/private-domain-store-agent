@@ -175,6 +175,14 @@ def list_c_products(
 
 
 def list_categories(db: Session, share_code: str) -> list[str]:
+    """买家端的分类标签，按商家在后台定的顺序返回。"""
+    from app.services.categories import shop_category_names
+
+    shop = shop_by_code(db, share_code)
+    registered = shop_category_names(db, shop)
+    if registered:
+        used = {product["category"] for product in list_c_products(db, share_code)}
+        return [name for name in registered if name in used] + [name for name in used if name and name not in registered]
     names: list[str] = []
     for product in list_c_products(db, share_code):
         if product["category"] and product["category"] not in names:
@@ -265,6 +273,9 @@ def create_product(db: Session, user: User, body: ProductIn) -> dict:
         product.skus.append(_sku_row(sku))
     db.add(product)
     db.commit()
+    from app.services.categories import register_category_name
+
+    register_category_name(db, shop.id, product.category)
     saved = _owned_product(db, user, product.id)
     invalidate_catalog_cache()
     return serialize_product(saved, audience="b")
@@ -296,6 +307,10 @@ def update_product(db: Session, user: User, product_id: int, body: ProductUpdate
     if body.limit_per_user is not None:
         product.limit_per_user = body.limit_per_user
     db.commit()
+    if body.category is not None:
+        from app.services.categories import register_category_name
+
+        register_category_name(db, product.shop_id, product.category)
     invalidate_catalog_cache()
     return serialize_product(_owned_product(db, user, product_id), audience="b")
 

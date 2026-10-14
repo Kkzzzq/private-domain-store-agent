@@ -35,6 +35,7 @@ function val(form, name) {
 const MENU = [
   ["dashboard", "📊 经营概览"],
   ["products", "📦 商品管理"],
+  ["categories", "🏷️ 分类标签"],
   ["orders", "🧾 订单管理"],
   ["home", "🎨 首页装修"],
   ["shop", "🏪 店铺设置"],
@@ -159,6 +160,7 @@ function sidebar() {
 async function mainView() {
   const current = route();
   if (current.name === "products") return current.id ? productEditor(current.id) : productList();
+  if (current.name === "categories") return categoriesAdmin();
   if (current.name === "orders") return orderList(current.id);
   if (current.name === "home") return homeAdmin(current.id);
   if (current.name === "shop") return shopForm();
@@ -641,6 +643,132 @@ async function testimonialsAdmin() {
   return box;
 }
 
+/** 类目选择：选项来自后台维护的分类标签，也允许现场填个新的。 */
+function categoryField(names, value) {
+  const wrap = h("label", "field");
+  wrap.append(h("span", "", "类目"));
+  const input = document.createElement("input");
+  input.name = "category";
+  input.value = value || names[0] || "";
+  input.setAttribute("list", "cat-options");
+  input.placeholder = "选一个或直接填新的";
+  const datalist = document.createElement("datalist");
+  datalist.id = "cat-options";
+  names.forEach((name) => {
+    const option = document.createElement("option");
+    option.value = name;
+    datalist.append(option);
+  });
+  wrap.append(input, datalist);
+  wrap.append(h("small", "muted", "填了没见过的名字，保存后会自动加进「分类标签」"));
+  return wrap;
+}
+
+/* ---------------- 分类标签：合集页左侧那排 tag 就是这里定的 ---------------- */
+async function categoriesAdmin() {
+  const box = h("div");
+  box.append(h("h1", "page-title", "分类标签"));
+  box.append(
+    h(
+      "p",
+      "page-sub",
+      "合集页左侧的筛选项、商品编辑里的类目选项都来自这套标签。名字随时可以改，改完挂在旧类目下的商品会一起跟过来。"
+    )
+  );
+
+  const rows = await api("/api/v1/b/categories");
+  const list = h("div", "panel");
+  list.append(h("h2", "panel-title", `当前标签（${rows.length}）`));
+  if (!rows.length) list.append(h("p", "muted", "还没有标签，先在下面加一个"));
+  if (rows.length > 1) list.append(h("p", "muted", "标签顺序就是买家端看到的顺序，可以上下调整"));
+
+  const move = async (index, delta) => {
+    const target = index + delta;
+    if (target < 0 || target >= rows.length) return;
+    const next = rows.slice();
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved);
+    // 整批写回顺序，避免只换两个导致序号打架
+    for (let order = 0; order < next.length; order += 1) {
+      if (next[order].sort_order === order + 1) continue;
+      await api(`/api/v1/b/categories/${next[order].id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sort_order: order + 1 }),
+      });
+    }
+    toast("顺序已更新", "ok");
+    render();
+  };
+
+  rows.forEach((row, index) => {
+    const item = h("div", "quote-row");
+    const input = document.createElement("input");
+    input.className = "cat-name";
+    input.value = row.name;
+
+    const ops = h("div", "ops");
+    const count = h("span", "pill", `${row.product_count} 件商品`);
+    const save = h("button", "", "改名");
+    save.addEventListener("click", async () => {
+      const name = input.value.trim();
+      if (!name || name === row.name) return;
+      try {
+        await api(`/api/v1/b/categories/${row.id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+        toast("已改名，旧类目下的商品一起改了", "ok");
+        render();
+      } catch (error) {
+        toast(error.message, "bad");
+      }
+    });
+    const up = h("button", "", "上移");
+    up.disabled = index === 0;
+    up.addEventListener("click", () => move(index, -1));
+    const down = h("button", "", "下移");
+    down.disabled = index === rows.length - 1;
+    down.addEventListener("click", () => move(index, 1));
+    const remove = h("button", "danger", "删除");
+    remove.disabled = row.product_count > 0;
+    remove.title = row.product_count > 0 ? "还有商品挂在这个标签下，先改掉再删" : "";
+    remove.addEventListener("click", async () => {
+      try {
+        await api(`/api/v1/b/categories/${row.id}`, { method: "DELETE" });
+        toast("已删除", "ok");
+        render();
+      } catch (error) {
+        toast(error.message, "bad");
+      }
+    });
+    ops.append(count, save, up, down, remove);
+    item.append(input, ops);
+    list.append(item);
+  });
+
+  const panel = h("form", "panel stack");
+  panel.append(h("h2", "panel-title", "新增标签"));
+  panel.append(h("p", "muted", "比如「家居」「餐具」「香氛」「文具」，短一点买家扫得快"));
+  const grid = h("div", "form-grid");
+  grid.append(field("标签名", "name", ""));
+  panel.append(grid);
+
+  const error = h("p", "muted", "");
+  const submit = h("button", "btn", "添加标签");
+  submit.type = "submit";
+  panel.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await api("/api/v1/b/categories", { method: "POST", body: JSON.stringify({ name: val(panel, "name") }) });
+      toast("标签已添加", "ok");
+      render();
+    } catch (err) {
+      error.textContent = err.message;
+    }
+  });
+  panel.append(error, submit);
+
+  box.append(list, panel);
+  return box;
+}
+
 /* ---------------- 概览 ---------------- */
 async function dashboard() {
   const box = h("div");
@@ -862,18 +990,24 @@ async function productEditor(id) {
 
   const panel = h("form", "panel stack");
   panel.style.marginTop = "16px";
-  let product = { name: "", category: "家居", description: "", image_url: "", skus: [] };
+  let product = { name: "", category: "", description: "", image_url: "", skus: [] };
   if (!creating) {
     const products = await api("/api/v1/b/products");
     product = products.find((item) => String(item.id) === id);
     if (!product) return h("div", "panel", "没有找到这个商品");
+  }
+  let catNames = [];
+  try {
+    catNames = (await api("/api/v1/b/categories")).map((item) => item.name);
+  } catch {
+    catNames = [];
   }
 
   panel.append(h("h2", "panel-title", "基本信息"));
   const grid = h("div", "form-grid");
   grid.append(
     field("商品名称", "name", product.name),
-    field("类目", "category", product.category),
+    categoryField(catNames, product.category),
     field("图片地址", "image_url", product.image_url, true),
     field("每人限购（0 表示不限）", "limit_per_user", String(product.limit_per_user ?? 0)),    field("商品说明", "description", product.description, true, "textarea")
   );

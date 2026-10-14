@@ -238,3 +238,15 @@ class Testimonial(Base):
     rating: Mapped[int] = mapped_column(default=5)
     sort_order: Mapped[int] = mapped_column(default=0)
     enabled: Mapped[bool] = mapped_column(default=True)
+
+
+class ShopCategory(Base):
+    """商家自己定的分类标签。合集页左侧的筛选项和商品编辑里的选项都用它。"""
+
+    __tablename__ = "shop_categories"
+    __table_args__ = (UniqueConstraint("shop_id", "name", name="uq_shop_category"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
+    name: Mapped[str] = mapped_column(String(32))
+    sort_order: Mapped[int] = mapped_column(default=0)

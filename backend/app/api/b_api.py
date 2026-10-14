@@ -14,6 +14,9 @@ from app.schemas.dto import (
     BannerOut,
     BannerUpdate,
     BatchShipIn,
+    CategoryIn,
+    CategoryOut,
+    CategoryUpdate,
     OrderOut,
     ProductIn,
     ProductOut,
@@ -60,6 +63,7 @@ from app.services.catalog import (
     update_sku,
 )
 from app.services.orders import list_b_orders, ship_order, ship_orders
+from app.services import categories as category_service
 
 router = APIRouter(prefix="/b", tags=["b"])
 
@@ -241,6 +245,33 @@ def patch_testimonial(
 @router.delete("/testimonials/{row_id}")
 def remove_testimonial(row_id: int, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
     delete_testimonial(db, user, row_id)
+    return {"ok": True}
+
+
+@router.get("/categories", response_model=list[CategoryOut])
+def read_categories(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    """商家自定义的分类标签，合集页左侧筛选项就是这套。"""
+    return category_service.list_categories(db, user)
+
+
+@router.post("/categories", response_model=CategoryOut)
+def add_category(body: CategoryIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return category_service.create_category(db, user, body)
+
+
+@router.patch("/categories/{category_id}", response_model=CategoryOut)
+def patch_category(
+    category_id: int,
+    body: CategoryUpdate,
+    user: User = Depends(require_merchant),
+    db: Session = Depends(get_db),
+):
+    return category_service.update_category(db, user, category_id, body)
+
+
+@router.delete("/categories/{category_id}")
+def remove_category(category_id: int, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    category_service.delete_category(db, user, category_id)
     return {"ok": True}
 
 

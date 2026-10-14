@@ -19,6 +19,7 @@ from app.services.catalog import (
     serialize_shop,
     shop_by_code,
 )
+from app.services.categories import shop_category_names
 from app.services.engagement import favorite_ids
 from app.services.reviews import rating_map
 from app.services.shelf import listed_on_c
@@ -175,15 +176,18 @@ def collection_page(
             pool = [product for product in visible if product.id in order]
             pool.sort(key=lambda product: order[product.id])
 
-    # 左侧筛选用的类目，基于这个合集自己的商品统计
-    categories: list[str] = []
+    # 左侧筛选用的分类标签：商家自己定义的那套顺序优先
     counts: dict[str, int] = {}
     for product in pool:
         if not product.category:
             continue
         counts[product.category] = counts.get(product.category, 0) + 1
-        if product.category not in categories:
-            categories.append(product.category)
+    registered = shop_category_names(db, shop)
+    categories = [name for name in registered if counts.get(name)]
+    if key == "all":
+        # 全部商品页把商家定义过的标签都列出来，方便买家知道店里有哪些类目
+        categories += [name for name in registered if not counts.get(name)]
+    categories += [name for name in counts if name not in registered]
 
     rows = list(pool)
     if category:
