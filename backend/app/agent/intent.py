@@ -10,7 +10,7 @@ def classify(message):
         return "overview"
     if "预警" in message or "低库存" in message:
         return "low_inventory"
-    if any(word in message for word in ("推荐", "预算", "热销", "相似")):
+    if any(word in message for word in ("推荐", "预算", "热销", "相似")) or re.search(r"\d+(?:\.\d+)?\s*(?:元|块)\s*(?:以内|以下)", message):
         return "recommend"
     if any(word in message for word in ("库存", "有货", "还有")):
         return "inventory"

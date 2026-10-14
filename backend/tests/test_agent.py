@@ -110,6 +110,9 @@ def test_tool_loop_and_model_fallback(client, monkeypatch):
     class Broken(Model):
         def invoke(self, messages):
             raise RuntimeError("offline")
+    class Ungrounded(Model):
+        def invoke(self, messages):
+            return AIMessage(content="没有。")
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.username == "alice"))
         token = set_actor(db, Actor(user.id, user.role, user.username, 1))
@@ -120,6 +123,10 @@ def test_tool_loop_and_model_fallback(client, monkeypatch):
             result = assistant.chat(user_id=user.id, shop_id=1, session_id=None, message="有没有抱枕", llm=Broken())
             assert result["mode"] == "fallback" and result["notices"]
             assert "亚麻抱枕套" in result["answer"]
+            result = assistant.chat(user_id=user.id, shop_id=1, session_id=None, message="有没有40元以内的商品？", llm=Ungrounded())
+            assert result["mode"] == "fallback" and result["products"]
+            assert result["tools"][0]["tool"] == "recommend_products"
+            assert all(row["price_from"] <= 40 for row in result["products"])
         finally:
             reset_actor(token)
 

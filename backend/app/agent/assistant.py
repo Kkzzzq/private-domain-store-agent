@@ -127,6 +127,8 @@ class Assistant:
         else:
             try:
                 answer, traces = run_tool_loop(state["messages"], state["summary"], query, llm=llm)
+                if intent != "unclear" and not traces:
+                    raise ModelOutputError("业务查询未调用数据工具")
                 mode = "llm"
             except Exception as exc:
                 logger.warning("大模型不可用，改用规则兜底：%s", exc)
