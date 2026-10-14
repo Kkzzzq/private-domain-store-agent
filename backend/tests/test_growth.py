@@ -112,25 +112,28 @@ def test_favorite_and_browsing_history_are_per_user(client):
     pillow = find(client.get("/api/v1/c/shops/nanzhi/products").json(), "亚麻抱枕套")
     client.get(f"/api/v1/c/shops/nanzhi/products/{pillow['id']}", headers=alice)
 
-    turned_on = client.post(f"/api/v1/c/shops/nanzhi/favorites/{pillow['id']}", headers=alice)
+    turned_on = client.post(f"/api/v1/c/favorites/{pillow['id']}", headers=alice)
     assert turned_on.json()["favorited"] is True
-    mine = client.get("/api/v1/c/shops/nanzhi/favorites", headers=alice).json()
+    mine = client.get("/api/v1/c/favorites", headers=alice).json()
     assert [item["name"] for item in mine] == ["亚麻抱枕套"]
     assert mine[0]["favorited"] is True
-    assert client.get("/api/v1/c/shops/nanzhi/favorites", headers=bob).json() == []
+    assert mine[0]["shop_name"] == "南枝手作"
+    assert mine[0]["available"] is True
+    assert mine[0]["shelf_label"] == "在售"
+    assert client.get("/api/v1/c/favorites", headers=bob).json() == []
 
     detail = client.get(f"/api/v1/c/shops/nanzhi/products/{pillow['id']}", headers=alice).json()
     assert detail["favorited"] is True
     assert client.get(f"/api/v1/c/shops/nanzhi/products/{pillow['id']}").json()["favorited"] is False
 
-    history = client.get("/api/v1/c/shops/nanzhi/history", headers=alice).json()
+    history = client.get("/api/v1/c/history", headers=alice).json()
     assert [item["name"] for item in history] == ["亚麻抱枕套"]
-    client.delete("/api/v1/c/shops/nanzhi/history", headers=alice)
-    assert client.get("/api/v1/c/shops/nanzhi/history", headers=alice).json() == []
+    client.delete("/api/v1/c/history", headers=alice)
+    assert client.get("/api/v1/c/history", headers=alice).json() == []
 
-    off = client.post(f"/api/v1/c/shops/nanzhi/favorites/{pillow['id']}", headers=alice)
+    off = client.post(f"/api/v1/c/favorites/{pillow['id']}", headers=alice)
     assert off.json()["favorited"] is False
-    assert client.get("/api/v1/c/shops/nanzhi/favorites", headers=alice).json() == []
+    assert client.get("/api/v1/c/favorites", headers=alice).json() == []
 
 
 def test_review_only_after_completed_order(client):

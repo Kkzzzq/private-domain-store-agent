@@ -20,6 +20,7 @@ from app.schemas.dto import (
     ProductOut,
     ReviewIn,
     ReviewOut,
+    SavedProductOut,
     SessionOut,
     ShopOut,
 )
@@ -30,6 +31,7 @@ from app.services.engagement import (
     favorite_products,
     history_products,
     record_view,
+    serialize_saved_list,
     toggle_favorite,
 )
 from app.services.orders import cancel_order, confirm_order, create_order, list_c_orders, pay_order
@@ -37,21 +39,6 @@ from app.services.reviews import create_review, list_reviews, pending_reviews
 from app.services.trade import add_cart, cart_view, checkout_cart, create_address, delete_address, list_addresses, remove_cart, update_cart
 
 router = APIRouter(prefix="/c", tags=["c"])
-
-
-def _product_rows(db: Session, user: User, share_code: str, products) -> list[dict]:
-    from app.services.engagement import favorite_ids
-    from app.services.reviews import rating_map
-    from app.services.shelf import listed_on_c
-
-    shop = shop_by_code(db, share_code)
-    visible = [product for product in products if listed_on_c(product)]
-    ratings = rating_map(db, [product.id for product in visible])
-    favorites = favorite_ids(db, user, shop.id)
-    return [
-        serialize_product(product, audience="c", ratings=ratings, favorites=favorites)
-        for product in visible
-    ]
 
 
 @router.get("/shops/{share_code}", response_model=ShopOut)
@@ -98,47 +85,34 @@ def read_product(
 ):
     product = get_c_product(db, share_code, product_id, user)
     if user is not None and user.role == "customer":
-        record_view(user.id, product["shop_id"], product_id)
+        record_view(user.id, product_id)
     return product
 
 
-@router.get("/shops/{share_code}/favorites", response_model=list[ProductOut])
-def read_favorites(
-    share_code: str,
-    user: User = Depends(require_customer),
-    db: Session = Depends(get_db),
-):
-    return _product_rows(db, user, share_code, favorite_products(db, user, share_code))
+@router.get("/favorites", response_model=list[SavedProductOut])
+def read_favorites(user: User = Depends(require_customer), db: Session = Depends(get_db)):
+    """跨店铺的收藏。下架或禁售的商品也返回，前端按 shelf_label 加标注。"""
+    return serialize_saved_list(db, user, favorite_products(db, user))
 
 
-@router.post("/shops/{share_code}/favorites/{product_id}")
+@router.post("/favorites/{product_id}")
 def switch_favorite(
-    share_code: str,
     product_id: int,
     user: User = Depends(require_customer),
     db: Session = Depends(get_db),
 ):
-    shop = shop_by_code(db, share_code)
-    return toggle_favorite(db, user, share_code, product_id, shop.id)
+    return toggle_favorite(db, user, product_id)
 
 
-@router.get("/shops/{share_code}/history", response_model=list[ProductOut])
-def read_history(
-    share_code: str,
-    user: User = Depends(require_customer),
-    db: Session = Depends(get_db),
-):
-    return _product_rows(db, user, share_code, history_products(db, user, share_code))
+@router.get("/history", response_model=list[SavedProductOut])
+def read_history(user: User = Depends(require_customer), db: Session = Depends(get_db)):
+    """浏览记录同样是跨店铺的，只保留最近 7 天。"""
+    return serialize_saved_list(db, user, history_products(db, user))
 
 
-@router.delete("/shops/{share_code}/history")
-def wipe_history(
-    share_code: str,
-    user: User = Depends(require_customer),
-    db: Session = Depends(get_db),
-):
-    shop = shop_by_code(db, share_code)
-    clear_history(user, share_code, shop.id)
+@router.delete("/history")
+def wipe_history(user: User = Depends(require_customer)):
+    clear_history(user)
     return {"ok": True}
 
 

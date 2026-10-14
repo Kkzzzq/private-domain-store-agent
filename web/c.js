@@ -1,4 +1,5 @@
-const code = new URLSearchParams(location.search).get("code") || "nanzhi";
+const params = new URLSearchParams(location.search);
+let code = params.get("code") || "nanzhi";
 const api = createApi("token_c");
 
 let shop = null;
@@ -25,7 +26,13 @@ function h(tag, className, text) {
 
 function route() {
   const parts = (location.hash || "#/").slice(1).split("/").filter(Boolean);
-  return { name: parts[0] || "home", id: parts[1] || "" };
+  const name = parts[0] || "home";
+  const rest = parts.slice(1);
+  // 详情页支持 #/product/<id> 和 #/product/<店铺码>/<id> 两种写法，
+  // 带着店铺码才能从收藏里跳到别家店的商品。
+  const shop = rest.length > 1 ? rest[0] : "";
+  const id = rest.length > 1 ? rest[1] : rest[0] || "";
+  return { name, shop, id };
 }
 
 function go(hash) {
@@ -55,6 +62,13 @@ function discountLabel(text) {
 async function render() {
   const gen = ++renderGen;
   const root = document.querySelector("#app");
+  // 进了别家店的商品，把整个页面的上下文切过去
+  const current = route();
+  if (current.name === "product" && current.shop && current.shop !== code) {
+    code = current.shop;
+    shop = null;
+    cats = null;
+  }
   if (!shop) {
     try {
       shop = await api(`/api/v1/c/shops/${code}`);
@@ -97,11 +111,15 @@ async function render() {
   watchCountdowns();
 }
 
-/* ---------------- 顶部通栏 ---------------- */
+/* ---------------- 顶部通栏：店铺名 + 购物车 / 订单 / 收藏 / 浏览记录 ---------------- */
 function renderStrip() {
   const bar = h("div", "strip");
   const inner = h("div", "wrap");
+
   const left = h("div", "row");
+  const brand = h("a", "strip-shop hvr-underline-from-center", shop.name);
+  brand.href = "#/";
+  left.append(brand);
   if (loggedIn()) {
     left.append(h("span", "who", "亲，欢迎回来"));
     const out = h("button", "", "退出");
@@ -115,22 +133,26 @@ function renderStrip() {
   } else {
     const login = h("button", "", "亲，请登录");
     login.addEventListener("click", loginModal);
-    left.append(login, h("span", "muted", "免费注册"));
+    left.append(login);
   }
+
   const nav = h("nav");
-  [["#/orders", "我的订单"], ["#/reviews", "待评价"], ["#/favorites", "我的收藏"], ["#/history", "浏览记录"], ["#/cart", "购物车"]].forEach(
-    ([href, label]) => {
-      const link = h("a", "", label);
-      link.href = href;
-      nav.append(link);
-    }
-  );
-  const help = h("button", "", "联系店主");
+  const cart = h("a", "hvr-grow", cartCount ? `购物车（${cartCount}）` : "购物车");
+  cart.href = "#/cart";
+  const orders = h("a", "hvr-grow", "订单中心");
+  orders.href = "#/orders";
+  const favs = h("a", "hvr-grow", "我的收藏");
+  favs.href = "#/favorites";
+  const history = h("a", "hvr-grow", "浏览记录");
+  history.href = "#/history";
+  nav.append(cart, orders, favs, history);
+  const help = h("button", "hvr-grow", "联系店主");
   help.addEventListener("click", () => {
     chatOpen = true;
     render();
   });
   nav.append(help);
+
   inner.append(left, nav);
   bar.append(inner);
   return bar;
@@ -295,7 +317,7 @@ function heroCarousel(banners) {
     caption.append(h("p", "", banner.subtitle || shop.notice || "小批量手作，每一件都会有一点手工的痕迹。"));
     const go_ = h("button", "btn-buy btn-big go", banner.link_type === "none" ? "进店逛逛" : "去看看");
     go_.addEventListener("click", () => {
-      if (banner.link_type === "product" && banner.link_value) go(`#/product/${banner.link_value}`);
+      if (banner.link_type === "product" && banner.link_value) go(`#/product/${code}/${banner.link_value}`);
       else if (banner.link_type === "section") {
         document.getElementById(`sec-${banner.link_value}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
       } else {
@@ -593,7 +615,7 @@ function renderPromises() {
 async function toggleFavorite(product, button) {
   if (!requireLogin()) return;
   try {
-    const result = await api(`/api/v1/c/shops/${code}/favorites/${product.id}`, { method: "POST" });
+    const result = await api(`/api/v1/c/favorites/${product.id}`, { method: "POST" });
     toast(result.detail, "ok");
     // 只改按钮状态，不整页重渲染，避免和登录后的刷新撞车。
     if (button) {
@@ -614,7 +636,7 @@ async function toggleFavorite(product, button) {
 function productCard(product) {
   const card = h("article", "pcard");
   const thumb = h("a", "thumb");
-  thumb.href = `#/product/${product.id}`;
+  thumb.href = `#/product/${code}/${product.id}`;
   const image = document.createElement("img");
   image.src = cover(product.image_url);
   image.alt = product.name;
@@ -655,7 +677,7 @@ function productCard(product) {
 
   const body = h("div", "body");
   const title = h("a", "title", product.name);
-  title.href = `#/product/${product.id}`;
+  title.href = `#/product/${code}/${product.id}`;
   body.append(title);
 
   const meta = h("div", "meta");
@@ -1047,57 +1069,138 @@ function renderProductSection(product, reviews) {
   return section;
 }
 
-/* ---------------- 收藏 / 浏览记录 ---------------- */
-async function renderFavorites() {
-  if (!requireLogin()) {
-    return emptyPanel("请先登录买家账号", "登录后可以看到收藏的商品", "立即登录", loginModal);
+/* ---------------- 收藏 / 浏览记录（跨店铺，下架的也保留） ---------------- */
+/** 这两个页面里的卡片要带店铺名和上下架标注，所以单独做一套。 */
+function savedCard(item, { showRemove = false } = {}) {
+  const card = h("article", item.available ? "pcard" : "pcard dim");
+  const thumb = h("div", "thumb");
+  const image = document.createElement("img");
+  image.src = cover(item.image_url);
+  image.alt = item.name;
+  image.loading = "lazy";
+  thumb.append(image);
+  const off = discountOf(item.price_from, item.market_from);
+  if (off) thumb.append(h("span", "tag", off));
+  if (!item.available) thumb.append(h("span", "shelf-flag", item.shelf_label));
+  card.append(thumb);
+
+  const body = h("div", "body");
+  const title = h("a", "title", item.name);
+  const detailHref = `#/product/${item.shop_share_code}/${item.id}`;
+  if (item.available) {
+    title.href = detailHref;
+  } else {
+    // 下架或禁售的商品没有详情页，点了给个说明
+    title.href = "javascript:void(0)";
+    title.addEventListener("click", () => toast(`该商品${item.shelf_label}，暂时看不了详情`));
   }
-  const products = await api(`/api/v1/c/shops/${code}/favorites`);
+  body.append(title);
+
+  const meta = h("div", "meta");
+  const shopLink = h("a", "link hvr-underline-from-center", item.shop_name || "本店");
+  shopLink.href = item.available ? detailHref : "javascript:void(0)";
+  const stars = h("span", "stars");
+  stars.append(ratingStars(item.rating_avg || 0), document.createTextNode(ratingText(item.rating_avg, item.review_count)));
+  meta.append(shopLink, stars);
+  body.append(meta);
+
+  const foot = h("div", "foot");
+  const price = h("div", "price");
+  price.append(h("i", "", "¥"), h("b", "", Number(item.price_from || 0).toFixed(2)));
+  if (item.market_from) price.append(h("span", "price-was", `¥${Number(item.market_from).toFixed(2)}`));
+  foot.append(price);
+  if (!item.available) foot.append(h("span", "ship-tag off", item.shelf_label));
+  else foot.append(h("span", "ship-tag", "包邮"));
+  body.append(foot);
+
+  const actions = h("div", "saved-actions");
+  if (item.available) {
+    const add = h("button", "btn-cart btn-mini", "加入购物车");
+    add.addEventListener("click", async () => {
+      const sku = (item.skus || []).find((row) => row.purchasable);
+      if (!sku) return toast("这件商品暂时缺货", "bad");
+      try {
+        const cart = await api(`/api/v1/c/shops/${item.shop_share_code}/cart`, {
+          method: "POST",
+          body: JSON.stringify({ sku_id: sku.id, quantity: 1 }),
+        });
+        cartCount = cart.items.reduce((sum, row) => sum + row.quantity, 0);
+        toast("已加入购物车", "ok");
+        render();
+      } catch (error) {
+        toast(error.message, "bad");
+      }
+    });
+    actions.append(add);
+  } else {
+    const gone = h("button", "btn-ghost btn-mini", "已不可购买");
+    gone.disabled = true;
+    actions.append(gone);
+  }
+  if (showRemove) {
+    const remove = h("button", "btn-ghost btn-mini", "取消收藏");
+    remove.addEventListener("click", async () => {
+      await api(`/api/v1/c/favorites/${item.id}`, { method: "POST" });
+      toast("已取消收藏", "ok");
+      render();
+    });
+    actions.append(remove);
+  }
+  body.append(actions);
+  card.append(body);
+  return card;
+}
+
+function savedPanel(title, items, { showRemove = false, onClear = null, note = "" } = {}) {
   const box = h("div");
   const panel = h("div", "panel");
-  panel.append(h("h2", "panel-title", `我的收藏（${products.length}）`));
-  if (!products.length) {
-    box.append(panel, emptyPanel("还没有收藏任何商品", "点商品图右上角的心形就能收藏", "去逛逛", () => go("#/")));
+  const head = h("h2", "panel-title", `${title}（${items.length}）`);
+  if (onClear && items.length) {
+    const clear = h("button", "btn-ghost btn-mini", "清空记录");
+    clear.style.marginLeft = "auto";
+    clear.addEventListener("click", onClear);
+    head.append(clear);
+  }
+  panel.append(head);
+  if (note) panel.append(h("p", "muted", note));
+  if (!items.length) {
+    panel.append(h("p", "muted", "这里还是空的。"));
+    box.append(panel);
     return box;
   }
   const grid = h("div", "grid");
   grid.style.padding = "0";
-  products.forEach((product) => grid.append(productCard(product)));
+  items.forEach((item) => grid.append(savedCard(item, { showRemove })));
   panel.append(grid);
   box.append(panel);
   return box;
+}
+
+async function renderFavorites() {
+  if (!requireLogin()) {
+    return emptyPanel("请先登录买家账号", "登录后可以看到收藏的商品", "立即登录", loginModal);
+  }
+  const items = await api("/api/v1/c/favorites");
+  const offline = items.filter((item) => !item.available).length;
+  return savedPanel("我的收藏", items, {
+    showRemove: true,
+    note: `不同店铺的商品可以收在一起。${offline ? `其中 ${offline} 件已经下架或禁售，仍然留在这里。` : ""}`,
+  });
 }
 
 async function renderHistory() {
   if (!requireLogin()) {
     return emptyPanel("请先登录买家账号", "登录后可以看到浏览记录", "立即登录", loginModal);
   }
-  const products = await api(`/api/v1/c/shops/${code}/history`);
-  const box = h("div");
-  const panel = h("div", "panel");
-  const title = h("h2", "panel-title", `浏览记录（${products.length}）`);
-  if (products.length) {
-    const wipe = h("button", "btn-ghost btn-mini", "清空");
-    wipe.style.marginLeft = "auto";
-    wipe.addEventListener("click", async () => {
-      await api(`/api/v1/c/shops/${code}/history`, { method: "DELETE" });
+  const items = await api("/api/v1/c/history");
+  return savedPanel("浏览记录", items, {
+    note: "只保留最近 7 天看过的商品，不分店铺。",
+    onClear: async () => {
+      await api("/api/v1/c/history", { method: "DELETE" });
       toast("浏览记录已清空", "ok");
       render();
-    });
-    title.append(wipe);
-  }
-  panel.append(title);
-  if (!products.length) {
-    panel.append(h("p", "muted", "最近没有浏览过商品。"));
-    box.append(panel);
-    return box;
-  }
-  const grid = h("div", "grid");
-  grid.style.padding = "0";
-  products.forEach((product) => grid.append(productCard(product)));
-  panel.append(grid);
-  box.append(panel);
-  return box;
+    },
+  });
 }
 
 /* ---------------- 待评价 ---------------- */
@@ -1217,7 +1320,7 @@ async function renderCart() {
     image.alt = item.product_name;
     const name = h("div");
     const title = h("a", "", item.product_name);
-    title.href = `#/product/${item.product_id}`;
+    title.href = `#/product/${code}/${item.product_id}`;
     title.className = "link";
     name.append(title, h("div", "muted", `规格：${item.spec}`));
     if (!item.available) name.append(h("div", "pill banned", item.reason));

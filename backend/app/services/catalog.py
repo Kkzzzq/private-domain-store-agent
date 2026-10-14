@@ -167,7 +167,7 @@ def list_c_products(
         get_redis().set_json(cache_key, data, ex=60)
         cached = data
     # 收藏状态因人而异，不进缓存。
-    favorites = favorite_ids(db, user, shop.id)
+    favorites = favorite_ids(db, user)
     rows = [{**item, "favorited": item["id"] in favorites} for item in cached]
     if limit is None:
         return rows[offset:] if offset else rows
@@ -190,7 +190,7 @@ def get_c_product(db: Session, share_code: str, product_id: int, user: User | No
     if product is None or not listed_on_c(product):
         raise HTTPException(status_code=404, detail="没有找到这个商品")
     ratings = rating_map(db, [product.id])
-    favorites = favorite_ids(db, user, shop.id)
+    favorites = favorite_ids(db, user)
     return serialize_product(product, audience="c", ratings=ratings, favorites=favorites)
 
 

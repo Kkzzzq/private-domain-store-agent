@@ -112,6 +112,15 @@ class ProductOut(BaseModel):
     skus: list[SkuOut]
 
 
+class SavedProductOut(ProductOut):
+    """收藏和浏览记录里的商品。跨店铺，下架的也保留，所以额外带店铺和状态信息。"""
+
+    shop_name: str
+    shop_share_code: str
+    shelf_label: str
+    available: bool
+
+
 class OrderLine(BaseModel):
     sku_id: int = Field(ge=1)
     quantity: int = Field(ge=1, le=20)

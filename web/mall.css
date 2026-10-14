@@ -579,6 +579,133 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .quote .name { font-size: 13px; }
 .quote p { color: var(--ink-2); font-size: 13px; line-height: 1.75; }
 
+/* ---------- 悬停效果 ----------
+   抄自 Hover.css（MIT，github.com/IanLunn/Hover），只取用到的几个，
+   放在这里避免为了几个效果引整份样式表。 */
+.hvr-grow {
+  display: inline-block;
+  vertical-align: middle;
+  transform: translateZ(0);
+  box-shadow: 0 0 1px rgba(0, 0, 0, 0);
+  backface-visibility: hidden;
+  -moz-osx-font-smoothing: grayscale;
+  transition-duration: 0.3s;
+  transition-property: transform;
+}
+.hvr-grow:hover, .hvr-grow:focus, .hvr-grow:active { transform: scale(1.12); }
+
+.hvr-float {
+  display: inline-block;
+  vertical-align: middle;
+  transform: translateZ(0);
+  box-shadow: 0 0 1px rgba(0, 0, 0, 0);
+  backface-visibility: hidden;
+  transition-duration: 0.3s;
+  transition-property: transform;
+  transition-timing-function: ease-out;
+}
+.hvr-float:hover, .hvr-float:focus, .hvr-float:active { transform: translateY(-4px); }
+
+.hvr-underline-from-center {
+  display: inline-block;
+  vertical-align: middle;
+  transform: perspective(1px) translateZ(0);
+  position: relative;
+  overflow: hidden;
+}
+.hvr-underline-from-center::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 51%;
+  right: 51%;
+  bottom: 0;
+  background: var(--primary);
+  height: 2px;
+  transition-property: left, right;
+  transition-duration: 0.3s;
+  transition-timing-function: ease-out;
+}
+.hvr-underline-from-center:hover::before,
+.hvr-underline-from-center:focus::before,
+.hvr-underline-from-center:active::before { left: 0; right: 0; }
+
+/* 按钮上的高光扫过，来自 Hover.css 的 hvr-shine 思路 */
+.btn-buy, .btn-cart, .btn, .hvr-shine { position: relative; overflow: hidden; }
+.btn-buy::before, .btn-cart::before, .btn::before, .hvr-shine::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -75%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+  transform: skewX(-20deg);
+  pointer-events: none;
+}
+.btn-buy:hover::before, .btn-cart:hover::before, .btn:hover::before, .hvr-shine:hover::before {
+  animation: shine-sweep 0.75s;
+}
+@keyframes shine-sweep { to { left: 125%; } }
+
+/* 导航和分类：悬停时从左往右长出一条主题色下划线 */
+.navbar button, .navbar a { position: relative; }
+.navbar button::after, .navbar a::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  right: 50%;
+  bottom: 4px;
+  height: 2px;
+  background: var(--primary);
+  transition: left 0.28s ease-out, right 0.28s ease-out;
+}
+.navbar button:hover::after, .navbar a:hover::after, .navbar a.on::after {
+  left: 18px;
+  right: 18px;
+}
+
+/* 后台行内按钮轻微放大 */
+.table .ops button:hover, .table .ops a:hover,
+.banner-row .ops button:hover:not(:disabled), .sec-row .ops button:hover, .quote-row .ops button:hover {
+  transform: translateY(-1px);
+}
+.table .ops button, .table .ops a, .banner-row .ops button, .sec-row .ops button, .quote-row .ops button {
+  transition: transform 0.15s, border-color 0.15s, color 0.15s;
+}
+
+/* 卡片悬停时用主题色描一圈，参考 micro-interactions-library 的 glow card */
+.pcard { position: relative; }
+.pcard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  transition: border-color 0.22s, box-shadow 0.22s;
+  pointer-events: none;
+}
+.pcard:hover::after {
+  border-color: color-mix(in srgb, var(--theme) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme) 12%, transparent);
+}
+
+/* ---------- 顶部通栏里的店铺名 ---------- */
+.strip-shop { font-weight: 600; color: var(--theme); font-size: 13px; }
+
+/* ---------- 收藏 / 浏览记录 ---------- */
+.pcard.dim .thumb img { filter: grayscale(0.85) opacity(0.72); }
+.pcard.dim:hover { transform: none; box-shadow: var(--shadow); }
+.shelf-flag {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  background: rgba(40, 36, 33, 0.86); color: #fff; font-size: 12px; letter-spacing: 2px;
+  padding: 5px 14px; border-radius: 4px; white-space: nowrap;
+}
+.ship-tag.off { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, #fff); background: color-mix(in srgb, var(--danger) 7%, #fff); }
+.saved-actions { display: flex; gap: 8px; margin-top: 10px; }
+.saved-actions button { flex: 1; }
+.pcard .body .stars { font-size: 12px; }
+
 /* ================= 空态 / 骨架 ================= */
 .empty { text-align: center; padding: 70px 20px; color: var(--muted); background: #fff; border-radius: var(--radius); }
 .empty .icon { font-size: 46px; opacity: 0.4; }

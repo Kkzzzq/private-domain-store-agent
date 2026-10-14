@@ -106,7 +106,7 @@ def home_content(db: Session, share_code: str, user: User | None = None) -> dict
 
     visible = _visible_products(db, shop)
     ratings = rating_map(db, [product.id for product in visible])
-    favorites = favorite_ids(db, user, shop.id)
+    favorites = favorite_ids(db, user)
 
     def as_dict(product: Product) -> dict:
         return serialize_product(product, audience="c", ratings=ratings, favorites=favorites)
