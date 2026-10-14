@@ -53,12 +53,12 @@ def test_new_sku_can_carry_an_image(client):
 
 def test_saved_lists_carry_sku_images(client):
     alice = login(client, "alice")
-    client.post("/api/v1/c/favorites/1", headers=alice)
-    rows = client.get("/api/v1/c/favorites", headers=alice).json()
+    client.get("/api/v1/c/shops/nanzhi/products/1", headers=alice)
+    rows = client.get("/api/v1/c/history", headers=alice).json()
     pillow = find(rows, "亚麻抱枕套")
     assert pillow["skus"][0]["image_url"] == "/covers/pillow.jpg"
 
-    client.post("/api/v1/c/favorites/1", headers=alice)
+    client.delete("/api/v1/c/history", headers=alice)
 
 
 def test_product_creation_accepts_sku_images(client):

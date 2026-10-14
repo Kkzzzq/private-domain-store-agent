@@ -1,4 +1,4 @@
-"""收藏和浏览记录是跨店铺的，下架商品保留但带标注。"""
+"""浏览记录是跨店铺的，下架商品保留但带标注。"""
 
 import time
 
@@ -6,7 +6,7 @@ from test_bc_link import find, login
 
 
 def _open_second_shop(client) -> dict:
-    """再开一家店，用来验证收藏和浏览记录不分店铺。"""
+    """再开一家店，用来验证浏览记录不分店铺。"""
     reg = client.post(
         "/api/v1/auth/register",
         json={"username": "othershop", "password": "other123", "role": "merchant", "nickname": "别家"},
@@ -20,26 +20,6 @@ def _open_second_shop(client) -> dict:
     ).json()
     client.post(f"/api/v1/b/products/{product['id']}/status", headers=headers, json={"action": "on"})
     return {"headers": headers, "shop": shop, "product": product}
-
-
-def test_favorites_span_shops(client):
-    alice = login(client, "alice")
-    other = _open_second_shop(client)
-    pillow = find(client.get("/api/v1/c/shops/nanzhi/products").json(), "亚麻抱枕套")
-    foreign = other["product"]
-
-    assert client.post(f"/api/v1/c/favorites/{pillow['id']}", headers=alice).json()["favorited"] is True
-    assert client.post(f"/api/v1/c/favorites/{foreign['id']}", headers=alice).json()["favorited"] is True
-
-    rows = client.get("/api/v1/c/favorites", headers=alice).json()
-    assert [item["name"] for item in rows] == ["别家茶杯", "亚麻抱枕套"]
-    assert {item["shop_name"] for item in rows} == {"南枝手作", "别家"}
-    assert all(item["available"] for item in rows)
-
-    # 两家店的商品都能取消收藏，且互不影响
-    assert client.post(f"/api/v1/c/favorites/{pillow['id']}", headers=alice).json()["favorited"] is False
-    rows = client.get("/api/v1/c/favorites", headers=alice).json()
-    assert [item["name"] for item in rows] == ["别家茶杯"]
 
 
 def test_history_spans_shops_and_keeps_order(client):
@@ -61,6 +41,28 @@ def test_history_spans_shops_and_keeps_order(client):
     client.get(f"/api/v1/c/shops/nanzhi/products/{pillow['id']}", headers=alice)
     rows = client.get("/api/v1/c/history", headers=alice).json()
     assert [item["name"] for item in rows] == ["亚麻抱枕套", "别家茶杯", "陶瓷马克杯"]
+
+
+def test_history_is_per_user(client):
+    alice = login(client, "alice")
+    bob = login(client, "bob")
+    pillow = find(client.get("/api/v1/c/shops/nanzhi/products").json(), "亚麻抱枕套")
+
+    client.get(f"/api/v1/c/shops/nanzhi/products/{pillow['id']}", headers=alice)
+    assert [item["name"] for item in client.get("/api/v1/c/history", headers=alice).json()] == ["亚麻抱枕套"]
+    assert client.get("/api/v1/c/history", headers=bob).json() == []
+
+    client.delete("/api/v1/c/history", headers=alice)
+    assert client.get("/api/v1/c/history", headers=alice).json() == []
+
+
+def test_anonymous_visits_are_not_recorded(client):
+    alice = login(client, "alice")
+    pillow = find(client.get("/api/v1/c/shops/nanzhi/products").json(), "亚麻抱枕套")
+
+    # 没带 token 的浏览不该算进任何人的记录
+    client.get(f"/api/v1/c/shops/nanzhi/products/{pillow['id']}")
+    assert client.get("/api/v1/c/history", headers=alice).json() == []
 
 
 def test_history_drops_entries_older_than_seven_days(client):
@@ -85,15 +87,16 @@ def test_history_drops_entries_older_than_seven_days(client):
     assert names == ["陶瓷马克杯"]
 
 
-def test_off_shelf_items_stay_in_favorites_with_label(client):
+def test_off_shelf_items_stay_in_history_with_label(client):
     alice = login(client, "alice")
     merchant = login(client, "merchant")
     products = client.get("/api/v1/c/shops/nanzhi/products").json()
     pillow = find(products, "亚麻抱枕套")
     mug = find(products, "陶瓷马克杯")
 
-    client.post(f"/api/v1/c/favorites/{pillow['id']}", headers=alice)
-    client.post(f"/api/v1/c/favorites/{mug['id']}", headers=alice)
+    # 先在售的时候看一眼，记录才进得去
+    client.get(f"/api/v1/c/shops/nanzhi/products/{pillow['id']}", headers=alice)
+    client.get(f"/api/v1/c/shops/nanzhi/products/{mug['id']}", headers=alice)
 
     # 下架抱枕，禁售马克杯
     client.post(f"/api/v1/b/products/{pillow['id']}/status", headers=merchant, json={"action": "off"})
@@ -105,8 +108,8 @@ def test_off_shelf_items_stay_in_favorites_with_label(client):
     assert client.get(f"/api/v1/c/shops/nanzhi/products/{pillow['id']}").status_code == 404
     assert client.get(f"/api/v1/c/shops/nanzhi/products/{mug['id']}").status_code == 404
 
-    # 收藏页保留，并带上标注
-    rows = client.get("/api/v1/c/favorites", headers=alice).json()
+    # 浏览记录保留，并带上标注
+    rows = client.get("/api/v1/c/history", headers=alice).json()
     by_name = {item["name"]: item for item in rows}
     assert set(by_name) == {"亚麻抱枕套", "陶瓷马克杯"}
     assert by_name["亚麻抱枕套"]["shelf_label"] == "已下架"
@@ -117,20 +120,14 @@ def test_off_shelf_items_stay_in_favorites_with_label(client):
     assert by_name["亚麻抱枕套"]["price_from"] == 59
     assert all(not sku["purchasable"] for sku in by_name["亚麻抱枕套"]["skus"])
 
-    # 浏览记录同样保留并标注
-    history = client.get("/api/v1/c/history", headers=alice).json()
-    for item in history:
-        if item["id"] in {pillow["id"], mug["id"]}:
-            assert item["shelf_label"] in {"已下架", "已禁售"}
-
 
 def test_closed_shop_marks_items_as_unavailable(client):
     alice = login(client, "alice")
     merchant = login(client, "merchant")
     pillow = find(client.get("/api/v1/c/shops/nanzhi/products").json(), "亚麻抱枕套")
-    client.post(f"/api/v1/c/favorites/{pillow['id']}", headers=alice)
+    client.get(f"/api/v1/c/shops/nanzhi/products/{pillow['id']}", headers=alice)
     client.patch("/api/v1/b/shop", headers=merchant, json={"status": "closed"})
 
-    rows = client.get("/api/v1/c/favorites", headers=alice).json()
+    rows = client.get("/api/v1/c/history", headers=alice).json()
     assert rows[0]["shelf_label"] == "店铺停业"
     assert rows[0]["available"] is False

@@ -50,7 +50,7 @@ def get_optional_user(
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: Session = Depends(get_db),
 ) -> User | None:
-    """买家端有些接口不登录也能看，登录了才带收藏状态。"""
+    """买家端有些接口不登录也能看。"""
     if creds is None:
         return None
     try:

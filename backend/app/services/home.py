@@ -20,10 +20,8 @@ from app.services.catalog import (
     shop_by_code,
 )
 from app.services.categories import shop_category_names
-from app.services.engagement import favorite_ids
 from app.services.reviews import rating_map
 from app.services.shelf import listed_on_c
-
 SECTION_LIMIT = 6
 
 
@@ -107,10 +105,9 @@ def home_content(db: Session, share_code: str, user: User | None = None) -> dict
 
     visible = _visible_products(db, shop)
     ratings = rating_map(db, [product.id for product in visible])
-    favorites = favorite_ids(db, user)
 
     def as_dict(product: Product) -> dict:
-        return serialize_product(product, audience="c", ratings=ratings, favorites=favorites)
+        return serialize_product(product, audience="c", ratings=ratings)
 
     rows = []
     for section in sections:
@@ -203,7 +200,6 @@ def collection_page(
         rows.sort(key=lambda product: product.sales_count, reverse=True)
 
     ratings = rating_map(db, [product.id for product in rows])
-    favorites = favorite_ids(db, user)
     return {
         "key": key,
         "title": title,
@@ -212,9 +208,7 @@ def collection_page(
         "categories": categories,
         "category_counts": counts,
         "total": len(pool),
-        "products": [
-            serialize_product(product, audience="c", ratings=ratings, favorites=favorites) for product in rows
-        ],
+        "products": [serialize_product(product, audience="c", ratings=ratings) for product in rows],
     }
 
 

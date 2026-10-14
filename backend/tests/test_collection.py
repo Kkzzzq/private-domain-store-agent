@@ -78,12 +78,11 @@ def test_collection_hides_everything_when_shop_closed(client):
     assert page["total"] == 0
 
 
-def test_collection_carries_favorite_state(client):
+def test_collection_is_the_same_for_everyone(client):
+    """合集页的商品列表不再带因人而异的状态，登录与否看到的是同一份。"""
     alice = login(client, "alice")
     pillow = find(client.get("/api/v1/c/shops/nanzhi/products").json(), "亚麻抱枕套")
-    client.post(f"/api/v1/c/favorites/{pillow['id']}", headers=alice)
-    page = client.get("/api/v1/c/shops/nanzhi/collections/all", headers=alice).json()
-    row = next(item for item in page["products"] if item["id"] == pillow["id"])
-    assert row["favorited"] is True
-    anon = client.get("/api/v1/c/shops/nanzhi/collections/all").json()
-    assert next(item for item in anon["products"] if item["id"] == pillow["id"])["favorited"] is False
+    with_user = client.get("/api/v1/c/shops/nanzhi/collections/all", headers=alice).json()
+    anonymous = client.get("/api/v1/c/shops/nanzhi/collections/all").json()
+    assert with_user["products"] == anonymous["products"]
+    assert "favorited" not in next(item for item in with_user["products"] if item["id"] == pillow["id"])

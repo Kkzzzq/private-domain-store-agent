@@ -14,6 +14,7 @@ let addressId = null;
 let cartCount = 0;
 let cartPick = null;
 let renderGen = 0;
+let lastRoute = "";
 let pendingDeadlines = {};
 let tickTimer = null;
 
@@ -29,7 +30,7 @@ function route() {
   const name = parts[0] || "home";
   const rest = parts.slice(1);
   // 详情页支持 #/product/<id> 和 #/product/<店铺码>/<id> 两种写法，
-  // 带着店铺码才能从收藏里跳到别家店的商品。
+  // 带着店铺码才能从浏览记录里跳到别家店的商品。
   const shop = rest.length > 1 ? rest[0] : "";
   const id = rest.length > 1 ? rest[1] : rest[0] || "";
   return { name, shop, id };
@@ -64,6 +65,10 @@ async function render() {
   const root = document.querySelector("#app");
   // 进了别家店的商品，把整个页面的上下文切过去
   const current = route();
+  // 只要换了页面，就把滚动位置拉回顶部。否则从很长的首页点进详情页会停在底部。
+  const here = [current.name, current.shop, current.id].join("/");
+  const moved = here !== lastRoute;
+  lastRoute = here;
   if (current.name === "product" && current.shop && current.shop !== code) {
     code = current.shop;
     shop = null;
@@ -106,10 +111,12 @@ async function render() {
   page.append(view);
   root.replaceChildren(renderStrip(), page, renderFooter(), renderChatToggle());
   if (chatOpen) root.append(renderChat());
+  // 换页才回顶，同页内的筛选、加购刷新不动滚动位置
+  if (moved) window.scrollTo({ top: 0, left: 0 });
   watchCountdowns();
 }
 
-/* ---------------- 顶部一行：店铺名 + 购物车 / 订单 / 收藏 / 浏览记录 ---------------- */
+/* ---------------- 顶部一行：店铺名 + 购物车 / 订单 / 浏览记录 ---------------- */
 function renderStrip() {
   const bar = h("div", shop.strip_tint === false ? "strip" : "strip tinted");
   const inner = h("div", "wrap");
@@ -139,11 +146,9 @@ function renderStrip() {
   cart.href = "#/cart";
   const orders = h("a", "hvr-grow", "订单中心");
   orders.href = "#/orders";
-  const favs = h("a", "hvr-grow", "我的收藏");
-  favs.href = "#/favorites";
   const history = h("a", "hvr-grow", "浏览记录");
   history.href = "#/history";
-  nav.append(cart, orders, favs, history);
+  nav.append(cart, orders, history);
 
   inner.append(left, nav);
   bar.append(inner);
@@ -157,7 +162,6 @@ async function renderView() {
   if (current.name === "cart") return renderCart();
   if (current.name === "checkout") return renderCheckout();
   if (current.name === "orders") return renderOrders(current.id);
-  if (current.name === "favorites") return renderFavorites();
   if (current.name === "history") return renderHistory();
   if (current.name === "reviews") return renderPendingReviews();
   return renderHome();
@@ -575,39 +579,22 @@ function renderPromises(rows) {
   return box;
 }
 
-async function toggleFavorite(product, button) {
-  if (!requireLogin()) return;
-  try {
-    const result = await api(`/api/v1/c/favorites/${product.id}`, { method: "POST" });
-    toast(result.detail, "ok");
-    // 只改按钮状态，不整页重渲染，避免和登录后的刷新撞车。
-    if (button) {
-      button.classList.toggle("on", result.favorited);
-      button.textContent = button.classList.contains("fav")
-        ? result.favorited
-          ? "♥"
-          : "♡"
-        : result.favorited
-          ? "♥ 已收藏"
-          : "♡ 收藏";
-    }
-  } catch (error) {
-    toast(error.message, "bad");
-  }
-}
-
-/* 卡片左上角的角标：优先用商家自定义的标签，没挂标签时退回折扣 / 热销 */
+/* 卡片左上角的角标：优先用商家自定义的标签，没挂标签时退回折扣 / 热销。
+   标签底色和字色都由商家配的那个颜色推出来（浅底 + 同色字），不用白字。 */
 function tagBadge(product) {
   const custom = (product.tags || [])[0];
-  if (custom) {
-    const node = h("span", "tag", custom.name);
-    if (custom.color) node.style.background = custom.color;
-    return node;
-  }
-  const off = discountOf(product.price_from, product.market_from);
-  if (off) return h("span", "tag", off);
-  if (product.sales_count >= 50) return h("span", "tag", "热销");
-  return null;
+  const node = custom
+    ? h("span", "tag", custom.name)
+    : (() => {
+        const off = discountOf(product.price_from, product.market_from);
+        if (off) return h("span", "tag", off);
+        if (product.sales_count >= 50) return h("span", "tag", "热销");
+        return null;
+      })();
+  if (!node) return null;
+  node.classList.add("soft");
+  if (custom && custom.color) node.style.setProperty("--tag", custom.color);
+  return node;
 }
 
 function productCard(product) {
@@ -621,20 +608,19 @@ function productCard(product) {
   image.loading = "lazy";
   thumb.append(image);
 
-  // 悬停时在图片顶部浮出名称，平时只有图
-  thumb.append(h("div", "thumb-name", product.name));
+  // 悬停时在图片顶部浮出名称和价格，平时只有图
+  const hover = h("div", "thumb-name");
+  hover.append(h("span", "hover-title", product.name));
+  const hoverPrice = h("span", "hover-price");
+  hoverPrice.append(h("i", "", "¥"), h("b", "", Number(product.price_from || 0).toFixed(2)));
+  if (product.market_from) {
+    hoverPrice.append(h("span", "price-was", `¥${Number(product.market_from).toFixed(2)}`));
+  }
+  hover.append(hoverPrice);
+  thumb.append(hover);
 
   const badge = tagBadge(product);
   if (badge) thumb.append(badge);
-
-  const fav = h("button", product.favorited ? "fav on" : "fav", product.favorited ? "♥" : "♡");
-  fav.title = product.favorited ? "取消收藏" : "加入收藏";
-  fav.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    toggleFavorite(product, fav);
-  });
-  thumb.append(fav);
 
   // 图片左下角一个小购物车，点了在当前页面弹小窗选规格
   const cart = h("button", "thumb-cart", "🛒");
@@ -645,14 +631,6 @@ function productCard(product) {
     quickBuy(product);
   });
   thumb.append(cart);
-
-  // 图片右下角放最低价
-  const priceBadge = h("div", "thumb-price");
-  priceBadge.append(h("i", "", "¥"), h("b", "", Number(product.price_from || 0).toFixed(2)));
-  if (product.market_from) {
-    priceBadge.append(h("span", "price-was", `¥${Number(product.market_from).toFixed(2)}`));
-  }
-  thumb.append(priceBadge);
 
   card.append(thumb);
   return card;
@@ -967,13 +945,11 @@ function renderBuyBar(product, ctx) {
   words.append(meta);
   const spacer = h("div", "spacer");
   const price = h("div", "p", "");
-  const fav = h("button", product.favorited ? "fav-btn on" : "fav-btn", product.favorited ? "♥ 已收藏" : "♡ 收藏");
-  fav.addEventListener("click", () => toggleFavorite(product, fav));
   const add = h("button", "btn-cart btn-big", "加入购物车");
   const buy = h("button", "btn-buy btn-big", "立即购买");
   add.addEventListener("click", ctx.addToCart);
   buy.addEventListener("click", ctx.buyNow);
-  inner.append(image, words, spacer, price, fav, add, buy);
+  inner.append(image, words, spacer, price, add, buy);
   bar.append(inner);
 
   const refresh = () => {
@@ -1104,7 +1080,6 @@ function renderProductInfo(product, state) {
   const actions = h("div", "actions");
   const add = h("button", "btn-cart btn-big", "加入购物车");
   const buy = h("button", "btn-buy btn-big", "立即购买");
-  const fav = h("button", product.favorited ? "fav-btn on" : "fav-btn", product.favorited ? "♥ 已收藏" : "♡ 收藏");
   const syncActions = () => {
     const usable = Boolean(current && current.purchasable);
     add.disabled = !usable;
@@ -1141,8 +1116,7 @@ function renderProductInfo(product, state) {
   };
   add.addEventListener("click", addToCart);
   buy.addEventListener("click", buyNow);
-  fav.addEventListener("click", () => toggleFavorite(product, fav));
-  actions.append(add, buy, fav);
+  actions.append(add, buy);
   info.append(actions);
   info.append(
     renderBuyBar(product, { addToCart, buyNow, price: () => current?.price_yuan, spec: () => current?.spec })
@@ -1251,9 +1225,9 @@ function renderProductSection(product, reviews) {
   return section;
 }
 
-/* ---------------- 收藏 / 浏览记录（跨店铺，下架的也保留） ---------------- */
-/** 这两个页面里的卡片要带店铺名和上下架标注，所以单独做一套。 */
-function savedCard(item, { showRemove = false } = {}) {
+/* ---------------- 浏览记录（跨店铺，下架的也保留） ---------------- */
+/** 浏览记录的卡片要带店铺名和上下架标注，所以单独做一套。 */
+function savedCard(item) {
   const card = h("article", item.available ? "pcard" : "pcard dim");
   const thumb = h("div", "thumb");
   const image = document.createElement("img");
@@ -1318,21 +1292,12 @@ function savedCard(item, { showRemove = false } = {}) {
     gone.disabled = true;
     actions.append(gone);
   }
-  if (showRemove) {
-    const remove = h("button", "btn-ghost btn-mini", "取消收藏");
-    remove.addEventListener("click", async () => {
-      await api(`/api/v1/c/favorites/${item.id}`, { method: "POST" });
-      toast("已取消收藏", "ok");
-      render();
-    });
-    actions.append(remove);
-  }
   body.append(actions);
   card.append(body);
   return card;
 }
 
-function savedPanel(title, items, { showRemove = false, onClear = null, note = "" } = {}) {
+function savedPanel(title, items, { onClear = null, note = "" } = {}) {
   const box = h("div");
   const panel = h("div", "panel saved-panel");
   const head = h("h2", "panel-title", `${title}（${items.length}）`);
@@ -1350,22 +1315,10 @@ function savedPanel(title, items, { showRemove = false, onClear = null, note = "
     return box;
   }
   const grid = h("div", "grid");
-  items.forEach((item) => grid.append(savedCard(item, { showRemove })));
+  items.forEach((item) => grid.append(savedCard(item)));
   panel.append(grid);
   box.append(panel);
   return box;
-}
-
-async function renderFavorites() {
-  if (!requireLogin()) {
-    return emptyPanel("请先登录买家账号", "登录后可以看到收藏的商品", "立即登录", loginModal);
-  }
-  const items = await api("/api/v1/c/favorites");
-  const offline = items.filter((item) => !item.available).length;
-  return savedPanel("我的收藏", items, {
-    showRemove: true,
-    note: `不同店铺的商品可以收在一起。${offline ? `其中 ${offline} 件已经下架或禁售，仍然留在这里。` : ""}`,
-  });
 }
 
 async function renderHistory() {

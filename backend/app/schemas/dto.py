@@ -150,7 +150,6 @@ class ProductOut(BaseModel):
     limit_per_user: int
     rating_avg: float | None = None
     review_count: int = 0
-    favorited: bool = False
     price_from: float | None = None
     market_from: float | None = None
     tags: list[TagRef] = []
@@ -158,7 +157,7 @@ class ProductOut(BaseModel):
 
 
 class SavedProductOut(ProductOut):
-    """收藏和浏览记录里的商品。跨店铺，下架的也保留，所以额外带店铺和状态信息。"""
+    """浏览记录里的商品。跨店铺，下架的也保留，所以额外带店铺和状态信息。"""
 
     shop_name: str
     shop_share_code: str

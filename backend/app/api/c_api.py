@@ -29,11 +29,9 @@ from app.services.catalog import get_c_product, list_categories, list_c_products
 from app.services.home import collection_page, home_content
 from app.services.engagement import (
     clear_history,
-    favorite_products,
     history_products,
     record_view,
     serialize_saved_list,
-    toggle_favorite,
 )
 from app.services.orders import cancel_order, confirm_order, create_order, list_c_orders, pay_order
 from app.services.reviews import create_review, list_reviews, pending_reviews
@@ -103,24 +101,9 @@ def read_product(
     return product
 
 
-@router.get("/favorites", response_model=list[SavedProductOut])
-def read_favorites(user: User = Depends(require_customer), db: Session = Depends(get_db)):
-    """跨店铺的收藏。下架或禁售的商品也返回，前端按 shelf_label 加标注。"""
-    return serialize_saved_list(db, user, favorite_products(db, user))
-
-
-@router.post("/favorites/{product_id}")
-def switch_favorite(
-    product_id: int,
-    user: User = Depends(require_customer),
-    db: Session = Depends(get_db),
-):
-    return toggle_favorite(db, user, product_id)
-
-
 @router.get("/history", response_model=list[SavedProductOut])
 def read_history(user: User = Depends(require_customer), db: Session = Depends(get_db)):
-    """浏览记录同样是跨店铺的，只保留最近 7 天。"""
+    """浏览记录跨店铺，只保留最近 7 天。"""
     return serialize_saved_list(db, user, history_products(db, user))
 
 

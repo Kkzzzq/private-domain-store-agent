@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session, joinedload
 from app.db.redis_client import get_redis
 from app.models.tables import Product, ProductTagLink, Shop, Sku, User
 from app.schemas.dto import ProductIn, ProductUpdate, ShopUpdate, SkuIn, SkuUpdate
-from app.services.engagement import favorite_ids
 from app.services.reviews import rating_map
 from app.services.shelf import listed_on_c, next_status, visible_skus
 from app.services.tags import sync_product_tags, tags_of
@@ -101,7 +100,6 @@ def serialize_product(
     *,
     audience: str,
     ratings: dict[int, tuple[float, int]] | None = None,
-    favorites: set[int] | None = None,
 ) -> dict:
     if audience == "c":
         skus = visible_skus(product)
@@ -124,7 +122,6 @@ def serialize_product(
         "limit_per_user": product.limit_per_user,
         "rating_avg": average,
         "review_count": count,
-        "favorited": product.id in (favorites or set()),
         "price_from": min((row["price_yuan"] for row in sku_rows), default=None),
         "market_from": min(markets, default=None),
         "tags": tags,
@@ -215,9 +212,7 @@ def list_c_products(
             data.sort(key=lambda item: item["sales_count"], reverse=True)
         get_redis().set_json(cache_key, data, ex=60)
         cached = data
-    # 收藏状态因人而异，不进缓存。
-    favorites = favorite_ids(db, user)
-    rows = [{**item, "favorited": item["id"] in favorites} for item in cached]
+    rows = list(cached)
     if limit is None:
         return rows[offset:] if offset else rows
     return rows[offset : offset + limit]
@@ -247,8 +242,7 @@ def get_c_product(db: Session, share_code: str, product_id: int, user: User | No
     if product is None or not listed_on_c(product):
         raise HTTPException(status_code=404, detail="没有找到这个商品")
     ratings = rating_map(db, [product.id])
-    favorites = favorite_ids(db, user)
-    return serialize_product(product, audience="c", ratings=ratings, favorites=favorites)
+    return serialize_product(product, audience="c", ratings=ratings)
 
 
 def dashboard(db: Session, user: User) -> dict:

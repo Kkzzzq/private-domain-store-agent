@@ -152,22 +152,6 @@ class Address(Base):
     is_default: Mapped[bool] = mapped_column(default=False)
 
 
-class Favorite(Base):
-    """买家收藏商品。同一用户同一商品只留一条。"""
-
-    __tablename__ = "favorites"
-    __table_args__ = (UniqueConstraint("user_id", "product_id", name="uq_favorite_user_product"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-
-    product: Mapped[Product] = relationship()
-    shop: Mapped[Shop] = relationship()
-
-
 class Review(Base):
     """确认收货后可以评价。一条订单明细只能评一次。"""
 
