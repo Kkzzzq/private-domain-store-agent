@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.assistant import assistant
 from app.agent.context import Actor, reset_actor, set_actor
-from app.core.deps import get_current_user, get_db, require_customer
+from app.core.deps import get_current_user, get_db, get_optional_user, require_customer
 from app.models.tables import User
 from app.schemas.dto import (
     AddressIn,
@@ -15,15 +15,41 @@ from app.schemas.dto import (
     ChatOut,
     OrderCreate,
     OrderOut,
+    PendingReview,
     ProductOut,
+    ReviewIn,
+    ReviewOut,
     SessionOut,
     ShopOut,
 )
-from app.services.catalog import get_c_product, list_categories, list_c_products, serialize_shop, shop_by_code
+from app.services.catalog import get_c_product, list_categories, list_c_products, serialize_product, serialize_shop, shop_by_code
+from app.services.engagement import (
+    clear_history,
+    favorite_products,
+    history_products,
+    record_view,
+    toggle_favorite,
+)
 from app.services.orders import cancel_order, confirm_order, create_order, list_c_orders, pay_order
+from app.services.reviews import create_review, list_reviews, pending_reviews
 from app.services.trade import add_cart, cart_view, checkout_cart, create_address, delete_address, list_addresses, remove_cart, update_cart
 
 router = APIRouter(prefix="/c", tags=["c"])
+
+
+def _product_rows(db: Session, user: User, share_code: str, products) -> list[dict]:
+    from app.services.engagement import favorite_ids
+    from app.services.reviews import rating_map
+    from app.services.shelf import listed_on_c
+
+    shop = shop_by_code(db, share_code)
+    visible = [product for product in products if listed_on_c(product)]
+    ratings = rating_map(db, [product.id for product in visible])
+    favorites = favorite_ids(db, user, shop.id)
+    return [
+        serialize_product(product, audience="c", ratings=ratings, favorites=favorites)
+        for product in visible
+    ]
 
 
 @router.get("/shops/{share_code}", response_model=ShopOut)
@@ -42,14 +68,79 @@ def read_products(
     keyword: str = "",
     category: str = "",
     sort: str = "default",
+    user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
-    return list_c_products(db, share_code, keyword=keyword, category=category, sort=sort)
+    return list_c_products(db, share_code, keyword=keyword, category=category, sort=sort, user=user)
 
 
 @router.get("/shops/{share_code}/products/{product_id}", response_model=ProductOut)
-def read_product(share_code: str, product_id: int, db: Session = Depends(get_db)):
-    return get_c_product(db, share_code, product_id)
+def read_product(
+    share_code: str,
+    product_id: int,
+    user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    product = get_c_product(db, share_code, product_id, user)
+    if user is not None and user.role == "customer":
+        record_view(user.id, product["shop_id"], product_id)
+    return product
+
+
+@router.get("/shops/{share_code}/favorites", response_model=list[ProductOut])
+def read_favorites(
+    share_code: str,
+    user: User = Depends(require_customer),
+    db: Session = Depends(get_db),
+):
+    return _product_rows(db, user, share_code, favorite_products(db, user, share_code))
+
+
+@router.post("/shops/{share_code}/favorites/{product_id}")
+def switch_favorite(
+    share_code: str,
+    product_id: int,
+    user: User = Depends(require_customer),
+    db: Session = Depends(get_db),
+):
+    shop = shop_by_code(db, share_code)
+    return toggle_favorite(db, user, share_code, product_id, shop.id)
+
+
+@router.get("/shops/{share_code}/history", response_model=list[ProductOut])
+def read_history(
+    share_code: str,
+    user: User = Depends(require_customer),
+    db: Session = Depends(get_db),
+):
+    return _product_rows(db, user, share_code, history_products(db, user, share_code))
+
+
+@router.delete("/shops/{share_code}/history")
+def wipe_history(
+    share_code: str,
+    user: User = Depends(require_customer),
+    db: Session = Depends(get_db),
+):
+    shop = shop_by_code(db, share_code)
+    clear_history(user, share_code, shop.id)
+    return {"ok": True}
+
+
+@router.get("/shops/{share_code}/products/{product_id}/reviews", response_model=list[ReviewOut])
+def read_reviews(share_code: str, product_id: int, db: Session = Depends(get_db)):
+    shop_by_code(db, share_code)
+    return list_reviews(db, product_id)
+
+
+@router.get("/reviews/pending", response_model=list[PendingReview])
+def read_pending_reviews(user: User = Depends(require_customer), db: Session = Depends(get_db)):
+    return pending_reviews(db, user)
+
+
+@router.post("/reviews", response_model=ReviewOut)
+def add_review(body: ReviewIn, user: User = Depends(require_customer), db: Session = Depends(get_db)):
+    return create_review(db, user, body)
 
 
 @router.get("/shops/{share_code}/cart")

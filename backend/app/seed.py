@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.core.security import hash_password
-from app.models.tables import Address, Order, OrderItem, Product, Shop, Sku, User
+from app.models.tables import Address, Order, OrderItem, Product, Review, Shop, Sku, User
 
 COVERS = {
     "亚麻抱枕套": "/covers/pillow.svg",
@@ -44,6 +44,8 @@ def seed_if_empty(db) -> None:
         merchant_id=merchant.id,
         name="南枝手作",
         notice="这是商家分享的独立店铺。满 99 元包邮，定制品不支持无理由退货。",
+        logo_url="/covers/shop.svg",
+        theme_color="#ff5000",
         share_code="nanzhi",
         status="open",
     )
@@ -138,6 +140,7 @@ def seed_if_empty(db) -> None:
         status="on",
         sort_order=8,
         sales_count=15,
+        limit_per_user=2,
         skus=[Sku(spec="A5 空白", price_cents=3200, stock=30), Sku(spec="A5 横线", price_cents=3200, stock=22)],
     )
     patch = Product(
@@ -166,8 +169,26 @@ def seed_if_empty(db) -> None:
     white = next(sku for sku in pillow.skus if sku.spec == "米白")
     cedar = candle.skus[0]
     cup = mug.skus[0]
+    plate_sku = plate.skus[0]
+    done_item = OrderItem(
+        product_id=plate.id,
+        sku_id=plate_sku.id,
+        product_name=plate.name,
+        sku_spec=plate_sku.spec,
+        price_cents=plate_sku.price_cents,
+        quantity=1,
+    )
     db.add_all(
         [
+            Order(
+                order_no="PS202601100001",
+                shop_id=shop.id,
+                user_id=alice.id,
+                status="completed",
+                total_cents=6900,
+                address="长沙市岳麓区示范路 1 号",
+                items=[done_item],
+            ),
             Order(
                 order_no="PS202601150001",
                 shop_id=shop.id,
@@ -223,6 +244,16 @@ def seed_if_empty(db) -> None:
                 ],
             ),
         ]
+    )
+    db.flush()
+    db.add(
+        Review(
+            user_id=alice.id,
+            product_id=plate.id,
+            order_item_id=done_item.id,
+            rating=5,
+            content="釉面很好看，早餐摆盘很上镜。",
+        )
     )
     db.commit()
 
@@ -283,6 +314,7 @@ def upgrade_demo(db) -> None:
                     status="on",
                     sort_order=8,
                     sales_count=15,
+                    limit_per_user=2,
                     skus=[Sku(spec="A5 空白", price_cents=3200, stock=30), Sku(spec="A5 横线", price_cents=3200, stock=22)],
                 ),
                 Product(
@@ -297,6 +329,10 @@ def upgrade_demo(db) -> None:
                 ),
             ]
         )
+    if shop.logo_url is None:
+        shop.logo_url = ""
+    if not shop.theme_color:
+        shop.theme_color = "#ff5000"
     alice = db.scalar(select(User).where(User.username == "alice"))
     if alice is not None and db.scalar(select(Address).where(Address.user_id == alice.id)) is None:
         db.add(

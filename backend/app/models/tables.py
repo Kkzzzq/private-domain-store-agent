@@ -33,6 +33,8 @@ class Shop(Base):
     merchant_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
     name: Mapped[str] = mapped_column(String(64))
     notice: Mapped[str] = mapped_column(Text, default="")
+    logo_url: Mapped[str] = mapped_column(String(500), default="")
+    theme_color: Mapped[str] = mapped_column(String(16), default="#ff5000")
     share_code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     status: Mapped[str] = mapped_column(String(16), default="open")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -54,6 +56,7 @@ class Product(Base):
     status: Mapped[str] = mapped_column(String(16), default="off")
     sort_order: Mapped[int] = mapped_column(default=0)
     sales_count: Mapped[int] = mapped_column(default=0)
+    limit_per_user: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     shop: Mapped[Shop] = relationship(back_populates="products")
@@ -87,6 +90,7 @@ class Order(Base):
     receiver: Mapped[str] = mapped_column(String(32), default="")
     phone: Mapped[str] = mapped_column(String(20), default="")
     address: Mapped[str] = mapped_column(String(200))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     shop: Mapped[Shop] = relationship(back_populates="orders")
@@ -137,3 +141,38 @@ class Address(Base):
     region: Mapped[str] = mapped_column(String(80))
     detail: Mapped[str] = mapped_column(String(120))
     is_default: Mapped[bool] = mapped_column(default=False)
+
+
+class Favorite(Base):
+    """买家收藏商品。同一用户同一商品只留一条。"""
+
+    __tablename__ = "favorites"
+    __table_args__ = (UniqueConstraint("user_id", "product_id", name="uq_favorite_user_product"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    product: Mapped[Product] = relationship()
+    shop: Mapped[Shop] = relationship()
+
+
+class Review(Base):
+    """确认收货后可以评价。一条订单明细只能评一次。"""
+
+    __tablename__ = "reviews"
+    __table_args__ = (UniqueConstraint("order_item_id", name="uq_review_order_item"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    order_item_id: Mapped[int] = mapped_column(ForeignKey("order_items.id"))
+    rating: Mapped[int] = mapped_column(default=5)
+    content: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    user: Mapped[User] = relationship()
+    product: Mapped[Product] = relationship()
+    order_item: Mapped["OrderItem"] = relationship()

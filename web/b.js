@@ -377,6 +377,7 @@ async function productEditor(id) {
     field("商品名称", "name", product.name),
     field("类目", "category", product.category),
     field("图片地址", "image_url", product.image_url, true),
+    field("每人限购（0 表示不限）", "limit_per_user", String(product.limit_per_user ?? 0)),
     field("商品说明", "description", product.description, true, "textarea")
   );
   panel.append(grid);
@@ -398,11 +399,13 @@ async function productEditor(id) {
         category: val(panel, "category"),
         description: val(panel, "description"),
         image_url: val(panel, "image_url"),
+        limit_per_user: Number(val(panel, "limit_per_user") || 0),
       };
       if (creating) {
         payload.skus = [
           { spec: val(panel, "spec"), price_yuan: Number(val(panel, "price")), stock: Number(val(panel, "stock")) },
         ];
+        payload.status = "off";
         await api("/api/v1/b/products", { method: "POST", body: JSON.stringify(payload) });
         toast("商品已创建，记得上架", "ok");
       } else {
@@ -535,15 +538,37 @@ async function orderList(status) {
     box.append(h("div", "panel empty", "这里还没有订单"));
     return box;
   }
+  const picked = new Set();
   const wrap = h("div", "table-wrap");
   const table = h("table", "table");
   const head = document.createElement("thead");
   const headRow = document.createElement("tr");
+  const headCheck = h("th");
+  const allCheck = document.createElement("input");
+  allCheck.type = "checkbox";
+  allCheck.className = "check";
+  const shippable = orders.filter((order) => order.status === "paid").map((order) => order.order_no);
+  headCheck.append(allCheck);
+  headRow.append(headCheck);
   ["订单号", "买家", "商品", "收货信息", "金额", "状态", "操作"].forEach((text) => headRow.append(h("th", "", text)));
   head.append(headRow);
-  const tbody = document.createElement("tbody");
+
+  const tbody = h("tbody");
   orders.forEach((order) => {
     const tr = document.createElement("tr");
+    const checkCell = h("td");
+    if (order.status === "paid") {
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.className = "check";
+      check.addEventListener("change", () => {
+        if (check.checked) picked.add(order.order_no);
+        else picked.delete(order.order_no);
+        syncBatch();
+      });
+      checkCell.append(check);
+    }
+    tr.append(checkCell);
     tr.append(h("td", "", order.order_no));
     tr.append(h("td", "", order.buyer_nickname || "-"));
     const goods = document.createElement("td");
@@ -575,7 +600,40 @@ async function orderList(status) {
   });
   table.append(head, tbody);
   wrap.append(table);
-  box.append(wrap);
+
+  const batchBar = h("div", "toolbar-inline");
+  batchBar.style.marginTop = "14px";
+  const batchButton = h("button", "btn", "批量发货");
+  const batchHint = h("span", "muted", shippable.length ? `当前有 ${shippable.length} 个待发货订单` : "当前没有待发货订单");
+  batchButton.disabled = true;
+  batchButton.addEventListener("click", async () => {
+    if (!picked.size) return toast("先勾选要发货的订单");
+    try {
+      const result = await api("/api/v1/b/orders/ship-batch", {
+        method: "POST",
+        body: JSON.stringify({ order_nos: [...picked] }),
+      });
+      const skipped = result.skipped.length ? `，${result.skipped.length} 个被跳过` : "";
+      toast(`已发货 ${result.shipped.length} 个${skipped}`, result.skipped.length ? "bad" : "ok");
+      render();
+    } catch (error) {
+      toast(error.message, "bad");
+    }
+  });
+  const syncBatch = () => {
+    batchButton.disabled = picked.size === 0;
+    batchButton.textContent = picked.size ? `批量发货（${picked.size}）` : "批量发货";
+  };
+  allCheck.addEventListener("change", () => {
+    picked.clear();
+    if (allCheck.checked) shippable.forEach((orderNo) => picked.add(orderNo));
+    tbody.querySelectorAll("input[type=checkbox]").forEach((node) => {
+      if (!node.disabled) node.checked = allCheck.checked;
+    });
+    syncBatch();
+  });
+  batchBar.append(batchButton, batchHint);
+  box.append(wrap, batchBar);
   return box;
 }
 
@@ -590,8 +648,16 @@ async function shopForm() {
   const panel = h("form", "panel stack");
   panel.append(h("h2", "panel-title", "店铺信息"));
   const grid = h("div", "form-grid");
-  grid.append(field("店铺名称", "name", shop.name), statusField(shop.status), field("店铺公告", "notice", shop.notice, true, "textarea"));
+  grid.append(
+    field("店铺名称", "name", shop.name),
+    statusField(shop.status),
+    field("店铺 Logo 地址", "logo_url", shop.logo_url),
+    field("主题色", "theme_color", shop.theme_color, false, "color"),
+    field("店铺公告", "notice", shop.notice, true, "textarea")
+  );
   panel.append(grid);
+  const hint = h("p", "muted", "主题色会直接用在买家端的按钮、价格和标签上，改完刷新买家端就能看到");
+  panel.append(hint);
   const error = h("p", "muted", "");
   const submit = h("button", "btn", "保存设置");
   submit.type = "submit";
@@ -600,7 +666,13 @@ async function shopForm() {
     try {
       await api("/api/v1/b/shop", {
         method: "PATCH",
-        body: JSON.stringify({ name: val(panel, "name"), notice: val(panel, "notice"), status: val(panel, "status") || "open" }),
+        body: JSON.stringify({
+          name: val(panel, "name"),
+          notice: val(panel, "notice"),
+          status: val(panel, "status") || "open",
+          logo_url: val(panel, "logo_url"),
+          theme_color: val(panel, "theme_color"),
+        }),
       });
       toast("店铺设置已保存", "ok");
       render();
@@ -652,6 +724,12 @@ function field(label, name, value, full = false, type = "input") {
   const input = type === "textarea" ? document.createElement("textarea") : document.createElement("input");
   if (type === "textarea") input.rows = 3;
   if (type === "password") input.type = "password";
+  if (type === "color") {
+    input.type = "color";
+    input.style.height = "42px";
+    input.style.padding = "4px";
+    input.style.cursor = "pointer";
+  }
   input.name = name;
   input.value = value || "";
   wrap.append(input);

@@ -5,6 +5,7 @@ from app.core.deps import get_db, require_merchant
 from app.models.tables import User
 from app.rag.knowledge import reindex_knowledge
 from app.schemas.dto import (
+    BatchShipIn,
     OrderOut,
     ProductIn,
     ProductOut,
@@ -29,7 +30,7 @@ from app.services.catalog import (
     update_shop,
     update_sku,
 )
-from app.services.orders import list_b_orders, ship_order
+from app.services.orders import list_b_orders, ship_order, ship_orders
 
 router = APIRouter(prefix="/b", tags=["b"])
 
@@ -122,6 +123,11 @@ def read_orders(status: str = "", user: User = Depends(require_merchant), db: Se
 @router.post("/orders/{order_no}/ship", response_model=OrderOut)
 def ship(order_no: str, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
     return ship_order(db, user, order_no)
+
+
+@router.post("/orders/ship-batch")
+def ship_many(body: BatchShipIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return ship_orders(db, user, body.order_nos)
 
 
 @router.post("/knowledge/reindex", response_model=ReindexOut)

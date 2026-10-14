@@ -1,14 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.tables import Order, OrderItem, Product, Sku, User
+from app.models.tables import Order, OrderItem, Product, Sku, User, utcnow
 from app.schemas.dto import OrderCreate
 
 FREE_SHIPPING_CENTS = 9900
 BASE_FREIGHT_CENTS = 800
+ORDER_TTL_MINUTES = 30
 from app.services.catalog import invalidate_catalog_cache, load_sku_for_shop, merchant_shop, shop_by_code, yuan
 from app.services.shelf import purchase_block
 
@@ -34,6 +35,7 @@ def serialize_order(order: Order, *, audience: str) -> dict:
         "receiver": order.receiver or "",
         "phone": order.phone or "",
         "address": order.address,
+        "expires_in_seconds": _expires_in(order),
         "items": [
             {
                 "product_id": item.product_id,
@@ -67,6 +69,12 @@ def _orders():
     return select(Order).options(joinedload(Order.items), joinedload(Order.shop), joinedload(Order.buyer))
 
 
+def _expires_in(order: Order) -> int | None:
+    if order.status != "pending" or order.expires_at is None:
+        return None
+    return max(0, int((order.expires_at - utcnow()).total_seconds()))
+
+
 def _next_order_no(db: Session) -> str:
     prefix = "PS" + datetime.now().strftime("%Y%m%d")
     count = db.query(Order).filter(Order.order_no.like(prefix + "%")).count() + 1
@@ -87,11 +95,35 @@ def _order_lines(body: OrderCreate) -> list[tuple[int, int]]:
     return list(merged.items())
 
 
+def _reserve_stock(db: Session, sku_id: int, quantity: int) -> bool:
+    """条件扣减，库存不够时影响 0 行。避免两个请求同时读到够用。"""
+    result = db.execute(
+        update(Sku).where(Sku.id == sku_id, Sku.stock >= quantity).values(stock=Sku.stock - quantity)
+    )
+    return result.rowcount == 1
+
+
+def _bought_quantity(db: Session, user_id: int, product_id: int) -> int:
+    return int(
+        db.scalar(
+            select(func.coalesce(func.sum(OrderItem.quantity), 0))
+            .join(Order, Order.id == OrderItem.order_id)
+            .where(
+                Order.user_id == user_id,
+                OrderItem.product_id == product_id,
+                Order.status != "cancelled",
+            )
+        )
+        or 0
+    )
+
+
 def create_order(db: Session, user: User, share_code: str, body: OrderCreate) -> dict:
     if user.role != "customer":
         raise HTTPException(status_code=403, detail="请使用买家账号下单")
     shop = shop_by_code(db, share_code)
     chosen: list[tuple[Sku, int]] = []
+    limit_hit: dict[int, int] = {}
     for sku_id, quantity in _order_lines(body):
         sku = load_sku_for_shop(db, shop.id, sku_id)
         if sku is None:
@@ -99,7 +131,22 @@ def create_order(db: Session, user: User, share_code: str, body: OrderCreate) ->
         reason = purchase_block(sku, quantity)
         if reason:
             raise HTTPException(status_code=400, detail=reason)
+        limit = sku.product.limit_per_user
+        if limit:
+            already = _bought_quantity(db, user.id, sku.product_id)
+            if already + quantity > limit:
+                limit_hit[sku.product_id] = limit
+                continue
         chosen.append((sku, quantity))
+    if limit_hit:
+        name = next(
+            (sku.product.name for sku, _ in chosen if sku.product_id in limit_hit),
+            "部分商品",
+        )
+        limit = next(iter(limit_hit.values()))
+        raise HTTPException(status_code=400, detail=f"{name} 每人限购 {limit} 件，已经买满了")
+    if not chosen:
+        raise HTTPException(status_code=400, detail="没有可下单的商品")
     goods_cents = 0
     order = Order(
         order_no=_next_order_no(db),
@@ -111,9 +158,12 @@ def create_order(db: Session, user: User, share_code: str, body: OrderCreate) ->
         receiver=body.receiver.strip(),
         phone=body.phone.strip(),
         address=body.address.strip(),
+        expires_at=utcnow() + timedelta(minutes=ORDER_TTL_MINUTES),
     )
     for sku, quantity in chosen:
-        sku.stock -= quantity
+        if not _reserve_stock(db, sku.id, quantity):
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"{sku.product.name} 库存不足")
         goods_cents += sku.price_cents * quantity
         order.items.append(
             OrderItem(
@@ -161,6 +211,7 @@ def pay_order(db: Session, user: User, order_no: str) -> dict:
     if order.status != "pending":
         raise HTTPException(status_code=400, detail="这个订单不需要支付")
     order.status = "paid"
+    order.expires_at = None
     for item in order.items:
         product = db.get(Product, item.product_id)
         if product is not None:
@@ -169,6 +220,13 @@ def pay_order(db: Session, user: User, order_no: str) -> dict:
     invalidate_catalog_cache()
     saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
     return serialize_order(saved, audience="c")
+
+
+def _restore_stock(db: Session, order: Order) -> None:
+    for item in order.items:
+        sku = db.get(Sku, item.sku_id)
+        if sku is not None:
+            sku.stock += item.quantity
 
 
 def ship_order(db: Session, user: User, order_no: str) -> dict:
@@ -184,21 +242,54 @@ def ship_order(db: Session, user: User, order_no: str) -> dict:
     return serialize_order(saved, audience="b")
 
 
+def ship_orders(db: Session, user: User, order_nos: list[str]) -> dict:
+    """批量发货。单个失败不影响其他，最后一起汇报。"""
+    shop = merchant_shop(db, user)
+    shipped: list[str] = []
+    skipped: list[dict] = []
+    for order_no in dict.fromkeys(order_nos):
+        order = db.scalars(_orders().where(Order.order_no == order_no, Order.shop_id == shop.id)).unique().one_or_none()
+        if order is None:
+            skipped.append({"order_no": order_no, "reason": "没有找到这个订单"})
+            continue
+        if order.status != "paid":
+            skipped.append({"order_no": order_no, "reason": f"当前是{STATUS_LABELS.get(order.status, order.status)}"})
+            continue
+        order.status = "shipped"
+        shipped.append(order_no)
+    db.commit()
+    return {"shipped": shipped, "skipped": skipped}
+
+
 def cancel_order(db: Session, user: User, order_no: str) -> dict:
     order = db.scalars(_orders().where(Order.order_no == order_no, Order.user_id == user.id)).unique().one_or_none()
     if order is None:
         raise HTTPException(status_code=404, detail="没有找到这个订单")
     if order.status != "pending":
         raise HTTPException(status_code=400, detail="只有待支付订单可以取消")
-    for item in order.items:
-        sku = db.get(Sku, item.sku_id)
-        if sku is not None:
-            sku.stock += item.quantity
+    _restore_stock(db, order)
     order.status = "cancelled"
+    order.expires_at = None
     db.commit()
     invalidate_catalog_cache()
     saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
     return serialize_order(saved, audience="c")
+
+
+def auto_cancel_expired(db: Session, now: datetime | None = None) -> int:
+    """超时未支付的订单自动取消并退回库存。定时任务调用。"""
+    moment = now or utcnow()
+    expired = db.scalars(
+        _orders().where(Order.status == "pending", Order.expires_at.is_not(None), Order.expires_at <= moment)
+    ).unique().all()
+    for order in expired:
+        _restore_stock(db, order)
+        order.status = "cancelled"
+        order.expires_at = None
+    if expired:
+        db.commit()
+        invalidate_catalog_cache()
+    return len(expired)
 
 
 def confirm_order(db: Session, user: User, order_no: str) -> dict:

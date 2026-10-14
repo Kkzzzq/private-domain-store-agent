@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.db.redis_client import get_redis
 from app.models.tables import Product, Shop, Sku, User
 from app.schemas.dto import ProductIn, ProductUpdate, ShopUpdate, SkuIn, SkuUpdate
+from app.services.engagement import favorite_ids
+from app.services.reviews import rating_map
 from app.services.shelf import listed_on_c, next_status, visible_skus
 
 
@@ -39,6 +41,8 @@ def serialize_shop(shop: Shop) -> dict:
         "id": shop.id,
         "name": shop.name,
         "notice": shop.notice,
+        "logo_url": shop.logo_url,
+        "theme_color": shop.theme_color,
         "share_code": shop.share_code,
         "status": shop.status,
         "share_path": f"/c.html?code={shop.share_code}",
@@ -58,12 +62,19 @@ def serialize_sku(sku: Sku, *, purchasable: bool | None = None) -> dict:
     return data
 
 
-def serialize_product(product: Product, *, audience: str) -> dict:
+def serialize_product(
+    product: Product,
+    *,
+    audience: str,
+    ratings: dict[int, tuple[float, int]] | None = None,
+    favorites: set[int] | None = None,
+) -> dict:
     if audience == "c":
         skus = visible_skus(product)
         sku_rows = [serialize_sku(sku, purchasable=sku.stock > 0) for sku in skus]
     else:
         sku_rows = [serialize_sku(sku) for sku in product.skus]
+    average, count = (ratings or {}).get(product.id, (None, 0))
     return {
         "id": product.id,
         "shop_id": product.shop_id,
@@ -74,6 +85,10 @@ def serialize_product(product: Product, *, audience: str) -> dict:
         "status": product.status,
         "sort_order": product.sort_order,
         "sales_count": product.sales_count,
+        "limit_per_user": product.limit_per_user,
+        "rating_avg": average,
+        "review_count": count,
+        "favorited": product.id in (favorites or set()),
         "price_from": min((row["price_yuan"] for row in sku_rows), default=None),
         "skus": sku_rows,
     }
@@ -93,6 +108,10 @@ def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
         shop.name = body.name.strip()
     if body.notice is not None:
         shop.notice = body.notice.strip()
+    if body.logo_url is not None:
+        shop.logo_url = body.logo_url.strip()
+    if body.theme_color is not None:
+        shop.theme_color = body.theme_color.lower()
     if body.status is not None:
         shop.status = body.status
     db.commit()
@@ -108,32 +127,43 @@ def list_b_products(db: Session, user: User, keyword: str = "", status: str = ""
         products = [product for product in products if product.status == status]
     if keyword:
         products = [product for product in products if keyword in product.name]
-    return [serialize_product(product, audience="b") for product in products]
+    ratings = rating_map(db, [product.id for product in products])
+    return [serialize_product(product, audience="b", ratings=ratings) for product in products]
 
 
-def list_c_products(db: Session, share_code: str, keyword: str = "", category: str = "", sort: str = "default") -> list[dict]:
+def list_c_products(
+    db: Session,
+    share_code: str,
+    keyword: str = "",
+    category: str = "",
+    sort: str = "default",
+    user: User | None = None,
+) -> list[dict]:
     shop = shop_by_code(db, share_code)
     if shop.status != "open":
         return []
     cache_key = f"cache:c-products:{shop.id}:{category or '-'}:{keyword or '-'}:{sort or 'default'}"
     cached = get_redis().get_json(cache_key)
-    if cached is not None:
-        return cached
-    products = db.scalars(_product_query().where(Product.shop_id == shop.id)).unique().all()
-    visible = [product for product in products if listed_on_c(product)]
-    if category:
-        visible = [product for product in visible if product.category == category]
-    if keyword:
-        visible = [product for product in visible if keyword in product.name or keyword in product.category]
-    data = [serialize_product(product, audience="c") for product in visible]
-    if sort == "price_asc":
-        data.sort(key=lambda item: item["price_from"] or 0)
-    elif sort == "price_desc":
-        data.sort(key=lambda item: item["price_from"] or 0, reverse=True)
-    elif sort == "sales":
-        data.sort(key=lambda item: item["sales_count"], reverse=True)
-    get_redis().set_json(cache_key, data, ex=60)
-    return data
+    if cached is None:
+        products = db.scalars(_product_query().where(Product.shop_id == shop.id)).unique().all()
+        visible = [product for product in products if listed_on_c(product)]
+        if category:
+            visible = [product for product in visible if product.category == category]
+        if keyword:
+            visible = [product for product in visible if keyword in product.name or keyword in product.category]
+        ratings = rating_map(db, [product.id for product in visible])
+        data = [serialize_product(product, audience="c", ratings=ratings) for product in visible]
+        if sort == "price_asc":
+            data.sort(key=lambda item: item["price_from"] or 0)
+        elif sort == "price_desc":
+            data.sort(key=lambda item: item["price_from"] or 0, reverse=True)
+        elif sort == "sales":
+            data.sort(key=lambda item: item["sales_count"], reverse=True)
+        get_redis().set_json(cache_key, data, ex=60)
+        cached = data
+    # 收藏状态因人而异，不进缓存。
+    favorites = favorite_ids(db, user, shop.id)
+    return [{**item, "favorited": item["id"] in favorites} for item in cached]
 
 
 def list_categories(db: Session, share_code: str) -> list[str]:
@@ -144,14 +174,16 @@ def list_categories(db: Session, share_code: str) -> list[str]:
     return names
 
 
-def get_c_product(db: Session, share_code: str, product_id: int) -> dict:
+def get_c_product(db: Session, share_code: str, product_id: int, user: User | None = None) -> dict:
     from fastapi import HTTPException
 
     shop = shop_by_code(db, share_code)
     product = db.scalars(_product_query().where(Product.id == product_id, Product.shop_id == shop.id)).unique().one_or_none()
     if product is None or not listed_on_c(product):
         raise HTTPException(status_code=404, detail="没有找到这个商品")
-    return serialize_product(product, audience="c")
+    ratings = rating_map(db, [product.id])
+    favorites = favorite_ids(db, user, shop.id)
+    return serialize_product(product, audience="c", ratings=ratings, favorites=favorites)
 
 
 def dashboard(db: Session, user: User) -> dict:
@@ -209,6 +241,7 @@ def create_product(db: Session, user: User, body: ProductIn) -> dict:
         image_url=body.image_url.strip(),
         status="off",
         sort_order=max_sort + 1,
+        limit_per_user=body.limit_per_user,
     )
     for sku in body.skus:
         product.skus.append(
@@ -244,6 +277,8 @@ def update_product(db: Session, user: User, product_id: int, body: ProductUpdate
         product.image_url = body.image_url.strip()
     if body.sort_order is not None:
         product.sort_order = body.sort_order
+    if body.limit_per_user is not None:
+        product.limit_per_user = body.limit_per_user
     db.commit()
     invalidate_catalog_cache()
     return serialize_product(_owned_product(db, user, product_id), audience="b")

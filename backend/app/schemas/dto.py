@@ -25,6 +25,8 @@ class UserOut(BaseModel):
 class ShopUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     notice: str | None = Field(default=None, max_length=500)
+    logo_url: str | None = Field(default=None, max_length=500)
+    theme_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     status: Literal["open", "closed"] | None = None
 
 
@@ -32,6 +34,8 @@ class ShopOut(BaseModel):
     id: int
     name: str
     notice: str
+    logo_url: str
+    theme_color: str
     share_code: str
     status: str
     share_path: str
@@ -58,6 +62,7 @@ class ProductIn(BaseModel):
     category: str = Field(default="家居", max_length=64)
     description: str = Field(default="", max_length=2000)
     image_url: str = Field(default="", max_length=500)
+    limit_per_user: int = Field(default=0, ge=0, le=99)
     skus: list[SkuIn] = Field(min_length=1, max_length=20)
 
 
@@ -67,6 +72,7 @@ class ProductUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     image_url: str | None = Field(default=None, max_length=500)
     sort_order: int | None = Field(default=None, ge=0, le=9999)
+    limit_per_user: int | None = Field(default=None, ge=0, le=99)
 
 
 class SkuUpdate(BaseModel):
@@ -94,6 +100,10 @@ class ProductOut(BaseModel):
     status: str
     sort_order: int
     sales_count: int
+    limit_per_user: int
+    rating_avg: float | None = None
+    review_count: int = 0
+    favorited: bool = False
     price_from: float | None = None
     skus: list[SkuOut]
 
@@ -151,6 +161,34 @@ class AddressOut(BaseModel):
     is_default: bool
 
 
+class ReviewIn(BaseModel):
+    order_item_id: int = Field(ge=1)
+    rating: int = Field(ge=1, le=5)
+    content: str = Field(default="", max_length=500)
+
+
+class ReviewOut(BaseModel):
+    id: int
+    product_id: int
+    product_name: str
+    rating: int
+    content: str
+    nickname: str
+    created_at: str
+
+
+class PendingReview(BaseModel):
+    order_item_id: int
+    order_no: str
+    product_id: int
+    product_name: str
+    sku_spec: str
+
+
+class BatchShipIn(BaseModel):
+    order_nos: list[str] = Field(min_length=1, max_length=50)
+
+
 class OrderItemOut(BaseModel):
     product_id: int
     sku_id: int
@@ -169,6 +207,7 @@ class OrderOut(BaseModel):
     goods_yuan: float
     freight_yuan: float
     total_yuan: float
+    expires_in_seconds: int | None = None
     receiver: str = ""
     phone: str = ""
     address: str

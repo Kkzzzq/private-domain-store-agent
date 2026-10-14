@@ -7,10 +7,13 @@
   --muted: #999999;
   --line: #e5e5e5;
   --line-2: #f0f0f0;
-  --primary: #ff5000;      /* 淘宝橙，主操作 */
-  --primary-dark: #e64800;
+  /* 主题色由店铺设置下发，改这一个值整站换色 */
+  --theme: #ff5000;
+  --primary: var(--theme);
+  --primary-dark: color-mix(in srgb, var(--theme) 86%, #000);
+  --primary-soft: color-mix(in srgb, var(--theme) 8%, #fff);
   --red: #e1251b;          /* 京东红，立即购买 */
-  --price: #ff5000;
+  --price: var(--theme);
   --orange: #ff8f1f;
   --brand: #1d3d33;        /* 店铺标识色 */
   --brand-soft: #f2f7f4;
@@ -21,6 +24,10 @@
   --radius: 8px;
   --shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.14);
+  /* Web Awesome 跟着主题走 */
+  --wa-color-brand-50: color-mix(in srgb, var(--theme) 12%, #fff);
+  --wa-color-brand-60: var(--theme);
+  --symbol-color-active: var(--theme);
   font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   color: var(--ink);
 }
@@ -54,7 +61,7 @@ ul { margin: 0; padding: 0; list-style: none; }
 .btn { background: var(--primary); color: #fff; }
 .btn:hover { background: var(--primary-dark); }
 .btn-line { background: #fff; color: var(--primary); border: 1px solid var(--primary); }
-.btn-line:hover { background: #fff5f0; }
+.btn-line:hover { background: var(--primary-soft); }
 .btn-ghost { background: #fff; color: var(--ink-2); border: 1px solid var(--line); }
 .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
 .btn-buy { background: var(--red); color: #fff; }
@@ -179,6 +186,45 @@ ul { margin: 0; padding: 0; list-style: none; }
 .sorts button:last-child { border-radius: 0 4px 4px 0; border-right: 1px solid var(--line); }
 .sorts button:hover { color: var(--primary); }
 .sorts button.on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+
+/* ---------- 收藏 / 评分 / 倒计时 ---------- */
+.fav {
+  position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 50%;
+  border: 0; background: rgba(255, 255, 255, 0.9); color: var(--muted); font-size: 15px;
+  display: grid; place-items: center; box-shadow: var(--shadow); transition: transform 0.15s, color 0.15s;
+  z-index: 2;
+}
+.fav:hover { transform: scale(1.1); color: var(--theme); }
+.fav.on { color: var(--theme); }
+.fav-btn {
+  border: 1px solid var(--line); background: #fff; color: var(--ink-2); border-radius: 4px;
+  padding: 15px 22px; font-size: 15px;
+}
+.fav-btn.on { border-color: var(--theme); color: var(--theme); background: var(--primary-soft); }
+.stars { display: inline-flex; align-items: center; gap: 6px; color: var(--theme); font-size: 13px; }
+.stars b { color: var(--theme); }
+.rating-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.review {
+  padding: 16px 0; border-bottom: 1px dashed var(--line);
+}
+.review:last-child { border-bottom: 0; }
+.review .who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--ink-2); }
+.review .avatar {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--primary-soft); color: var(--theme);
+  display: grid; place-items: center; font-size: 14px; font-weight: 600;
+}
+.review p { margin-top: 8px; color: var(--ink); }
+.countdown {
+  display: inline-flex; align-items: center; gap: 6px; color: var(--red); font-size: 13px;
+}
+.countdown b { font-variant-numeric: tabular-nums; }
+.review-form { display: flex; flex-direction: column; gap: 14px; }
+.review-form textarea {
+  border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; min-height: 84px; outline: none;
+}
+.review-form textarea:focus { border-color: var(--theme); }
+.pick { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 14px 0; border-bottom: 1px dashed var(--line); }
+.pick:last-child { border-bottom: 0; }
 
 /* ================= 商品卡 ================= */
 .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding-bottom: 34px; }
@@ -408,6 +454,20 @@ ul { margin: 0; padding: 0; list-style: none; }
   background-size: 400% 100%; animation: shine 1.2s ease-in-out infinite;
 }
 @keyframes shine { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* ---------- Web Awesome 组件对齐本站风格 ---------- */
+wa-rating.stars-widget { font-size: 14px; }
+.stars-widget::part(rating) { gap: 2px; }
+wa-dialog::part(dialog) {
+  border-radius: 10px;
+  font-family: inherit;
+}
+wa-dialog::part(title) { font-size: 17px; font-weight: 600; }
+wa-dialog::part(body) { padding-top: 4px; }
+wa-dialog .field input, wa-dialog .field select {
+  border: 1px solid var(--line); border-radius: 4px; padding: 9px 12px; outline: none; width: 100%;
+}
+wa-dialog .field input:focus { border-color: var(--theme); }
 
 /* ================= 页脚 ================= */
 .footer { margin-top: 40px; background: #fff; border-top: 1px solid var(--line); padding: 30px 0; font-size: 13px; }

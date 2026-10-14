@@ -44,3 +44,17 @@ def require_customer(user: User = Depends(get_current_user)) -> User:
     if user.role != "customer":
         raise HTTPException(status_code=403, detail="请使用买家账号")
     return user
+
+
+def get_optional_user(
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """买家端有些接口不登录也能看，登录了才带收藏状态。"""
+    if creds is None:
+        return None
+    try:
+        payload = decode_access_token(creds.credentials)
+        return db.get(User, int(payload["sub"]))
+    except Exception:
+        return None

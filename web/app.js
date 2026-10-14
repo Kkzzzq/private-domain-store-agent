@@ -57,3 +57,48 @@ function toast(message, kind = "info") {
     setTimeout(() => node.remove(), 280);
   }, 2400);
 }
+
+/** 把店铺主题色写到 :root，整站配色跟着变。 */
+function applyTheme(color) {
+  if (typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color)) {
+    document.documentElement.style.setProperty("--theme", color);
+  }
+}
+
+function star(value) {
+  const filled = "★".repeat(Math.round(value));
+  const empty = "☆".repeat(Math.max(0, 5 - Math.round(value)));
+  return `${filled}${empty}`;
+}
+
+/** 评分用 Web Awesome 的 wa-rating，CDN 不可用时退化成文字。 */
+function ratingStars(value, { readonly = true, size = "s", label = "评分" } = {}) {
+  const node = document.createElement("wa-rating");
+  node.setAttribute("label", label);
+  node.setAttribute("size", size);
+  node.setAttribute("max", "5");
+  node.setAttribute("value", String(value || 0));
+  if (readonly) node.setAttribute("readonly", "");
+  node.className = "stars-widget";
+  return node;
+}
+
+function ratingText(value, count) {
+  if (!count) return "暂无评价";
+  return `${Number(value).toFixed(1)} 分 · ${count} 条评价`;
+}
+
+/** 待支付订单的剩余时间。 */
+function remainText(seconds) {
+  if (seconds == null) return "";
+  const total = Math.max(0, Math.floor(seconds));
+  const mm = String(Math.floor(total / 60)).padStart(2, "0");
+  const ss = String(total % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function maskName(name) {
+  if (!name) return "买家";
+  return name.length <= 1 ? name : name[0] + "*".repeat(name.length - 1);
+}
+

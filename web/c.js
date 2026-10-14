@@ -13,6 +13,8 @@ let addressId = null;
 let cartCount = 0;
 let cartPick = null;
 let renderGen = 0;
+let pendingDeadlines = {};
+let tickTimer = null;
 
 function h(tag, className, text) {
   const node = document.createElement(tag);
@@ -45,6 +47,7 @@ async function render() {
   if (!shop) {
     try {
       shop = await api(`/api/v1/c/shops/${code}`);
+      applyTheme(shop.theme_color);
     } catch (error) {
       root.replaceChildren(h("p", "muted", error.message));
       return;
@@ -80,6 +83,7 @@ async function render() {
   page.append(view);
   root.replaceChildren(renderStrip(), renderHeader(), navbar, page, renderFooter(), renderChatToggle());
   if (chatOpen) root.append(renderChat());
+  watchCountdowns();
 }
 
 /* ---------------- 顶部通栏 ---------------- */
@@ -88,36 +92,34 @@ function renderStrip() {
   const inner = h("div", "wrap");
   const left = h("div", "row");
   if (loggedIn()) {
-    const who = h("span", "who");
-    who.append(document.createTextNode("亲，欢迎回来　"));
+    left.append(h("span", "who", "亲，欢迎回来"));
     const out = h("button", "", "退出");
     out.addEventListener("click", () => {
       sessionStorage.removeItem("token_c");
+      pendingDeadlines = {};
       toast("已退出登录");
       render();
     });
-    left.append(who, out);
+    left.append(out);
   } else {
     const login = h("button", "", "亲，请登录");
     login.addEventListener("click", loginModal);
-    const reg = h("span", "muted", "免费注册");
-    left.append(login, reg);
+    left.append(login, h("span", "muted", "免费注册"));
   }
   const nav = h("nav");
-  const orders = h("a", "", "我的订单");
-  orders.href = "#/orders";
-  const cart = h("a", "", "购物车");
-  cart.href = "#/cart";
-  const fav = h("a", "", "收藏本店");
-  fav.href = "javascript:void(0)";
-  fav.addEventListener("click", () => toast("已收藏本店", "ok"));
-  const help = h("a", "", "联系店主");
-  help.href = "javascript:void(0)";
+  [["#/orders", "我的订单"], ["#/reviews", "待评价"], ["#/favorites", "我的收藏"], ["#/history", "浏览记录"], ["#/cart", "购物车"]].forEach(
+    ([href, label]) => {
+      const link = h("a", "", label);
+      link.href = href;
+      nav.append(link);
+    }
+  );
+  const help = h("button", "", "联系店主");
   help.addEventListener("click", () => {
     chatOpen = true;
     render();
   });
-  nav.append(orders, cart, fav, help);
+  nav.append(help);
   inner.append(left, nav);
   bar.append(inner);
   return bar;
@@ -129,7 +131,18 @@ function renderHeader() {
   const inner = h("div", "wrap");
   const brand = h("a", "brand");
   brand.href = "#/";
-  const mark = h("div", "mark", shop.name.slice(0, 1));
+  let mark;
+  if (shop.logo_url) {
+    mark = document.createElement("img");
+    mark.className = "mark";
+    mark.src = shop.logo_url;
+    mark.alt = shop.name;
+    mark.style.objectFit = "cover";
+    mark.style.background = "none";
+    mark.style.padding = "0";
+  } else {
+    mark = h("div", "mark", shop.name.slice(0, 1));
+  }
   const words = h("div");
   words.append(h("div", "name", shop.name), h("div", "sub", "HANDMADE STORE"));
   brand.append(mark, words);
@@ -168,6 +181,7 @@ function renderHeader() {
   account.addEventListener("click", () => {
     if (loggedIn()) {
       sessionStorage.removeItem("token_c");
+      pendingDeadlines = {};
       toast("已退出登录");
       render();
     } else loginModal();
@@ -203,7 +217,11 @@ async function renderNavbar() {
   });
   const orders = h("a", route().name === "orders" ? "on" : "", "订单中心");
   orders.href = "#/orders";
-  inner.append(home, shopAll, orders);
+  const favs = h("a", route().name === "favorites" ? "on" : "", "我的收藏");
+  favs.href = "#/favorites";
+  const history = h("a", route().name === "history" ? "on" : "", "浏览记录");
+  history.href = "#/history";
+  inner.append(home, shopAll, orders, favs, history);
   bar.append(inner);
   return bar;
 }
@@ -214,6 +232,9 @@ async function renderView() {
   if (current.name === "cart") return renderCart();
   if (current.name === "checkout") return renderCheckout();
   if (current.name === "orders") return renderOrders(current.id);
+  if (current.name === "favorites") return renderFavorites();
+  if (current.name === "history") return renderHistory();
+  if (current.name === "reviews") return renderPendingReviews();
   return renderHome();
 }
 
@@ -348,6 +369,27 @@ function renderBanner(all) {
   return banner;
 }
 
+async function toggleFavorite(product, button) {
+  if (!requireLogin()) return;
+  try {
+    const result = await api(`/api/v1/c/shops/${code}/favorites/${product.id}`, { method: "POST" });
+    toast(result.detail, "ok");
+    // 只改按钮状态，不整页重渲染，避免和登录后的刷新撞车。
+    if (button) {
+      button.classList.toggle("on", result.favorited);
+      button.textContent = button.classList.contains("fav")
+        ? result.favorited
+          ? "♥"
+          : "♡"
+        : result.favorited
+          ? "♥ 已收藏"
+          : "♡ 收藏";
+    }
+  } catch (error) {
+    toast(error.message, "bad");
+  }
+}
+
 function productCard(product) {
   const card = h("article", "pcard");
   const thumb = h("a", "thumb");
@@ -358,6 +400,16 @@ function productCard(product) {
   image.loading = "lazy";
   thumb.append(image);
   if (product.sales_count >= 10) thumb.append(h("span", "tag", "热销"));
+
+  const fav = h("button", product.favorited ? "fav on" : "fav", product.favorited ? "♥" : "♡");
+  fav.title = product.favorited ? "取消收藏" : "加入收藏";
+  fav.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleFavorite(product, fav);
+  });
+  thumb.append(fav);
+
   const quick = h("button", "quick", "加入购物车");
   quick.addEventListener("click", async (event) => {
     event.preventDefault();
@@ -382,8 +434,12 @@ function productCard(product) {
   const title = h("a", "title", product.name);
   title.href = `#/product/${product.id}`;
   body.append(title);
+  const ratingRow = h("div", "rating-line");
+  ratingRow.append(ratingStars(product.rating_avg || 0), h("span", "muted", ratingText(product.rating_avg, product.review_count)));
+  body.append(ratingRow);
   const meta = h("div", "meta");
   meta.append(h("span", "", product.category), h("span", "", `已售 ${product.sales_count}`));
+  if (product.limit_per_user) meta.append(h("span", "ship-tag", `限购 ${product.limit_per_user}`));
   body.append(meta);
   const foot = h("div", "foot");
   const price = h("div", "price");
@@ -402,6 +458,7 @@ async function renderProduct(id) {
   } catch (error) {
     return h("div", "panel", error.message);
   }
+  const reviews = await api(`/api/v1/c/shops/${code}/products/${id}/reviews`);
   const box = h("div");
   const crumb = h("div", "crumb");
   const home = h("a", "", "全部商品");
@@ -413,7 +470,7 @@ async function renderProduct(id) {
   layout.append(renderGallery(product));
   layout.append(renderProductInfo(product));
   box.append(layout);
-  box.append(renderProductSection(product));
+  box.append(renderProductSection(product, reviews));
   return box;
 }
 
@@ -449,6 +506,16 @@ function renderProductInfo(product) {
   info.append(h("h1", "", product.name));
   info.append(h("div", "sub-title", "私域独立店铺 · 店主直发 · 支持 7 天无理由退货"));
 
+  const ratingRow = h("div", "rating-line");
+  ratingRow.append(
+    ratingStars(product.rating_avg || 0, { size: "m" }),
+    h("span", "muted", ratingText(product.rating_avg, product.review_count)),
+    h("a", "link", `已售 ${product.sales_count} 件`)
+  );
+  const jump = ratingRow.lastChild;
+  jump.href = "#reviews";
+  info.append(ratingRow);
+
   let current = product.skus.find((sku) => sku.purchasable) || product.skus[0];
   const pricebox = h("div", "pricebox");
   const big = h("span", "big");
@@ -462,16 +529,19 @@ function renderProductInfo(product) {
   promo.append(h("b", "", "满 99 包邮"));
   promo.append(document.createTextNode("　·　"));
   promo.append(h("b", "", "7 天无理由"));
+  if (product.limit_per_user) {
+    promo.append(document.createTextNode("　·　"));
+    promo.append(h("b", "", `每人限购 ${product.limit_per_user} 件`));
+  }
   promotions.append(promo);
 
   function paint() {
-    big.replaceChildren(document.createTextNode(money(current ? current.price_yuan : 0).slice(1)));
-    big.prepend(h("i", "", "¥"));
     if (!current) {
       big.replaceChildren(document.createTextNode("暂无规格"));
       stockNote.textContent = "";
       return;
     }
+    big.replaceChildren(h("i", "", "¥"), document.createTextNode(Number(current.price_yuan).toFixed(2)));
     stockNote.textContent = current.purchasable
       ? `库存 ${current.stock} 件　·　${product.sales_count} 人已买`
       : "该规格暂时缺货，可以问问店主";
@@ -501,7 +571,8 @@ function renderProductInfo(product) {
   const minus = h("button", "", "−");
   const plus = h("button", "", "+");
   const clamp = () => {
-    const value = Math.min(20, Math.max(1, Number(qtyInput.value) || 1));
+    const max = product.limit_per_user || 20;
+    const value = Math.min(Math.min(20, max), Math.max(1, Number(qtyInput.value) || 1));
     qtyInput.value = String(value);
     return value;
   };
@@ -509,15 +580,22 @@ function renderProductInfo(product) {
     qtyInput.value = String(Math.max(1, Number(qtyInput.value) - 1));
   });
   plus.addEventListener("click", () => {
-    qtyInput.value = String(Math.min(20, Number(qtyInput.value) + 1));
+    const max = Math.min(20, product.limit_per_user || 20);
+    qtyInput.value = String(Math.min(max, Number(qtyInput.value) + 1));
   });
   qtyInput.addEventListener("change", clamp);
   qty.append(minus, qtyInput, plus);
   info.append(qty);
+  if (product.limit_per_user) {
+    const note = h("div", "muted");
+    note.textContent = `这件商品每人最多买 ${product.limit_per_user} 件`;
+    info.append(note);
+  }
 
   const actions = h("div", "actions");
   const add = h("button", "btn-cart btn-big", "加入购物车");
   const buy = h("button", "btn-buy btn-big", "立即购买");
+  const fav = h("button", product.favorited ? "fav-btn on" : "fav-btn", product.favorited ? "♥ 已收藏" : "♡ 收藏");
   add.disabled = !current || !current.purchasable;
   buy.disabled = !current || !current.purchasable;
   add.addEventListener("click", async () => {
@@ -548,7 +626,8 @@ function renderProductInfo(product) {
     );
     go("#/checkout");
   });
-  actions.append(add, buy);
+  fav.addEventListener("click", () => toggleFavorite(product, fav));
+  actions.append(add, buy, fav);
   info.append(actions);
 
   const services = h("div", "services");
@@ -558,21 +637,18 @@ function renderProductInfo(product) {
   return info;
 }
 
-function renderProductSection(product) {
+function renderProductSection(product, reviews) {
   const section = h("section", "section");
   const head = h("div", "section-head");
   const one = h("span", "on", "商品详情");
   const two = h("span", "", "规格参数");
-  head.append(one, two);
+  const three = h("span", "", `用户评价（${reviews.length}）`);
+  head.append(one, two, three);
 
   const detail = h("div", "section-body");
   detail.append(h("p", "", product.description || "店主还没有补充说明。"));
   detail.append(
-    h(
-      "p",
-      "muted",
-      "小批量手作，尺寸和颜色会有轻微差异。收货后如有问题可以直接问店内助手，或者点右下角联系店主。"
-    )
+    h("p", "muted", "小批量手作，尺寸和颜色会有轻微差异。收货后如有问题可以直接问店内助手，或者点右下角联系店主。")
   );
 
   const params = h("div", "section-body");
@@ -583,6 +659,7 @@ function renderProductSection(product) {
     ["所属类目", product.category],
     ["规格数量", `${product.skus.length} 个`],
     ["累计销量", `${product.sales_count} 件`],
+    ["限购规则", product.limit_per_user ? `每人最多 ${product.limit_per_user} 件` : "不限购"],
     ["发货时效", "付款后 48 小时内"],
     ["运费说明", "订单满 99 元包邮，未满收 8 元"],
   ];
@@ -600,25 +677,173 @@ function renderProductSection(product) {
     tr.append(h("td", "", sku.spec), h("td", "", money(sku.price_yuan)), h("td", "", String(sku.stock)));
     skuTable.append(tr);
   });
-  params.append(table, h("h4", "", "可选规格"));
-  params.lastChild.style.margin = "20px 0 0";
-  params.append(skuTable);
+  params.append(table);
+  const skuTitle = h("h4", "", "可选规格");
+  skuTitle.style.margin = "20px 0 0";
+  params.append(skuTitle, skuTable);
 
-  one.addEventListener("click", () => {
-    one.classList.add("on");
-    two.classList.remove("on");
-    detail.hidden = false;
-    params.hidden = true;
-  });
-  two.addEventListener("click", () => {
-    two.classList.add("on");
-    one.classList.remove("on");
-    detail.hidden = true;
-    params.hidden = false;
+  const reviewBox = h("div", "section-body");
+  reviewBox.id = "reviews";
+  reviewBox.hidden = true;
+  if (!reviews.length) {
+    reviewBox.append(h("p", "muted", "还没有人评价这件商品。"));
+  } else {
+    reviews.forEach((review) => {
+      const item = h("div", "review");
+      const who = h("div", "who");
+      who.append(h("span", "avatar", maskName(review.nickname).slice(0, 1)));
+      who.append(h("span", "", maskName(review.nickname)));
+      who.append(ratingStars(review.rating));
+      who.append(h("span", "muted", review.created_at));
+      item.append(who, h("p", "", review.content || "买家没有留下文字"));
+      reviewBox.append(item);
+    });
+  }
+
+  const tabs = [
+    [one, detail],
+    [two, params],
+    [three, reviewBox],
+  ];
+  tabs.forEach(([button, panel]) => {
+    button.addEventListener("click", () => {
+      tabs.forEach(([item]) => item.classList.remove("on"));
+      button.classList.add("on");
+      tabs.forEach(([, node]) => (node.hidden = true));
+      panel.hidden = false;
+      if (panel === reviewBox) reviewBox.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   });
 
-  section.append(head, detail, params);
+  section.append(head, detail, params, reviewBox);
   return section;
+}
+
+/* ---------------- 收藏 / 浏览记录 ---------------- */
+async function renderFavorites() {
+  if (!requireLogin()) {
+    return emptyPanel("请先登录买家账号", "登录后可以看到收藏的商品", "立即登录", loginModal);
+  }
+  const products = await api(`/api/v1/c/shops/${code}/favorites`);
+  const box = h("div");
+  const panel = h("div", "panel");
+  panel.append(h("h2", "panel-title", `我的收藏（${products.length}）`));
+  if (!products.length) {
+    box.append(panel, emptyPanel("还没有收藏任何商品", "点商品图右上角的心形就能收藏", "去逛逛", () => go("#/")));
+    return box;
+  }
+  const grid = h("div", "grid");
+  grid.style.padding = "0";
+  products.forEach((product) => grid.append(productCard(product)));
+  panel.append(grid);
+  box.append(panel);
+  return box;
+}
+
+async function renderHistory() {
+  if (!requireLogin()) {
+    return emptyPanel("请先登录买家账号", "登录后可以看到浏览记录", "立即登录", loginModal);
+  }
+  const products = await api(`/api/v1/c/shops/${code}/history`);
+  const box = h("div");
+  const panel = h("div", "panel");
+  const title = h("h2", "panel-title", `浏览记录（${products.length}）`);
+  if (products.length) {
+    const wipe = h("button", "btn-ghost btn-mini", "清空");
+    wipe.style.marginLeft = "auto";
+    wipe.addEventListener("click", async () => {
+      await api(`/api/v1/c/shops/${code}/history`, { method: "DELETE" });
+      toast("浏览记录已清空", "ok");
+      render();
+    });
+    title.append(wipe);
+  }
+  panel.append(title);
+  if (!products.length) {
+    panel.append(h("p", "muted", "最近没有浏览过商品。"));
+    box.append(panel);
+    return box;
+  }
+  const grid = h("div", "grid");
+  grid.style.padding = "0";
+  products.forEach((product) => grid.append(productCard(product)));
+  panel.append(grid);
+  box.append(panel);
+  return box;
+}
+
+/* ---------------- 待评价 ---------------- */
+async function renderPendingReviews() {
+  if (!requireLogin()) {
+    return emptyPanel("请先登录买家账号", "登录后可以评价买过的商品", "立即登录", loginModal);
+  }
+  const pending = await api("/api/v1/c/reviews/pending");
+  const box = h("div");
+  const panel = h("div", "panel");
+  panel.append(h("h2", "panel-title", `待评价（${pending.length}）`));
+  if (!pending.length) {
+    panel.append(h("p", "muted", "没有待评价的商品。确认收货之后就能评价了。"));
+    const to = h("button", "btn", "查看我的订单");
+    to.style.marginTop = "14px";
+    to.addEventListener("click", () => go("#/orders"));
+    panel.append(to);
+    box.append(panel);
+    return box;
+  }
+  pending.forEach((item) => {
+    const row = h("div", "pick");
+    const words = h("div");
+    words.append(h("div", "", item.product_name));
+    words.append(h("div", "muted", `规格 ${item.sku_spec} · 订单 ${item.order_no}`));
+    const button = h("button", "btn-line", "去评价");
+    button.addEventListener("click", () => reviewDialog(item));
+    row.append(words, button);
+    panel.append(row);
+  });
+  box.append(panel);
+  return box;
+}
+
+function reviewDialog(item) {
+  const dialog = document.createElement("wa-dialog");
+  dialog.setAttribute("label", `评价 ${item.product_name}`);
+  dialog.setAttribute("light-dismiss", "");
+  dialog.style.setProperty("--width", "420px");
+
+  const form = h("div", "review-form");
+  const stars = ratingStars(5, { readonly: false, size: "l", label: "打分" });
+  stars.removeAttribute("readonly");
+  const starRow = h("div", "row");
+  starRow.append(h("span", "", "打分"), stars);
+  const textarea = document.createElement("textarea");
+  textarea.placeholder = "说说这件商品怎么样，可以帮到其他人";
+  const error = h("p", "muted", "");
+  const submit = h("button", "btn-buy", "提交评价");
+  submit.type = "button";
+  submit.addEventListener("click", async () => {
+    submit.disabled = true;
+    try {
+      await api("/api/v1/c/reviews", {
+        method: "POST",
+        body: JSON.stringify({
+          order_item_id: item.order_item_id,
+          rating: Number(stars.value || stars.getAttribute("value") || 5),
+          content: textarea.value.trim(),
+        }),
+      });
+      toast("评价已提交", "ok");
+      dialog.open = false;
+      go("#/reviews");
+    } catch (err) {
+      error.textContent = err.message;
+      submit.disabled = false;
+    }
+  });
+  form.append(starRow, textarea, error, submit);
+  dialog.append(form);
+  dialog.addEventListener("wa-after-hide", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.open = true;
 }
 
 /* ---------------- 购物车 ---------------- */
@@ -854,7 +1079,7 @@ async function renderCheckout() {
           });
       sessionStorage.removeItem("buy_now");
       cartPick = null;
-      toast(`下单成功 ${order.order_no}，合计 ${money(order.total_yuan)}`, "ok");
+      toast(`下单成功 ${order.order_no}，请在 30 分钟内付款`, "ok");
       go("#/orders");
     } catch (err) {
       error.textContent = err.message;
@@ -890,7 +1115,8 @@ async function renderOrders(status) {
   box.append(tabs);
   const orders = await api(`/api/v1/c/orders?share_code=${code}&status=${status}`);
   if (!orders.length) {
-    return box.append(emptyPanel("这里还没有订单", "去店里挑几件", "去逛逛", () => go("#/"))), box;
+    box.append(emptyPanel("这里还没有订单", "去店里挑几件", "去逛逛", () => go("#/")));
+    return box;
   }
   orders.forEach((order) => box.append(orderCard(order)));
   return box;
@@ -901,7 +1127,9 @@ function orderCard(order) {
   const head = h("div", "order-head");
   head.append(h("span", "no", `订单号 ${order.order_no}`));
   head.append(h("span", "", order.shop_name));
-  head.append(h("span", "muted", order.status_label));
+  const stateCell = h("span");
+  stateCell.append(h("span", `pill ${order.status}`, order.status_label));
+  head.append(stateCell);
   const amount = h("span", "right");
   amount.append(document.createTextNode("实付 "));
   const price = h("span", "price");
@@ -922,8 +1150,15 @@ function orderCard(order) {
   });
 
   const foot = h("div", "order-foot");
-  const pill = h("span", `pill ${order.status}`, order.status_label);
-  foot.append(pill);
+  if (order.status === "pending" && order.expires_in_seconds != null) {
+    const clock = h("span", "countdown");
+    clock.append(document.createTextNode("剩余支付时间 "));
+    const value = h("b", "", remainText(order.expires_in_seconds));
+    clock.append(value);
+    clock.dataset.orderNo = order.order_no;
+    foot.append(clock);
+    pendingDeadlines[order.order_no] = Date.now() + order.expires_in_seconds * 1000;
+  }
   foot.append(h("span", "muted", `${order.receiver} ${order.phone} ${order.address}`));
   foot.append(h("span", "muted", `含运费 ${money(order.freight_yuan)}`));
   if (order.status === "pending") {
@@ -933,8 +1168,43 @@ function orderCard(order) {
   if (order.status === "shipped") {
     foot.append(action("确认收货", "btn", () => api(`/api/v1/c/orders/${order.order_no}/confirm`, { method: "POST" })));
   }
+  if (order.status === "completed") {
+    const review = h("button", "btn-line", "去评价");
+    review.addEventListener("click", () => go("#/reviews"));
+    foot.append(review);
+  }
   card.append(foot);
   return card;
+}
+
+/** 待支付订单每秒刷新倒计时，到点重新拉一次让状态变成已取消。 */
+function watchCountdowns() {
+  if (tickTimer) {
+    clearInterval(tickTimer);
+    tickTimer = null;
+  }
+  const nodes = [...document.querySelectorAll(".countdown b")];
+  if (!nodes.length) return;
+  tickTimer = setInterval(() => {
+    let expired = false;
+    nodes.forEach((node) => {
+      const orderNo = node.closest(".countdown")?.dataset.orderNo;
+      const deadline = pendingDeadlines[orderNo];
+      if (!deadline) return;
+      const left = Math.round((deadline - Date.now()) / 1000);
+      if (left <= 0) {
+        expired = true;
+        return;
+      }
+      node.textContent = remainText(left);
+    });
+    if (expired) {
+      clearInterval(tickTimer);
+      tickTimer = null;
+      toast("有订单超过支付时间，已自动取消", "bad");
+      render();
+    }
+  }, 1000);
 }
 
 function action(label, className, run) {
@@ -978,40 +1248,55 @@ function requireLogin() {
   return false;
 }
 
+/* ---------------- 登录弹层（Web Awesome dialog） ---------------- */
 function loginModal() {
-  const mask = h("div", "modal");
-  const panel = h("form", "panel stack");
-  panel.append(h("h2", "", "买家登录"), h("p", "muted", "演示账号 alice / alice123"));
+  const dialog = document.createElement("wa-dialog");
+  dialog.setAttribute("label", "买家登录");
+  dialog.setAttribute("light-dismiss", "");
+  dialog.style.setProperty("--width", "380px");
+
+  const form = h("div", "stack");
+  form.append(h("p", "muted", "演示账号 alice / alice123"));
   const fields = h("div", "stack");
   fields.append(labeled("账号", "username", "alice"), labeled("密码", "password", "alice123"));
-  panel.append(fields);
   const error = h("p", "muted", "");
   const submit = h("button", "btn-buy", "登录");
-  submit.type = "submit";
+  submit.type = "button";
   const close = h("button", "btn-ghost", "取消");
   close.type = "button";
-  close.addEventListener("click", () => mask.remove());
+  close.addEventListener("click", () => (dialog.open = false));
   const row = h("div", "row");
   row.append(submit, close);
-  panel.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  form.append(fields, error, row);
+
+  const read = (name) => {
+    const node = fields.querySelector(`input[name="${name}"]`);
+    return node ? node.value.trim() : "";
+  };
+  const doLogin = async () => {
     try {
       const data = await api("/api/v1/auth/login", {
         method: "POST",
-        body: JSON.stringify({ username: val(panel, "username"), password: val(panel, "password") }),
+        body: JSON.stringify({ username: read("username"), password: read("password") }),
       });
       if (data.user.role !== "customer") throw new Error("请使用买家账号，例如 alice / alice123");
       sessionStorage.setItem("token_c", data.access_token);
-      mask.remove();
+      dialog.open = false;
       toast(`欢迎回来，${data.user.nickname}`, "ok");
       render();
     } catch (err) {
       error.textContent = err.message;
     }
+  };
+  submit.addEventListener("click", doLogin);
+  fields.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") doLogin();
   });
-  panel.append(error, row);
-  mask.append(panel);
-  document.body.append(mask);
+
+  dialog.append(form);
+  dialog.addEventListener("wa-after-hide", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.open = true;
 }
 
 function renderFooter() {
