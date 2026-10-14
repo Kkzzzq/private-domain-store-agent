@@ -111,7 +111,7 @@ async function render() {
 
 /* ---------------- 顶部一行：店铺名 + 购物车 / 订单 / 收藏 / 浏览记录 ---------------- */
 function renderStrip() {
-  const bar = h("div", "strip");
+  const bar = h("div", shop.strip_tint === false ? "strip" : "strip tinted");
   const inner = h("div", "wrap");
 
   const left = h("div", "row");
@@ -175,7 +175,7 @@ async function renderHome() {
   // 评价墙放在全部商品上面，先让买家看到别人怎么说
   if (home.testimonials.length) box.append(reviewWall(home.testimonials));
   box.append(allProductsBlock());
-  box.append(renderPromises());
+  box.append(renderPromises(shop.promises));
   return box;
 }
 
@@ -297,18 +297,23 @@ function collectionMain(data) {
   return main;
 }
 
-/* 轮播主视觉：整张图可点，左右箭头浮在图片两侧 */
+/* 轮播主视觉：整张图可点，左右箭头浮在图片两侧。
+   图片后面垫一层同一张图的模糊放大版，两侧做渐变，让图片看着往外扩出去。 */
 function heroCarousel(banners) {
   if (!banners.length) return renderFallbackHero();
   const hero = h("section", "hero");
+  hero.style.setProperty("--hero-h", `${shop.hero_height || 640}px`);
 
   let index = 0;
   const slides = banners.map((banner) => {
     const slide = h("div", "slide");
+    // 模糊底：和主图同一张，放大后糊掉，左右两边透出来就是“渐变”
+    const blur = h("div", "blur");
+    blur.style.backgroundImage = `url("${banner.image_url}")`;
     const image = document.createElement("img");
     image.src = banner.image_url;
     image.alt = banner.title || shop.name;
-    slide.append(image, h("div", "veil"));
+    slide.append(blur, image, h("div", "veil"));
     const caption = h("div", "caption");
     caption.append(h("h1", "", banner.title || shop.name));
     caption.append(h("p", "", banner.subtitle || shop.notice || "小批量手作，每一件都会有一点手工的痕迹。"));
@@ -380,11 +385,14 @@ function heroCarousel(banners) {
 
 function renderFallbackHero() {
   const hero = h("section", "hero");
+  hero.style.setProperty("--hero-h", `${shop.hero_height || 640}px`);
   const slide = h("div", "slide on");
+  const blur = h("div", "blur");
+  blur.style.backgroundImage = 'url("/covers/hero.jpg")';
   const image = document.createElement("img");
   image.src = "/covers/hero.jpg";
   image.alt = "";
-  slide.append(image, h("div", "veil"));
+  slide.append(blur, image, h("div", "veil"));
   const caption = h("div", "caption");
   caption.append(h("h1", "", shop.name));
   caption.append(h("p", "", shop.notice || "小批量手作，每一件都会有一点手工的痕迹。"));
@@ -557,16 +565,11 @@ function reviewWall(rows) {
   return wall;
 }
 
-function renderPromises() {
+function renderPromises(rows) {
   const box = h("div", "promises");
-  [
-    ["正品保障", "店主直发，假一赔十"],
-    ["7 天无理由", "定制品和已使用商品除外"],
-    ["满 99 包邮", "未满收 8 元运费"],
-    ["48 小时发货", "付款后按顺序发出"],
-  ].forEach(([title, sub]) => {
+  (rows && rows.length ? rows : []).forEach((row) => {
     const cell = h("div");
-    cell.append(h("b", "", title), h("span", "muted", sub));
+    cell.append(h("b", "", row.title), h("span", "muted", row.sub));
     box.append(cell);
   });
   return box;
@@ -593,6 +596,20 @@ async function toggleFavorite(product, button) {
   }
 }
 
+/* 卡片左上角的角标：优先用商家自定义的标签，没挂标签时退回折扣 / 热销 */
+function tagBadge(product) {
+  const custom = (product.tags || [])[0];
+  if (custom) {
+    const node = h("span", "tag", custom.name);
+    if (custom.color) node.style.background = custom.color;
+    return node;
+  }
+  const off = discountOf(product.price_from, product.market_from);
+  if (off) return h("span", "tag", off);
+  if (product.sales_count >= 50) return h("span", "tag", "热销");
+  return null;
+}
+
 function productCard(product) {
   const card = h("article", "pcard");
   const thumb = h("a", "thumb");
@@ -607,9 +624,8 @@ function productCard(product) {
   // 悬停时在图片顶部浮出名称，平时只有图
   thumb.append(h("div", "thumb-name", product.name));
 
-  const off = discountOf(product.price_from, product.market_from);
-  if (off) thumb.append(h("span", "tag", off));
-  else if (product.sales_count >= 50) thumb.append(h("span", "tag", "热销"));
+  const badge = tagBadge(product);
+  if (badge) thumb.append(badge);
 
   const fav = h("button", product.favorited ? "fav on" : "fav", product.favorited ? "♥" : "♡");
   fav.title = product.favorited ? "取消收藏" : "加入收藏";
@@ -631,10 +647,12 @@ function productCard(product) {
   thumb.append(cart);
 
   // 图片右下角放最低价
-  const badge = h("div", "thumb-price");
-  badge.append(h("i", "", "¥"), h("b", "", Number(product.price_from || 0).toFixed(2)));
-  if (product.market_from) badge.append(h("span", "price-was", `¥${Number(product.market_from).toFixed(2)}`));
-  thumb.append(badge);
+  const priceBadge = h("div", "thumb-price");
+  priceBadge.append(h("i", "", "¥"), h("b", "", Number(product.price_from || 0).toFixed(2)));
+  if (product.market_from) {
+    priceBadge.append(h("span", "price-was", `¥${Number(product.market_from).toFixed(2)}`));
+  }
+  thumb.append(priceBadge);
 
   card.append(thumb);
   return card;
@@ -1145,11 +1163,10 @@ function savedCard(item, { showRemove = false } = {}) {
   image.alt = item.name;
   image.loading = "lazy";
   thumb.append(image);
-  const off = discountOf(item.price_from, item.market_from);
-  if (off) thumb.append(h("span", "tag", off));
+  const badge = tagBadge(item);
+  if (badge) thumb.append(badge);
   if (!item.available) thumb.append(h("span", "shelf-flag", item.shelf_label));
   card.append(thumb);
-
   const body = h("div", "body");
   const title = h("a", "title", item.name);
   const detailHref = `#/product/${item.shop_share_code}/${item.id}`;
@@ -1219,7 +1236,7 @@ function savedCard(item, { showRemove = false } = {}) {
 
 function savedPanel(title, items, { showRemove = false, onClear = null, note = "" } = {}) {
   const box = h("div");
-  const panel = h("div", "panel");
+  const panel = h("div", "panel saved-panel");
   const head = h("h2", "panel-title", `${title}（${items.length}）`);
   if (onClear && items.length) {
     const clear = h("button", "btn-ghost btn-mini", "清空记录");
@@ -1228,14 +1245,13 @@ function savedPanel(title, items, { showRemove = false, onClear = null, note = "
     head.append(clear);
   }
   panel.append(head);
-  if (note) panel.append(h("p", "muted", note));
+  if (note) panel.append(h("p", "muted note", note));
   if (!items.length) {
     panel.append(h("p", "muted", "这里还是空的。"));
     box.append(panel);
     return box;
   }
   const grid = h("div", "grid");
-  grid.style.padding = "0";
   items.forEach((item) => grid.append(savedCard(item, { showRemove })));
   panel.append(grid);
   box.append(panel);
@@ -1636,8 +1652,8 @@ function orderCard(order) {
   head.append(amount);
   card.append(head);
 
-  order.items.forEach((item) => {
-    const line = h("div", "order-line");
+  order.items.forEach((item, index) => {
+    const line = h("div", index % 2 ? "order-line alt" : "order-line");
     const info = h("div");
     info.style.flex = "1";
     info.append(h("div", "", item.product_name));

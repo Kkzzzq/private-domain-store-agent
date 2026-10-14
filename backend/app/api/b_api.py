@@ -30,6 +30,9 @@ from app.schemas.dto import (
     SkuIn,
     SkuUpdate,
     StatusAction,
+    TagIn,
+    TagOut,
+    TagUpdate,
     TestimonialIn,
     TestimonialOut,
     TestimonialUpdate,
@@ -64,6 +67,7 @@ from app.services.catalog import (
 )
 from app.services.orders import list_b_orders, ship_order, ship_orders
 from app.services import categories as category_service
+from app.services import tags as tag_service
 
 router = APIRouter(prefix="/b", tags=["b"])
 
@@ -272,6 +276,33 @@ def patch_category(
 @router.delete("/categories/{category_id}")
 def remove_category(category_id: int, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
     category_service.delete_category(db, user, category_id)
+    return {"ok": True}
+
+
+@router.get("/tags", response_model=list[TagOut])
+def read_tags(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    """商家自定义的商品标签，买家端卡片左上角显示的就是这套。"""
+    return tag_service.list_tags(db, user)
+
+
+@router.post("/tags", response_model=TagOut)
+def add_tag(body: TagIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return tag_service.create_tag(db, user, body)
+
+
+@router.patch("/tags/{tag_id}", response_model=TagOut)
+def patch_tag(
+    tag_id: int,
+    body: TagUpdate,
+    user: User = Depends(require_merchant),
+    db: Session = Depends(get_db),
+):
+    return tag_service.update_tag(db, user, tag_id, body)
+
+
+@router.delete("/tags/{tag_id}")
+def remove_tag(tag_id: int, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    tag_service.delete_tag(db, user, tag_id)
     return {"ok": True}
 
 

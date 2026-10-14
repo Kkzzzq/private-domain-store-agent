@@ -1,13 +1,16 @@
+import json
+
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.redis_client import get_redis
-from app.models.tables import Product, Shop, Sku, User
+from app.models.tables import Product, ProductTagLink, Shop, Sku, User
 from app.schemas.dto import ProductIn, ProductUpdate, ShopUpdate, SkuIn, SkuUpdate
 from app.services.engagement import favorite_ids
 from app.services.reviews import rating_map
 from app.services.shelf import listed_on_c, next_status, visible_skus
+from app.services.tags import sync_product_tags, tags_of
 
 
 def yuan(cents: int) -> float:
@@ -46,7 +49,36 @@ def serialize_shop(shop: Shop) -> dict:
         "share_code": shop.share_code,
         "status": shop.status,
         "share_path": f"/c.html?code={shop.share_code}",
+        "hero_height": shop.hero_height or 640,
+        "strip_tint": bool(shop.strip_tint),
+        "promises": promises_of(shop),
     }
+
+
+# 商家没自己写售后保障时用这四条，和「满 99 包邮」的运费规则对上
+DEFAULT_PROMISES = [
+    {"title": "正品保障", "sub": "店主直发，假一赔十"},
+    {"title": "7 天无理由", "sub": "定制品和已使用商品除外"},
+    {"title": "满 99 包邮", "sub": "未满收 8 元运费"},
+    {"title": "48 小时发货", "sub": "付款后按顺序发出"},
+]
+
+
+def promises_of(shop: Shop) -> list[dict]:
+    raw = (shop.promises or "").strip()
+    if not raw:
+        return [dict(item) for item in DEFAULT_PROMISES]
+    try:
+        rows = json.loads(raw)
+    except ValueError:
+        return [dict(item) for item in DEFAULT_PROMISES]
+    if not isinstance(rows, list) or not rows:
+        return [dict(item) for item in DEFAULT_PROMISES]
+    return [
+        {"title": str(row.get("title", ""))[:16], "sub": str(row.get("sub", ""))[:40]}
+        for row in rows
+        if isinstance(row, dict) and str(row.get("title", "")).strip()
+    ] or [dict(item) for item in DEFAULT_PROMISES]
 
 
 def serialize_sku(sku: Sku, *, purchasable: bool | None = None) -> dict:
@@ -77,6 +109,7 @@ def serialize_product(
         sku_rows = [serialize_sku(sku) for sku in product.skus]
     average, count = (ratings or {}).get(product.id, (None, 0))
     markets = [row["market_price_yuan"] for row in sku_rows if row.get("market_price_yuan")]
+    tags = tags_of(product)
     return {
         "id": product.id,
         "shop_id": product.shop_id,
@@ -93,6 +126,7 @@ def serialize_product(
         "favorited": product.id in (favorites or set()),
         "price_from": min((row["price_yuan"] for row in sku_rows), default=None),
         "market_from": min(markets, default=None),
+        "tags": tags,
         "skus": sku_rows,
     }
 
@@ -100,7 +134,12 @@ def serialize_product(
 def _product_query():
     return (
         select(Product)
-        .options(joinedload(Product.skus), joinedload(Product.shop))
+        .options(
+            joinedload(Product.skus),
+            joinedload(Product.shop),
+            # 卡片左上角的标签跟着商品一起取，避免每张卡片再查一次
+            joinedload(Product.tag_links).joinedload(ProductTagLink.tag),
+        )
         .order_by(Product.sort_order.asc(), Product.id.asc())
     )
 
@@ -115,6 +154,15 @@ def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
         shop.logo_url = body.logo_url.strip()
     if body.theme_color is not None:
         shop.theme_color = body.theme_color.lower()
+    if body.hero_height is not None:
+        shop.hero_height = body.hero_height
+    if body.strip_tint is not None:
+        shop.strip_tint = body.strip_tint
+    if body.promises is not None:
+        shop.promises = json.dumps(
+            [{"title": row.title.strip(), "sub": row.sub.strip()} for row in body.promises],
+            ensure_ascii=False,
+        )
     if body.status is not None:
         shop.status = body.status
     db.commit()
@@ -276,6 +324,8 @@ def create_product(db: Session, user: User, body: ProductIn) -> dict:
     from app.services.categories import register_category_name
 
     register_category_name(db, shop.id, product.category)
+    sync_product_tags(db, product, body.tag_names)
+    db.commit()
     saved = _owned_product(db, user, product.id)
     invalidate_catalog_cache()
     return serialize_product(saved, audience="b")
@@ -306,6 +356,8 @@ def update_product(db: Session, user: User, product_id: int, body: ProductUpdate
         product.sort_order = body.sort_order
     if body.limit_per_user is not None:
         product.limit_per_user = body.limit_per_user
+    if body.tag_names is not None:
+        sync_product_tags(db, product, body.tag_names)
     db.commit()
     if body.category is not None:
         from app.services.categories import register_category_name

@@ -37,6 +37,11 @@ class Shop(Base):
     theme_color: Mapped[str] = mapped_column(String(16), default="#ff5000")
     share_code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     status: Mapped[str] = mapped_column(String(16), default="open")
+    # 买家端首页的外观，商家在「首页装修」里调
+    hero_height: Mapped[int] = mapped_column(default=640)
+    strip_tint: Mapped[bool] = mapped_column(default=True)
+    # 首页最下面那条售后保障，存 JSON 文本，空字符串表示用平台默认那四条
+    promises: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     merchant: Mapped[User] = relationship(back_populates="shop")
@@ -61,6 +66,7 @@ class Product(Base):
 
     shop: Mapped[Shop] = relationship(back_populates="products")
     skus: Mapped[list["Sku"]] = relationship(back_populates="product", cascade="all, delete-orphan")
+    tag_links: Mapped[list["ProductTagLink"]] = relationship(cascade="all, delete-orphan")
 
 
 class Sku(Base):
@@ -250,3 +256,29 @@ class ShopCategory(Base):
     shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
     name: Mapped[str] = mapped_column(String(32))
     sort_order: Mapped[int] = mapped_column(default=0)
+
+
+class ProductTag(Base):
+    """商家自己定的商品标签，买家端卡片左上角显示的就是它。"""
+
+    __tablename__ = "product_tags"
+    __table_args__ = (UniqueConstraint("shop_id", "name", name="uq_shop_tag"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
+    name: Mapped[str] = mapped_column(String(16))
+    color: Mapped[str] = mapped_column(String(16), default="")
+    sort_order: Mapped[int] = mapped_column(default=0)
+
+
+class ProductTagLink(Base):
+    """商品和标签的多对多关系。标签改名不用动这里，因为存的是 id。"""
+
+    __tablename__ = "product_tag_links"
+    __table_args__ = (UniqueConstraint("product_id", "tag_id", name="uq_product_tag"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    tag_id: Mapped[int] = mapped_column(ForeignKey("product_tags.id"), index=True)
+
+    tag: Mapped[ProductTag] = relationship()

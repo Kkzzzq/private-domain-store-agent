@@ -69,6 +69,8 @@ p { margin: 0; }
 
 /* ================= 顶部一行：店铺名 + 购物车 / 订单 / 收藏 / 浏览记录 ================= */
 .strip { background: #fff; border-bottom: 2px solid var(--primary); color: var(--ink-2); font-size: 16px; }
+/* 用店铺主题色兑出来的浅底，商家在「首页装修 → 首页样式」里可以关掉 */
+.strip.tinted { background: linear-gradient(180deg, color-mix(in srgb, var(--theme) 13%, #fff), color-mix(in srgb, var(--theme) 7%, #fff)); }
 .strip .wrap { display: flex; align-items: center; justify-content: space-between; height: 68px; gap: 14px; overflow-x: auto; }
 .strip > .wrap > * { flex-shrink: 0; }
 .strip nav { display: flex; align-items: center; }
@@ -189,34 +191,37 @@ p { margin: 0; }
 .pcard .thumb { position: relative; background: #f7f7f7; aspect-ratio: 1 / 1; overflow: hidden; display: block; }
 .pcard .thumb img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s; }
 .pcard:hover .thumb img { transform: scale(1.06); }
+/* 左上角角标：商家自定义的标签，比折扣角标大一圈 */
 .pcard .tag {
-  position: absolute; top: 10px; left: 10px; background: var(--primary); color: #fff;
-  font-size: 11px; padding: 3px 9px; border-radius: 4px; letter-spacing: 0.5px;
+  position: absolute; top: 12px; left: 12px; z-index: 3; background: var(--primary); color: #fff;
+  font-size: 13px; font-weight: 600; padding: 5px 13px; border-radius: 7px; letter-spacing: 1px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
 }
 /* 图片上的价格（右下）和购物车（左下） */
 .thumb-price {
   position: absolute; right: 10px; bottom: 10px; z-index: 2;
-  display: flex; align-items: baseline; gap: 5px;
-  background: rgba(255, 255, 255, 0.94); border-radius: 6px; padding: 3px 10px;
+  display: flex; align-items: baseline; gap: 3px;
+  background: rgba(255, 255, 255, 0.94); border-radius: 6px; padding: 2px 8px;
   box-shadow: var(--shadow);
 }
 .thumb-price i { font-size: 12px; font-style: normal; color: var(--price); }
-.thumb-price b { font-size: 18px; color: var(--price); font-family: var(--serif); }
-.thumb-price .price-was { margin-left: 0; font-size: 11px; }
+.thumb-price b { font-size: 20px; color: var(--price); font-family: var(--serif); letter-spacing: -0.5px; }
+.thumb-price .price-was { margin-left: 1px; font-size: 11px; }
 .thumb-cart {
-  position: absolute; left: 10px; bottom: 10px; z-index: 2;
-  width: 36px; height: 36px; border-radius: 50%; border: 0;
-  background: var(--primary); color: #fff; font-size: 15px;
+  position: absolute; left: 12px; bottom: 12px; z-index: 2;
+  width: 46px; height: 46px; border-radius: 50%; border: 0;
+  background: rgba(255, 80, 0, 0.9); color: #fff; font-size: 20px;
   display: grid; place-items: center; box-shadow: var(--shadow);
   transition: transform 0.15s, background 0.15s;
 }
-.thumb-cart:hover { transform: scale(1.12); background: var(--primary-dark); }
+.thumb-cart { background: color-mix(in srgb, var(--theme) 90%, transparent); }
+.thumb-cart:hover { transform: scale(1.1); background: var(--primary-dark); }
 
-/* 图片上的名称，只在悬停时浮出来。上边留出折扣角标的位置 */
+/* 图片上的名称，只在悬停时浮出来。上边留出角标的位置 */
 .thumb-name {
   position: absolute; left: 0; right: 0; top: 0; z-index: 2;
-  padding: 44px 14px 18px; color: #fff; font-size: 14px; line-height: 1.4;
-  background: linear-gradient(180deg, rgba(26, 22, 19, 0.78), rgba(26, 22, 19, 0));
+  padding: 50px 16px 22px; color: #fff; font-size: 17px; font-weight: 600; line-height: 1.35;
+  background: linear-gradient(180deg, rgba(26, 22, 19, 0.8), rgba(26, 22, 19, 0));
   opacity: 0; transform: translateY(-6px); transition: opacity 0.22s, transform 0.22s;
   pointer-events: none;
 }
@@ -243,12 +248,13 @@ p { margin: 0; }
 
 /* 收藏 / 评分 */
 .fav {
-  position: absolute; top: 10px; right: 10px; width: 34px; height: 34px; border-radius: 50%;
-  border: 0; background: rgba(255, 255, 255, 0.92); color: var(--muted); font-size: 16px;
-  display: grid; place-items: center; box-shadow: var(--shadow); z-index: 2;
-  transition: transform 0.15s, color 0.15s;
+  position: absolute; top: 12px; right: 12px; width: 44px; height: 44px; border-radius: 50%;
+  border: 0; background: rgba(255, 255, 255, 0.78); color: var(--muted); font-size: 21px;
+  display: grid; place-items: center; box-shadow: var(--shadow); z-index: 3;
+  backdrop-filter: blur(2px);
+  transition: transform 0.15s, color 0.15s, background 0.15s;
 }
-.fav:hover { transform: scale(1.12); color: var(--primary); }
+.fav:hover { transform: scale(1.1); color: var(--primary); background: rgba(255, 255, 255, 0.92); }
 .fav.on { color: var(--primary); }
 .fav-btn {
   border: 1px solid var(--line); background: #fff; color: var(--ink-2); border-radius: 6px;
@@ -418,18 +424,29 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 }
 .tabs button:hover { color: var(--primary); }
 .tabs button.on { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
-.order { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; margin-bottom: 14px; }
+.order { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; margin-bottom: 16px; border: 1px solid var(--line-2); }
+/* 订单三段底色分开：台头浅主题色 + 主题色下边框、明细纯白、底部灰，一眼分清上下 */
 .order-head {
   display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 12px; align-items: center;
-  padding: 13px 20px; background: #fafafa; border-bottom: 1px solid var(--line-2);
+  padding: 14px 20px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--theme) 19%, #fff), color-mix(in srgb, var(--theme) 8%, #fff));
+  border-bottom: 2px solid color-mix(in srgb, var(--theme) 26%, #fff);
   font-size: 13px; color: var(--ink-2);
 }
 .order-head .no { font-weight: 600; color: var(--ink); letter-spacing: 0.4px; }
 .order-head .right { text-align: right; }
-.order-line { display: flex; gap: 14px; padding: 16px 20px; border-bottom: 1px solid var(--line-2); align-items: center; }
+.order-line {
+  display: flex; gap: 14px; padding: 16px 20px; border-bottom: 1px solid var(--line-2);
+  align-items: center; background: #fff;
+}
+/* 商品行一深一浅，多件商品时上下能分开 */
+.order-line.alt { background: #fbf8f6; }
 .order-line:last-of-type { border-bottom: 0; }
 .order-line img { width: 72px; height: 72px; border-radius: 6px; object-fit: cover; background: #f7f7f7; }
-.order-foot { display: flex; align-items: center; justify-content: flex-end; gap: 18px; padding: 14px 20px; background: #fafafa; flex-wrap: wrap; }
+.order-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 18px;
+  padding: 15px 20px; background: #f4f2f1; border-top: 1px solid var(--line); flex-wrap: wrap;
+}
 .countdown { display: inline-flex; align-items: center; gap: 6px; color: var(--red); font-size: 13px; }
 .countdown b { font-variant-numeric: tabular-nums; }
 
@@ -476,10 +493,12 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 }
 .chat .tips button:hover { border-color: var(--primary); color: var(--primary); }
 
-/* ================= 首页：轮播主视觉 ================= */
+/* ================= 首页：轮播主视觉 =================
+   图片后面垫一层同图的模糊放大版，主图两侧用 mask 淡出，
+   看起来就是「图片的渐变 / 模糊」一直延伸到两边。 */
 .hero {
   position: relative; border-radius: var(--radius); overflow: hidden; background: #2a2521;
-  height: 560px; box-shadow: var(--shadow); margin: 22px 0 0;
+  height: var(--hero-h, 640px); box-shadow: var(--shadow); margin: 22px 0 0;
 }
 .hero .slide {
   position: absolute; inset: 0; opacity: 0; transition: opacity 0.6s ease;
@@ -487,7 +506,17 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 }
 .hero .slide { cursor: pointer; }
 .hero .slide.on { opacity: 1; pointer-events: auto; }
-.hero .slide img { width: 100%; height: 100%; object-fit: cover; }
+.hero .blur {
+  position: absolute; inset: -6%;
+  background-size: cover; background-position: center;
+  filter: blur(30px) saturate(1.3) brightness(0.94);
+  transform: scale(1.08);
+}
+.hero .slide > img {
+  position: relative; width: 100%; height: 100%; object-fit: cover;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 9%, #000 91%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 9%, #000 91%, transparent 100%);
+}
 .hero .slide .veil {
   position: absolute; inset: 0;
   background: linear-gradient(100deg, rgba(26, 22, 19, 0.88) 10%, rgba(26, 22, 19, 0.5) 52%, rgba(26, 22, 19, 0.08) 100%);
@@ -580,6 +609,38 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
   padding: 9px 12px; font-size: 14px; color: var(--ink); background: #fff;
 }
 .cat-name:focus { outline: none; border-color: var(--primary); }
+
+/* 后台商品标签：色块、买家端角标预览、商品编辑里的多选 */
+.tag-color {
+  width: 42px; height: 36px; border: 1px solid var(--line); border-radius: 6px;
+  background: #fff; padding: 2px; cursor: pointer; flex-shrink: 0;
+}
+/* .field input 会把宽度撑满，这里压回去 */
+.field .tag-color { width: 54px; padding: 3px; }
+.field small { font-size: 12px; }
+.tag-preview {
+  color: #fff; font-size: 13px; font-weight: 600; padding: 5px 13px; border-radius: 7px;
+  letter-spacing: 1px; white-space: nowrap; background: var(--primary);
+}
+.tag-picker { display: flex; flex-wrap: wrap; gap: 9px; }
+.chip {
+  border: 1px solid var(--line); background: #fff; color: var(--ink-2); border-radius: 20px;
+  padding: 7px 17px; font-size: 14px; transition: all 0.15s;
+}
+.chip:hover { border-color: var(--primary); color: var(--primary); }
+.chip.on {
+  border-color: transparent; background: var(--primary); color: #fff; font-weight: 600;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--theme) 28%, transparent);
+}
+
+/* 后台首页样式：售后保障条一行一条 */
+.promise-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.promise-row { display: grid; grid-template-columns: 180px 1fr 76px; gap: 10px; align-items: center; }
+.promise-row input {
+  border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; font-size: 14px;
+  color: var(--ink); background: #fff; outline: none; min-width: 0;
+}
+.promise-row input:focus { border-color: var(--primary); }
 
 /* ================= 首页：用户评价流动 ================= */
 .wall { margin-top: 50px; overflow: hidden; }
@@ -731,6 +792,17 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .saved-actions { display: flex; gap: 8px; margin-top: 10px; }
 .saved-actions button { flex: 1; }
 .pcard .body .stars { font-size: 12px; }
+
+/* 收藏和浏览记录用同一套版式：表格化的卡片、同一行卡片等高、底部按钮贴齐 */
+.panel.saved-panel { padding: 22px 22px 26px; }
+.panel.saved-panel .grid { padding: 0; align-content: start; grid-auto-rows: 1fr; }
+.panel.saved-panel .note { margin-bottom: 16px; }
+.panel.saved-panel .pcard { height: 100%; }
+.panel.saved-panel .pcard .body { gap: 8px; }
+.panel.saved-panel .pcard .foot { flex-wrap: nowrap; gap: 8px; }
+.panel.saved-panel .pcard .foot .price { min-width: 0; flex-wrap: wrap; }
+.panel.saved-panel .pcard .foot .ship-tag { flex-shrink: 0; margin-left: auto; }
+.panel.saved-panel .saved-actions { margin-top: auto; padding-top: 10px; }
 
 /* ================= 空态 / 骨架 ================= */
 .empty { text-align: center; padding: 70px 20px; color: var(--muted); background: #fff; border-radius: var(--radius); }

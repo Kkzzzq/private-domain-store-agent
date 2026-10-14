@@ -36,6 +36,7 @@ const MENU = [
   ["dashboard", "📊 经营概览"],
   ["products", "📦 商品管理"],
   ["categories", "🏷️ 分类标签"],
+  ["tags", "🔖 商品标签"],
   ["orders", "🧾 订单管理"],
   ["home", "🎨 首页装修"],
   ["shop", "🏪 店铺设置"],
@@ -161,6 +162,7 @@ async function mainView() {
   const current = route();
   if (current.name === "products") return current.id ? productEditor(current.id) : productList();
   if (current.name === "categories") return categoriesAdmin();
+  if (current.name === "tags") return tagsAdmin();
   if (current.name === "orders") return orderList(current.id);
   if (current.name === "home") return homeAdmin(current.id);
   if (current.name === "shop") return shopForm();
@@ -237,16 +239,123 @@ async function homeAdmin(tab) {
   box.append(h("p", "page-sub", "买家端首页的轮播图、商品栏目和用户评价都在这里改，保存后刷新买家端就能看到"));
 
   const tabs = h("div", "tabs");
-  [["banners", "轮播图"], ["sections", "商品栏目"], ["testimonials", "用户评价"]].forEach(([value, label]) => {
-    const button = h("button", value === current ? "on" : "", label);
-    button.addEventListener("click", () => go(`#/home/${value}`));
-    tabs.append(button);
-  });
+  [["banners", "轮播图"], ["sections", "商品栏目"], ["testimonials", "用户评价"], ["appearance", "首页样式"]].forEach(
+    ([value, label]) => {
+      const button = h("button", value === current ? "on" : "", label);
+      button.addEventListener("click", () => go(`#/home/${value}`));
+      tabs.append(button);
+    }
+  );
   box.append(tabs);
 
   if (current === "sections") box.append(await sectionsAdmin());
   else if (current === "testimonials") box.append(await testimonialsAdmin());
+  else if (current === "appearance") box.append(await appearanceAdmin());
   else box.append(await bannersAdmin());
+  return box;
+}
+
+/** 首页样式：轮播高度和顶栏浅色底，都是买家端一眼能看到的。 */
+async function appearanceAdmin() {
+  const shop = await api("/api/v1/b/shop");
+  shopInfo = shop;
+  const box = h("div");
+
+  const panel = h("form", "panel stack");
+  panel.append(h("h2", "panel-title", "首页样式"));
+  panel.append(h("p", "muted", "这里改的是买家端首页的外观，保存后刷新买家端就能看到"));
+
+  const grid = h("div", "form-grid");
+  const heightWrap = h("label", "field");
+  heightWrap.append(h("span", "", "轮播主视觉高度"));
+  const height = document.createElement("select");
+  [["460", "矮（460px，适合横图）"], ["560", "标准（560px）"], ["640", "高（640px，推荐）"], ["720", "很高（720px）"]].forEach(
+    ([value, label]) => height.append(new Option(label, value))
+  );
+  height.value = String(shop.hero_height || 640);
+  if (!height.value) height.value = "640";
+  heightWrap.append(height);
+  grid.append(heightWrap);
+
+  const tintWrap = h("label", "field");
+  tintWrap.append(h("span", "", "顶部一行底色"));
+  const tint = document.createElement("select");
+  tint.append(new Option("主题色浅底（推荐）", "on"), new Option("纯白", "off"));
+  tint.value = shop.strip_tint === false ? "off" : "on";
+  tintWrap.append(tint);
+  grid.append(tintWrap);
+  panel.append(grid);
+
+  panel.append(
+    h(
+      "p",
+      "muted",
+      "顶栏浅色底由「店铺设置」里的主题色自动调出来；轮播图左右两侧的模糊渐变跟着图片走，不用另外配。"
+    )
+  );
+
+  // 首页最下面那条售后保障，改这里买家端立刻生效
+  panel.append(h("h2", "panel-title", "售后保障条"));
+  panel.append(h("p", "muted", "买家端首页最下面那一条，最多 6 项；只填标题也行"));
+  const promiseRows = h("div", "promise-rows");
+  const rows = (shop.promises || []).map((row) => ({ ...row }));
+  const paint = () => {
+    promiseRows.replaceChildren();
+    rows.forEach((row, index) => {
+      const line = h("div", "promise-row");
+      const title = document.createElement("input");
+      title.value = row.title;
+      title.placeholder = "标题";
+      title.maxLength = 16;
+      title.addEventListener("input", () => (row.title = title.value));
+      const sub = document.createElement("input");
+      sub.value = row.sub;
+      sub.placeholder = "一行说明";
+      sub.maxLength = 40;
+      sub.addEventListener("input", () => (row.sub = sub.value));
+      const remove = h("button", "btn-ghost btn-mini", "删除");
+      remove.type = "button";
+      remove.addEventListener("click", () => {
+        rows.splice(index, 1);
+        paint();
+      });
+      line.append(title, sub, remove);
+      promiseRows.append(line);
+    });
+    if (!rows.length) promiseRows.append(h("p", "muted", "现在一条都没有，买家端会隐藏这一条"));
+  };
+  paint();
+  const addPromise = h("button", "btn-ghost btn-mini", "加一条");
+  addPromise.type = "button";
+  addPromise.addEventListener("click", () => {
+    if (rows.length >= 6) return toast("最多 6 条", "bad");
+    rows.push({ title: "", sub: "" });
+    paint();
+  });
+  panel.append(promiseRows, addPromise);
+
+  const error = h("p", "muted", "");
+  const submit = h("button", "btn", "保存样式");
+  submit.type = "submit";
+  panel.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      shopInfo = await api("/api/v1/b/shop", {
+        method: "PATCH",
+        body: JSON.stringify({
+          hero_height: Number(height.value),
+          strip_tint: tint.value === "on",
+          promises: rows.filter((row) => row.title.trim()).map((row) => ({ title: row.title.trim(), sub: row.sub.trim() })),
+        }),
+      });
+      toast("样式已保存", "ok");
+      render();
+    } catch (err) {
+      error.textContent = err.message;
+    }
+  });
+  panel.append(error, submit);
+  box.append(panel);
   return box;
 }
 
@@ -769,6 +878,157 @@ async function categoriesAdmin() {
   return box;
 }
 
+/* ---------------- 商品标签：买家端卡片左上角那个角标 ---------------- */
+async function tagsAdmin() {
+  const box = h("div");
+  box.append(h("h1", "page-title", "商品标签"));
+  box.append(
+    h(
+      "p",
+      "page-sub",
+      "买家端商品卡左上角的角标（促销 / 爆款 / 新上线 …）就是这套标签。一件商品可以挂多个，卡片上显示排在最前面的那个。"
+    )
+  );
+
+  const rows = await api("/api/v1/b/tags");
+  const list = h("div", "panel");
+  list.append(h("h2", "panel-title", `当前标签（${rows.length}）`));
+  if (!rows.length) list.append(h("p", "muted", "还没有标签，先在下面加一个"));
+  if (rows.length > 1) list.append(h("p", "muted", "顺序决定商品卡上显示哪一个，越靠前越优先"));
+
+  const save = async (row, payload, done) => {
+    try {
+      await api(`/api/v1/b/tags/${row.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+      toast(done, "ok");
+      render();
+    } catch (error) {
+      toast(error.message, "bad");
+    }
+  };
+
+  const move = async (index, delta) => {
+    const target = index + delta;
+    if (target < 0 || target >= rows.length) return;
+    const next = rows.slice();
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved);
+    for (let order = 0; order < next.length; order += 1) {
+      if (next[order].sort_order === order + 1) continue;
+      await api(`/api/v1/b/tags/${next[order].id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ sort_order: order + 1 }),
+      });
+    }
+    toast("顺序已更新", "ok");
+    render();
+  };
+
+  rows.forEach((row, index) => {
+    const item = h("div", "quote-row");
+    const input = document.createElement("input");
+    input.className = "cat-name";
+    input.value = row.name;
+
+    const color = document.createElement("input");
+    color.type = "color";
+    color.className = "tag-color";
+    color.value = row.color || "#ff5000";
+
+    // 预览：和买家端卡片上那个角标长得一样
+    const preview = h("span", "tag-preview", row.name);
+    preview.style.background = row.color || "var(--primary)";
+
+    const ops = h("div", "ops");
+    const count = h("span", "pill", `${row.product_count} 件商品`);
+    const rename = h("button", "", "保存");
+    rename.addEventListener("click", () => {
+      const name = input.value.trim();
+      if (!name || (name === row.name && color.value === row.color)) return;
+      save(row, { name, color: color.value }, "标签已更新");
+    });
+    const up = h("button", "", "上移");
+    up.disabled = index === 0;
+    up.addEventListener("click", () => move(index, -1));
+    const down = h("button", "", "下移");
+    down.disabled = index === rows.length - 1;
+    down.addEventListener("click", () => move(index, 1));
+    const remove = h("button", "danger", "删除");
+    remove.addEventListener("click", async () => {
+      try {
+        await api(`/api/v1/b/tags/${row.id}`, { method: "DELETE" });
+        toast("已删除，挂过它的商品也一起摘掉了", "ok");
+        render();
+      } catch (error) {
+        toast(error.message, "bad");
+      }
+    });
+    ops.append(count, rename, up, down, remove);
+    item.append(input, color, preview, ops);
+    list.append(item);
+  });
+
+  const panel = h("form", "panel stack");
+  panel.append(h("h2", "panel-title", "新增标签"));
+  panel.append(h("p", "muted", "两个字的短词最合适，比如「促销」「爆款」「新上线」"));
+  const grid = h("div", "form-grid");
+  grid.append(field("标签名", "name", ""));
+  const colorWrap = h("label", "field");
+  colorWrap.append(h("span", "", "底色"));
+  const newColor = document.createElement("input");
+  newColor.type = "color";
+  newColor.name = "color";
+  newColor.value = "#ff5000";
+  colorWrap.append(newColor);
+  grid.append(colorWrap);
+  panel.append(grid);
+
+  const error = h("p", "muted", "");
+  const submit = h("button", "btn", "添加标签");
+  submit.type = "submit";
+  panel.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await api("/api/v1/b/tags", {
+        method: "POST",
+        body: JSON.stringify({ name: val(panel, "name"), color: newColor.value }),
+      });
+      toast("标签已添加", "ok");
+      render();
+    } catch (err) {
+      error.textContent = err.message;
+    }
+  });
+  panel.append(error, submit);
+
+  box.append(list, panel);
+  return box;
+}
+
+/** 商品编辑里的标签多选，最多 4 个，和接口上限一致。 */
+function tagPicker(names, value) {
+  const wrap = h("label", "field");
+  wrap.append(h("span", "", "商品标签（卡片左上角显示排最前的那个）"));
+  const chosen = new Set(value || []);
+  const row = h("div", "tag-picker");
+  names.forEach((name) => {
+    const chip = h("button", chosen.has(name) ? "chip on" : "chip", name);
+    chip.type = "button";
+    chip.addEventListener("click", () => {
+      if (chosen.has(name)) chosen.delete(name);
+      else if (chosen.size >= 4) return toast("一件商品最多挂 4 个标签", "bad");
+      else chosen.add(name);
+      chip.classList.toggle("on", chosen.has(name));
+    });
+    row.append(chip);
+  });
+  if (!names.length) row.append(h("span", "muted", "还没有标签，先去「商品标签」加几个"));
+  wrap.append(row);
+  wrap.append(h("small", "muted", "没勾就是不带角标，买家端会退回显示折扣或热销"));
+  // 提交时按商家定义的标签顺序取，排最前的那个会显示在卡片上
+  wrap.selected = () => names.filter((name) => chosen.has(name));
+  return wrap;
+}
+
 /* ---------------- 概览 ---------------- */
 async function dashboard() {
   const box = h("div");
@@ -997,11 +1257,18 @@ async function productEditor(id) {
     if (!product) return h("div", "panel", "没有找到这个商品");
   }
   let catNames = [];
+  let tagNames = [];
   try {
     catNames = (await api("/api/v1/b/categories")).map((item) => item.name);
   } catch {
     catNames = [];
   }
+  try {
+    tagNames = (await api("/api/v1/b/tags")).map((item) => item.name);
+  } catch {
+    tagNames = [];
+  }
+  const tagField = tagPicker(tagNames, (product.tags || []).map((tag) => tag.name));
 
   panel.append(h("h2", "panel-title", "基本信息"));
   const grid = h("div", "form-grid");
@@ -1011,7 +1278,7 @@ async function productEditor(id) {
     field("图片地址", "image_url", product.image_url, true),
     field("每人限购（0 表示不限）", "limit_per_user", String(product.limit_per_user ?? 0)),    field("商品说明", "description", product.description, true, "textarea")
   );
-  panel.append(grid);
+  panel.append(grid, tagField);
   if (creating) {
     panel.append(h("h2", "panel-title", "首个规格"));
     const skuGrid = h("div", "form-grid");
@@ -1031,6 +1298,7 @@ async function productEditor(id) {
         description: val(panel, "description"),
         image_url: val(panel, "image_url"),
         limit_per_user: Number(val(panel, "limit_per_user") || 0),
+        tag_names: tagField.selected(),
       };
       if (creating) {
         payload.skus = [

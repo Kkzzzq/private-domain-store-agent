@@ -22,12 +22,22 @@ class UserOut(BaseModel):
     nickname: str
 
 
+class PromiseItem(BaseModel):
+    """首页最下面那条售后保障，商家自己写。"""
+
+    title: str = Field(min_length=1, max_length=16)
+    sub: str = Field(default="", max_length=40)
+
+
 class ShopUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     notice: str | None = Field(default=None, max_length=500)
     logo_url: str | None = Field(default=None, max_length=500)
     theme_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     status: Literal["open", "closed"] | None = None
+    hero_height: int | None = Field(default=None, ge=320, le=760)
+    strip_tint: bool | None = None
+    promises: list[PromiseItem] | None = Field(default=None, max_length=6)
 
 
 class ShopOut(BaseModel):
@@ -39,6 +49,9 @@ class ShopOut(BaseModel):
     share_code: str
     status: str
     share_path: str
+    hero_height: int
+    strip_tint: bool
+    promises: list[PromiseItem]
 
 
 class StatusAction(BaseModel):
@@ -64,6 +77,7 @@ class ProductIn(BaseModel):
     description: str = Field(default="", max_length=2000)
     image_url: str = Field(default="", max_length=500)
     limit_per_user: int = Field(default=0, ge=0, le=99)
+    tag_names: list[str] = Field(default_factory=list, max_length=4)
     skus: list[SkuIn] = Field(min_length=1, max_length=20)
 
 
@@ -74,6 +88,7 @@ class ProductUpdate(BaseModel):
     image_url: str | None = Field(default=None, max_length=500)
     sort_order: int | None = Field(default=None, ge=0, le=9999)
     limit_per_user: int | None = Field(default=None, ge=0, le=99)
+    tag_names: list[str] | None = Field(default=None, max_length=4)
 
 
 class SkuUpdate(BaseModel):
@@ -93,6 +108,32 @@ class SkuOut(BaseModel):
     purchasable: bool | None = None
 
 
+class TagIn(BaseModel):
+    name: str = Field(min_length=1, max_length=16)
+    color: str = Field(default="", max_length=16)
+
+
+class TagUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=16)
+    color: str | None = Field(default=None, max_length=16)
+    sort_order: int | None = Field(default=None, ge=0, le=9999)
+
+
+class TagOut(BaseModel):
+    id: int
+    name: str
+    color: str
+    sort_order: int
+    product_count: int
+
+
+class TagRef(BaseModel):
+    """挂在商品上的标签，买家端只关心名字和颜色。"""
+
+    name: str
+    color: str
+
+
 class ProductOut(BaseModel):
     id: int
     shop_id: int
@@ -109,6 +150,7 @@ class ProductOut(BaseModel):
     favorited: bool = False
     price_from: float | None = None
     market_from: float | None = None
+    tags: list[TagRef] = []
     skus: list[SkuOut]
 
 

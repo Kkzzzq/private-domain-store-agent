@@ -49,6 +49,9 @@ def _ensure_sqlite_columns() -> None:
         "shops": {
             "logo_url": "VARCHAR(500) DEFAULT ''",
             "theme_color": "VARCHAR(16) DEFAULT '#ff5000'",
+            "hero_height": "INTEGER DEFAULT 640",
+            "strip_tint": "BOOLEAN DEFAULT 1",
+            "promises": "TEXT DEFAULT ''",
         },
     }
     with engine.begin() as conn:

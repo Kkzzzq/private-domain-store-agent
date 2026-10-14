@@ -7,6 +7,8 @@ from app.models.tables import (
     Order,
     OrderItem,
     Product,
+    ProductTag,
+    ProductTagLink,
     Review,
     Section,
     SectionItem,
@@ -335,7 +337,30 @@ def seed_if_empty(db) -> None:
         )
     )
     seed_home(db, shop, [pillow, mug, candle, runner, plate, stone, notebook])
+    seed_tags(db, shop, [pillow, mug, candle, runner, plate, stone, notebook])
     db.commit()
+
+
+def seed_tags(db, shop: Shop, products: list[Product]) -> None:
+    """给演示店一套标签，并挑几件商品挂上，买家端卡片左上角就能看到效果。"""
+    from app.services.tags import ensure_defaults, sync_product_tags
+
+    ensure_defaults(db, shop)
+    by_name = {product.name: product for product in products}
+    picks = {
+        "亚麻抱枕套": ["爆款", "折扣"],
+        "陶瓷马克杯": ["新上线"],
+        "手作餐盘": ["促销"],
+        "无火扩香石": ["新上线"],
+        "棉麻笔记本": ["爆款"],
+        "大豆香薰蜡烛": ["促销"],
+    }
+    for name, tags in picks.items():
+        product = by_name.get(name)
+        # 已经有标签的就不动了，免得商家自己的设置被覆盖
+        if product is None or product.tag_links:
+            continue
+        sync_product_tags(db, product, tags)
 
 
 def seed_home(db, shop: Shop, products: list[Product]) -> None:
@@ -563,3 +588,8 @@ def upgrade_demo(db) -> None:
         from app.services.categories import ensure_from_products
 
         ensure_from_products(db, shop)
+
+    # 商品标签：老库补默认那套，并给几件商品挂上示例标签
+    fresh = db.scalars(select(Product).where(Product.shop_id == shop.id)).all()
+    seed_tags(db, shop, fresh)
+    db.commit()
