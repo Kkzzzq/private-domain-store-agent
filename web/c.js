@@ -597,11 +597,27 @@ function tagBadge(product) {
   return node;
 }
 
-function productCard(product) {
-  const card = h("article", "pcard");
+/**
+ * 商品卡：首页、合集页、浏览记录共用同一套。
+ * 卡片上只有图片 + 左上角标签 + 左下角小购物车，名称和价格在悬停浮层里。
+ * opts.shopCode 用来指向商品所属店铺（浏览记录是跨店的）；
+ * opts.extra 打开后，浮层里会多一行店铺名，下架商品也按标注处理。
+ */
+function productCard(product, { shopCode = code, extra = false } = {}) {
+  const available = product.available !== false;
+  const card = h("article", available ? "pcard" : "pcard dim");
+  const href = `#/product/${shopCode}/${product.id}`;
+
   const thumb = h("a", "thumb");
-  thumb.href = `#/product/${code}/${product.id}`;
+  thumb.href = available ? href : "javascript:void(0)";
   thumb.title = `${product.name} · ¥${Number(product.price_from || 0).toFixed(2)}`;
+  if (!available) {
+    // 下架或禁售的商品没有详情页，点了给个说明
+    thumb.addEventListener("click", (event) => {
+      event.preventDefault();
+      toast(`该商品${product.shelf_label}，暂时看不了详情`);
+    });
+  }
   const image = document.createElement("img");
   image.src = cover(product.image_url);
   image.alt = product.name;
@@ -611,6 +627,7 @@ function productCard(product) {
   // 悬停时在图片顶部浮出名称和价格，平时只有图
   const hover = h("div", "thumb-name");
   hover.append(h("span", "hover-title", product.name));
+  if (extra && product.shop_name) hover.append(h("span", "hover-shop", product.shop_name));
   const hoverPrice = h("span", "hover-price");
   hoverPrice.append(h("i", "", "¥"), h("b", "", Number(product.price_from || 0).toFixed(2)));
   if (product.market_from) {
@@ -621,14 +638,16 @@ function productCard(product) {
 
   const badge = tagBadge(product);
   if (badge) thumb.append(badge);
+  if (!available) thumb.append(h("span", "shelf-flag", product.shelf_label));
 
   // 图片左下角一个小购物车，点了在当前页面弹小窗选规格
   const cart = h("button", "thumb-cart", "🛒");
-  cart.title = "加入购物车 / 直接购买";
+  cart.title = available ? "加入购物车 / 直接购买" : `该商品${product.shelf_label}`;
   cart.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    quickBuy(product);
+    if (!available) return toast(`该商品${product.shelf_label}，暂时不能加购`);
+    quickBuy(product, shopCode);
   });
   thumb.append(cart);
 
@@ -636,8 +655,9 @@ function productCard(product) {
   return card;
 }
 
-/** 卡片上的小购物车：在当前页面弹小窗，选规格后加购或直接买。 */
-function quickBuy(product) {
+/** 卡片上的小购物车：在当前页面弹小窗，选规格后加购或直接买。
+    shopCode 是商品所属的店铺，浏览记录里跨店加购要靠它。 */
+function quickBuy(product, shopCode = code) {
   if (!requireLogin()) return;
   const mask = h("div", "modal quick-mask");
   const panel = h("div", "panel quick-panel");
@@ -732,7 +752,7 @@ function quickBuy(product) {
   add.addEventListener("click", async () => {
     if (!current) return;
     try {
-      const cart = await api(`/api/v1/c/shops/${code}/cart`, {
+      const cart = await api(`/api/v1/c/shops/${shopCode}/cart`, {
         method: "POST",
         body: JSON.stringify({ sku_id: current.id, quantity: clamp() }),
       });
@@ -756,7 +776,8 @@ function quickBuy(product) {
         price_yuan: current.price_yuan,
       })
     );
-    code = product.shop_share_code || code;
+    // 结算页要按商品所属的店来算运费，跨店加购时用它自己的店铺码
+    code = shopCode || code;
     mask.remove();
     go("#/checkout");
   });
@@ -1226,77 +1247,6 @@ function renderProductSection(product, reviews) {
 }
 
 /* ---------------- 浏览记录（跨店铺，下架的也保留） ---------------- */
-/** 浏览记录的卡片要带店铺名和上下架标注，所以单独做一套。 */
-function savedCard(item) {
-  const card = h("article", item.available ? "pcard" : "pcard dim");
-  const thumb = h("div", "thumb");
-  const image = document.createElement("img");
-  image.src = cover(item.image_url);
-  image.alt = item.name;
-  image.loading = "lazy";
-  thumb.append(image);
-  const badge = tagBadge(item);
-  if (badge) thumb.append(badge);
-  if (!item.available) thumb.append(h("span", "shelf-flag", item.shelf_label));
-  card.append(thumb);
-  const body = h("div", "body");
-  const title = h("a", "title", item.name);
-  const detailHref = `#/product/${item.shop_share_code}/${item.id}`;
-  if (item.available) {
-    title.href = detailHref;
-  } else {
-    // 下架或禁售的商品没有详情页，点了给个说明
-    title.href = "javascript:void(0)";
-    title.addEventListener("click", () => toast(`该商品${item.shelf_label}，暂时看不了详情`));
-  }
-  body.append(title);
-
-  const meta = h("div", "meta");
-  const shopLink = h("a", "link hvr-underline-from-center", item.shop_name || "本店");
-  shopLink.href = item.available ? detailHref : "javascript:void(0)";
-  const stars = h("span", "stars");
-  stars.append(ratingStars(item.rating_avg || 0), document.createTextNode(ratingText(item.rating_avg, item.review_count)));
-  meta.append(shopLink, stars);
-  body.append(meta);
-
-  const foot = h("div", "foot");
-  const price = h("div", "price");
-  price.append(h("i", "", "¥"), h("b", "", Number(item.price_from || 0).toFixed(2)));
-  if (item.market_from) price.append(h("span", "price-was", `¥${Number(item.market_from).toFixed(2)}`));
-  foot.append(price);
-  if (!item.available) foot.append(h("span", "ship-tag off", item.shelf_label));
-  else foot.append(h("span", "ship-tag", "包邮"));
-  body.append(foot);
-
-  const actions = h("div", "saved-actions");
-  if (item.available) {
-    const add = h("button", "btn-cart btn-mini", "加入购物车");
-    add.addEventListener("click", async () => {
-      const sku = (item.skus || []).find((row) => row.purchasable);
-      if (!sku) return toast("这件商品暂时缺货", "bad");
-      try {
-        const cart = await api(`/api/v1/c/shops/${item.shop_share_code}/cart`, {
-          method: "POST",
-          body: JSON.stringify({ sku_id: sku.id, quantity: 1 }),
-        });
-        cartCount = cart.items.reduce((sum, row) => sum + row.quantity, 0);
-        toast("已加入购物车", "ok");
-        render();
-      } catch (error) {
-        toast(error.message, "bad");
-      }
-    });
-    actions.append(add);
-  } else {
-    const gone = h("button", "btn-ghost btn-mini", "已不可购买");
-    gone.disabled = true;
-    actions.append(gone);
-  }
-  body.append(actions);
-  card.append(body);
-  return card;
-}
-
 function savedPanel(title, items, { onClear = null, note = "" } = {}) {
   const box = h("div");
   const panel = h("div", "panel saved-panel");
@@ -1315,7 +1265,8 @@ function savedPanel(title, items, { onClear = null, note = "" } = {}) {
     return box;
   }
   const grid = h("div", "grid");
-  items.forEach((item) => grid.append(savedCard(item)));
+  // 和首页同一套卡片，只是多带店铺名，链接指向商品自己那家店
+  items.forEach((item) => grid.append(productCard(item, { shopCode: item.shop_share_code, extra: true })));
   panel.append(grid);
   box.append(panel);
   return box;

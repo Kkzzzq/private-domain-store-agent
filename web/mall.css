@@ -74,11 +74,12 @@ p { margin: 0; }
   position: relative;
   background: linear-gradient(180deg, color-mix(in srgb, var(--theme) 14%, #fff), color-mix(in srgb, var(--theme) 7%, #fff));
 }
-/* 浅色底越过下面那条线继续淡出，不然边界一刀切太突兀 */
+/* 浅色底越过下面那条主题色线继续淡出一点，边界不至于一刀切；
+   起点放在线的下方，所以那条线还是看得见的 */
 .strip.tinted::after {
-  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 46px;
+  content: ""; position: absolute; left: 0; right: 0; top: calc(100% + 2px); height: 16px;
   pointer-events: none;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--theme) 7%, #fff), var(--bg));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--theme) 6%, #fff), var(--bg));
 }
 .strip .wrap { display: flex; align-items: center; justify-content: space-between; height: 68px; gap: 14px; overflow-x: auto; }
 .strip > .wrap > * { flex-shrink: 0; }
@@ -205,16 +206,16 @@ p { margin: 0; }
 .pcard .tag {
   position: absolute; top: 10px; left: 10px; z-index: 3;
   --tag: var(--theme);
-  background: color-mix(in srgb, var(--tag) 14%, #fff);
-  border: 1px solid color-mix(in srgb, var(--tag) 40%, #fff);
+  background: color-mix(in srgb, var(--tag) 9%, #fff);
+  border: 1px solid color-mix(in srgb, var(--tag) 30%, #fff);
   color: color-mix(in srgb, var(--tag) 84%, #000);
   font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 6px; letter-spacing: 0.5px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16); white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.13); white-space: nowrap;
 }
 .thumb-cart {
   position: absolute; left: 12px; bottom: 12px; z-index: 2;
-  width: 42px; height: 42px; border-radius: 50%; border: 0;
-  color: #fff; font-size: 18px;
+  width: 38px; height: 38px; border-radius: 50%; border: 0;
+  color: #fff; font-size: 17px;
   display: grid; place-items: center;
   background: color-mix(in srgb, var(--theme) 88%, transparent);
   box-shadow: var(--shadow);
@@ -222,11 +223,12 @@ p { margin: 0; }
 }
 .thumb-cart:hover { transform: scale(1.1); background: var(--primary-dark); }
 
-/* 悬停时在图片顶部浮出名称和价格，平时只有图 */
+/* 悬停时在图片顶部浮出名称和价格，平时只有图。
+   上边距比角标下沿再低一点，文字不会被角标压住 */
 .thumb-name {
   position: absolute; left: 0; right: 0; top: 0; z-index: 2;
   display: flex; flex-direction: column; gap: 3px;
-  padding: 34px 14px 16px; color: #fff; font-size: 16px; font-weight: 600; line-height: 1.35;
+  padding: 46px 14px 16px; color: #fff; font-size: 16px; font-weight: 600; line-height: 1.35;
   background: linear-gradient(180deg, rgba(26, 22, 19, 0.82), rgba(26, 22, 19, 0));
   opacity: 0; transform: translateY(-6px); transition: opacity 0.22s, transform 0.22s;
   pointer-events: none;
@@ -234,6 +236,8 @@ p { margin: 0; }
 .thumb-name .hover-title {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+/* 浏览记录是跨店铺的，浮层里标一下来自哪家 */
+.thumb-name .hover-shop { font-size: 12px; font-weight: 400; color: rgba(255, 255, 255, 0.78); }
 .thumb-name .hover-price { display: flex; align-items: baseline; gap: 4px; font-weight: 700; }
 .thumb-name .hover-price i { font-size: 0.72em; font-style: normal; font-weight: 400; }
 .thumb-name .hover-price b { font-size: 1.18em; font-family: var(--serif); letter-spacing: -0.5px; }
@@ -243,11 +247,11 @@ p { margin: 0; }
 @supports (container-type: inline-size) {
   .pcard .tag { font-size: clamp(9.5px, 3.9cqw, 12px); padding: 0.32em 0.9em; border-radius: 0.55em; }
   .thumb-cart {
-    width: clamp(32px, 13cqw, 44px); height: clamp(32px, 13cqw, 44px);
-    font-size: clamp(14px, 6cqw, 19px);
+    width: clamp(30px, 12cqw, 40px); height: clamp(30px, 12cqw, 40px);
+    font-size: clamp(13px, 5.6cqw, 18px);
     left: clamp(9px, 3.4cqw, 12px); bottom: clamp(9px, 3.4cqw, 12px);
   }
-  .thumb-name { font-size: clamp(13px, 4.6cqw, 16px); padding: clamp(24px, 9cqw, 34px) 14px 16px; }
+  .thumb-name { font-size: clamp(13px, 4.6cqw, 16px); padding-top: clamp(42px, 12cqw, 50px); }
   .thumb-name .hover-price b { font-size: clamp(15px, 5.4cqw, 19px); }
 }
 .pcard:hover .thumb-name { opacity: 1; transform: translateY(0); }
@@ -550,11 +554,12 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
   filter: blur(34px) saturate(1.3) brightness(0.94);
   transform: scale(1.08);
 }
-/* 主图不用铺满：两边留出来给后面那层模糊图，看着就是图片往外糊出去 */
+/* 主图不用铺满：两边留出来给后面那层模糊图，看着就是图片往外糊出去。
+   缝留得比较窄，渐变范围大约是之前的三分之一 */
 .hero .slide > img {
-  position: relative; display: block; width: 80%; height: 100%; margin: 0 auto; object-fit: cover;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 18%, #000 82%, transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0, #000 18%, #000 82%, transparent 100%);
+  position: relative; display: block; width: 93.4%; height: 100%; margin: 0 auto; object-fit: cover;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 5%, #000 95%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 5%, #000 95%, transparent 100%);
 }
 .hero .slide .veil {
   position: absolute; inset: 0;
@@ -833,20 +838,11 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
   padding: 5px 14px; border-radius: 4px; white-space: nowrap;
 }
 .ship-tag.off { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, #fff); background: color-mix(in srgb, var(--danger) 7%, #fff); }
-.saved-actions { display: flex; gap: 8px; margin-top: 10px; }
-.saved-actions button { flex: 1; }
 .pcard .body .stars { font-size: 12px; }
 
-/* 浏览记录用表格化的卡片：同一行等高、底部按钮贴齐 */
+/* 浏览记录：和首页同一套卡片，只是外面包了一层 panel */
 .panel.saved-panel { padding: 22px 22px 26px; }
-.panel.saved-panel .grid { padding: 0; align-content: start; grid-auto-rows: 1fr; }
-.panel.saved-panel .note { margin-bottom: 16px; }
-.panel.saved-panel .pcard { height: 100%; }
-.panel.saved-panel .pcard .body { gap: 8px; }
-.panel.saved-panel .pcard .foot { flex-wrap: nowrap; gap: 8px; }
-.panel.saved-panel .pcard .foot .price { min-width: 0; flex-wrap: wrap; }
-.panel.saved-panel .pcard .foot .ship-tag { flex-shrink: 0; margin-left: auto; }
-.panel.saved-panel .saved-actions { margin-top: auto; padding-top: 10px; }
+.panel.saved-panel .grid { padding: 0; }
 
 /* ================= 空态 / 骨架 ================= */
 .empty { text-align: center; padding: 70px 20px; color: var(--muted); background: #fff; border-radius: var(--radius); }
