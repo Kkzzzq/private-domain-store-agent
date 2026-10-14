@@ -32,6 +32,80 @@ function val(form, name) {
   return node ? String(node.value).trim() : "";
 }
 
+/** 删掉就找不回来的操作先问一句，避免误点。 */
+function confirmAction(title, detail) {
+  return new Promise((resolve) => {
+    const mask = h("div", "modal confirm-mask");
+    const panel = h("div", "panel confirm-panel");
+    panel.append(h("h3", "", title));
+    if (detail) panel.append(h("p", "muted", detail));
+    const row = h("div", "row confirm-actions");
+    const cancel = h("button", "btn-ghost", "先不删");
+    cancel.type = "button";
+    const sure = h("button", "btn danger-fill", "确认删除");
+    sure.type = "button";
+    const done = (value) => {
+      mask.remove();
+      document.removeEventListener("keydown", onKey);
+      resolve(value);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") done(false);
+    };
+    cancel.addEventListener("click", () => done(false));
+    sure.addEventListener("click", () => done(true));
+    mask.addEventListener("click", (event) => {
+      if (event.target === mask) done(false);
+    });
+    document.addEventListener("keydown", onKey);
+    row.append(cancel, sure);
+    panel.append(row);
+    mask.append(panel);
+    document.body.append(mask);
+    sure.focus();
+  });
+}
+
+/**
+ * 上移 / 下移。把重排后的整份顺序按 1..n 写回，
+ * 比只跟邻居交换稳（两张序号相同时交换会互相抵消，点了没反应）。
+ */
+async function shiftRow(kind, rows, index, delta) {
+  const target = index + delta;
+  if (target < 0 || target >= rows.length) return false;
+  const next = rows.slice();
+  const [moved] = next.splice(index, 1);
+  next.splice(target, 0, moved);
+  for (let order = 0; order < next.length; order += 1) {
+    if (next[order].sort_order === order + 1) continue;
+    await api(`/api/v1/b/${kind}/${next[order].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ sort_order: order + 1 }),
+    });
+  }
+  toast("顺序已更新", "ok");
+  return true;
+}
+
+/** 一排「上移 / 下移」按钮，几处列表共用。 */
+function orderButtons(kind, rows, index) {
+  const wrap = h("div", "row order-buttons");
+  const up = h("button", "", "上移");
+  up.type = "button";
+  up.disabled = index === 0;
+  up.addEventListener("click", async () => {
+    if (await shiftRow(kind, rows, index, -1)) render();
+  });
+  const down = h("button", "", "下移");
+  down.type = "button";
+  down.disabled = index === rows.length - 1;
+  down.addEventListener("click", async () => {
+    if (await shiftRow(kind, rows, index, 1)) render();
+  });
+  wrap.append(up, down);
+  return wrap;
+}
+
 const MENU = [
   ["dashboard", "📊 经营概览"],
   ["products", "📦 商品管理"],
@@ -44,6 +118,9 @@ const MENU = [
 
 async function render() {
   const root = document.querySelector("#app");
+  // 弹窗挂在 body 上，路由切换时不会跟着 #app 一起清掉，先手动收走，
+  // 不然一层遮罩会一直挡着后台
+  document.querySelectorAll("body > .modal").forEach((node) => node.remove());
   root.replaceChildren();
   if (!loggedIn()) {
     root.append(loginView());
@@ -65,17 +142,18 @@ async function render() {
       shopInfo = null;
     }
   }
-  const frame = h("div", "admin");
-  frame.append(topBar());
-  const body = h("div", "admin-body");
-  body.append(sidebar());
+  // 先把页面内容备好，再搭外壳：页面里改了店铺信息（店名、主题色），
+  // 顶栏这一次就能用上新值，不会慢一拍
   const main = h("main", "main");
   try {
     main.append(await mainView());
   } catch (error) {
     main.append(h("div", "panel", error.message));
   }
-  body.append(main);
+  const frame = h("div", "admin");
+  frame.append(topBar());
+  const body = h("div", "admin-body");
+  body.append(sidebar(), main);
   frame.append(body);
   root.append(frame);
 }
@@ -171,6 +249,11 @@ async function mainView() {
 
 /** 商家自己传图，成功返回可直接用的路径。 */
 async function uploadImage(file) {
+  // 后端也会校验一遍，这里先拦一次，省得白传一个 5MB 的文件
+  const allowed = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+  const suffix = `.${(file.name.split(".").pop() || "").toLowerCase()}`;
+  if (!allowed.includes(suffix)) throw new Error("只支持 jpg / png / webp / gif");
+  if (file.size > 5 * 1024 * 1024) throw new Error("图片不要超过 5MB");
   const form = new FormData();
   form.append("file", file);
   const token = sessionStorage.getItem("token_b");
@@ -400,22 +483,16 @@ function bannerRow(banner, banners, index, products, sections) {
   const state = h("span", `pill ${banner.enabled ? "on" : "off"}`, banner.enabled ? "展示中" : "已隐藏");
 
   const ops = h("div", "ops");
-  const move = async (delta) => {
-    const other = banners[index + delta];
-    if (!other) return;
-    // 和相邻的一张交换顺序，避免两张用同一个顺序值
-    const mine = banner.sort_order;
-    const theirs = other.sort_order;
-    await api(`/api/v1/b/banners/${other.id}`, { method: "PATCH", body: JSON.stringify({ sort_order: mine }) });
-    await api(`/api/v1/b/banners/${banner.id}`, { method: "PATCH", body: JSON.stringify({ sort_order: theirs }) });
-    render();
-  };
   const up = h("button", "", "上移");
   up.disabled = index === 0;
-  up.addEventListener("click", () => move(-1));
+  up.addEventListener("click", async () => {
+    if (await shiftRow("banners", banners, index, -1)) render();
+  });
   const down = h("button", "", "下移");
   down.disabled = index === banners.length - 1;
-  down.addEventListener("click", () => move(1));
+  down.addEventListener("click", async () => {
+    if (await shiftRow("banners", banners, index, 1)) render();
+  });
   const toggle = h("button", "", banner.enabled ? "隐藏" : "展示");
   toggle.addEventListener("click", async () => {
     await api(`/api/v1/b/banners/${banner.id}`, {
@@ -427,9 +504,15 @@ function bannerRow(banner, banners, index, products, sections) {
   });
   const remove = h("button", "danger", "删除");
   remove.addEventListener("click", async () => {
-    await api(`/api/v1/b/banners/${banner.id}`, { method: "DELETE" });
-    toast("已删除", "ok");
-    render();
+    const ok = await confirmAction("删掉这张轮播图？", banner.title || "（没有标题）");
+    if (!ok) return;
+    try {
+      await api(`/api/v1/b/banners/${banner.id}`, { method: "DELETE" });
+      toast("已删除", "ok");
+      render();
+    } catch (error) {
+      toast(error.message, "bad");
+    }
   });
   ops.append(up, down, toggle, remove);
   row.append(image, words, state, ops);
@@ -514,12 +597,12 @@ async function sectionsAdmin() {
   list.append(h("h2", "panel-title", `商品栏目（${sections.length}）`));
   list.append(h("p", "muted", "买家端首页从上到下就是这个顺序：先推荐，再畅销榜，然后是自定义栏目"));
   if (!sections.length) list.append(h("p", "muted", "还没有栏目"));
-  sections.forEach((section) => list.append(sectionRow(section, onSale)));
+  sections.forEach((section, index) => list.append(sectionRow(section, sections, index, onSale)));
   box.append(list, sectionForm(onSale));
   return box;
 }
 
-function sectionRow(section, products) {
+function sectionRow(section, sections, index, products) {
   const row = h("div", "sec-row");
   const words = h("div");
   words.style.flex = "1";
@@ -538,6 +621,16 @@ function sectionRow(section, products) {
   );
   const ops = h("div", "ops");
   const state = h("span", `pill ${section.enabled ? "on" : "off"}`, section.enabled ? "展示中" : "已隐藏");
+  const up = h("button", "", "上移");
+  up.disabled = index === 0;
+  up.addEventListener("click", async () => {
+    if (await shiftRow("sections", sections, index, -1)) render();
+  });
+  const down = h("button", "", "下移");
+  down.disabled = index === sections.length - 1;
+  down.addEventListener("click", async () => {
+    if (await shiftRow("sections", sections, index, 1)) render();
+  });
   const toggle = h("button", "", section.enabled ? "隐藏" : "展示");
   toggle.addEventListener("click", async () => {
     await api(`/api/v1/b/sections/${section.id}`, {
@@ -550,11 +643,17 @@ function sectionRow(section, products) {
   edit.addEventListener("click", () => sectionEditor(section, products));
   const remove = h("button", "danger", "删除");
   remove.addEventListener("click", async () => {
-    await api(`/api/v1/b/sections/${section.id}`, { method: "DELETE" });
-    toast("栏目已删除", "ok");
-    render();
+    const ok = await confirmAction(`删掉栏目「${section.title}」？`, "栏目里的商品不会删，只是这一行不再展示。");
+    if (!ok) return;
+    try {
+      await api(`/api/v1/b/sections/${section.id}`, { method: "DELETE" });
+      toast("栏目已删除", "ok");
+      render();
+    } catch (error) {
+      toast(error.message, "bad");
+    }
   });
-  ops.append(state, toggle, edit, remove);
+  ops.append(state, up, down, toggle, edit, remove);
   row.append(words, ops);
   return row;
 }
@@ -564,7 +663,11 @@ function sectionEditor(section, products) {
   const panel = h("form", "panel stack");
   panel.append(h("h2", "panel-title", `编辑「${section.title}」`));
   const picked = new Set(section.product_ids);
+  const counter = h("p", "muted", "");
   const list = h("div", "pick-list");
+  const paintCount = () => {
+    counter.textContent = `已选 ${picked.size} / 6 件${picked.size ? "：首页按勾选顺序展示前 6 件" : ""}`;
+  };
   products.forEach((product) => {
     const label = h("label", "pick-item");
     const check = document.createElement("input");
@@ -572,8 +675,14 @@ function sectionEditor(section, products) {
     check.className = "check";
     check.checked = picked.has(product.id);
     check.addEventListener("change", () => {
+      if (check.checked && picked.size >= 6) {
+        check.checked = false;
+        toast("手工栏目最多选 6 件，多出来的不会展示", "bad");
+        return;
+      }
       if (check.checked) picked.add(product.id);
       else picked.delete(product.id);
+      paintCount();
     });
     const thumb = document.createElement("img");
     thumb.src = cover(product.image_url);
@@ -582,6 +691,7 @@ function sectionEditor(section, products) {
     label.append(check, thumb, name);
     list.append(label);
   });
+  paintCount();
 
   const error = h("p", "muted", "");
   const save = h("button", "btn", "保存");
@@ -605,11 +715,19 @@ function sectionEditor(section, products) {
       error.textContent = err.message;
     }
   });
-  panel.append(list, error, row);
+  panel.append(list, counter, error, row);
   dialog.append(panel);
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) dialog.remove();
   });
+  // 和删除确认一样，按 Esc 也能关
+  const onKey = (event) => {
+    if (event.key === "Escape") {
+      dialog.remove();
+      document.removeEventListener("keydown", onKey);
+    }
+  };
+  document.addEventListener("keydown", onKey);
   document.body.append(dialog);
 }
 
@@ -632,6 +750,10 @@ function sectionForm(products) {
   panel.append(grid);
 
   const picked = new Set();
+  const counter = h("p", "muted", "");
+  const paintCount = () => {
+    counter.textContent = `已选 ${picked.size} / 6 件`;
+  };
   const list = h("div", "pick-list");
   products.forEach((product) => {
     const label = h("label", "pick-item");
@@ -639,8 +761,14 @@ function sectionForm(products) {
     check.type = "checkbox";
     check.className = "check";
     check.addEventListener("change", () => {
+      if (check.checked && picked.size >= 6) {
+        check.checked = false;
+        toast("手工栏目最多选 6 件", "bad");
+        return;
+      }
       if (check.checked) picked.add(product.id);
       else picked.delete(product.id);
+      paintCount();
     });
     const thumb = document.createElement("img");
     thumb.src = cover(product.image_url);
@@ -648,8 +776,8 @@ function sectionForm(products) {
     label.append(check, thumb, h("span", "", product.name));
     list.append(label);
   });
-  const hint = h("p", "muted", "手工栏目最多选 6 件，超出只取前 6");
-  panel.append(h("div", "field-label", "手选商品"), list, hint);
+  const hint = h("p", "muted", "手工栏目最多选 6 件，买家端按勾选顺序展示；选「按销量自动」就不用勾");
+  panel.append(h("div", "field-label", "手选商品"), counter, list, hint);
 
   const error = h("p", "muted", "");
   const submit = h("button", "btn", "添加栏目");
@@ -683,7 +811,7 @@ async function testimonialsAdmin() {
   list.append(h("h2", "panel-title", `用户评价（${rows.length}）`));
   list.append(h("p", "muted", "这些是首页底部流动展示的短评，可以自己写，也可以把买家的真实评价整理进来"));
   if (!rows.length) list.append(h("p", "muted", "还没有评价"));
-  rows.forEach((row) => {
+  rows.forEach((row, index) => {
     const item = h("div", "quote-row");
     const words = h("div");
     words.style.flex = "1";
@@ -692,6 +820,16 @@ async function testimonialsAdmin() {
     words.append(who, h("div", "muted", row.content));
     const ops = h("div", "ops");
     const state = h("span", `pill ${row.enabled ? "on" : "off"}`, row.enabled ? "展示中" : "已隐藏");
+    const up = h("button", "", "上移");
+    up.disabled = index === 0;
+    up.addEventListener("click", async () => {
+      if (await shiftRow("testimonials", rows, index, -1)) render();
+    });
+    const down = h("button", "", "下移");
+    down.disabled = index === rows.length - 1;
+    down.addEventListener("click", async () => {
+      if (await shiftRow("testimonials", rows, index, 1)) render();
+    });
     const toggle = h("button", "", row.enabled ? "隐藏" : "展示");
     toggle.addEventListener("click", async () => {
       await api(`/api/v1/b/testimonials/${row.id}`, {
@@ -702,11 +840,17 @@ async function testimonialsAdmin() {
     });
     const remove = h("button", "danger", "删除");
     remove.addEventListener("click", async () => {
-      await api(`/api/v1/b/testimonials/${row.id}`, { method: "DELETE" });
-      toast("已删除", "ok");
-      render();
+      const ok = await confirmAction("删掉这条评价？", `${row.nickname}：${row.content}`);
+      if (!ok) return;
+      try {
+        await api(`/api/v1/b/testimonials/${row.id}`, { method: "DELETE" });
+        toast("已删除", "ok");
+        render();
+      } catch (error) {
+        toast(error.message, "bad");
+      }
     });
-    ops.append(state, toggle, remove);
+    ops.append(state, up, down, toggle, remove);
     item.append(words, ops);
     list.append(item);
   });
@@ -794,21 +938,7 @@ async function categoriesAdmin() {
   if (rows.length > 1) list.append(h("p", "muted", "标签顺序就是买家端看到的顺序，可以上下调整"));
 
   const move = async (index, delta) => {
-    const target = index + delta;
-    if (target < 0 || target >= rows.length) return;
-    const next = rows.slice();
-    const [moved] = next.splice(index, 1);
-    next.splice(target, 0, moved);
-    // 整批写回顺序，避免只换两个导致序号打架
-    for (let order = 0; order < next.length; order += 1) {
-      if (next[order].sort_order === order + 1) continue;
-      await api(`/api/v1/b/categories/${next[order].id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ sort_order: order + 1 }),
-      });
-    }
-    toast("顺序已更新", "ok");
-    render();
+    if (await shiftRow("categories", rows, index, delta)) render();
   };
 
   rows.forEach((row, index) => {
@@ -841,6 +971,8 @@ async function categoriesAdmin() {
     remove.disabled = row.product_count > 0;
     remove.title = row.product_count > 0 ? "还有商品挂在这个标签下，先改掉再删" : "";
     remove.addEventListener("click", async () => {
+      const ok = await confirmAction(`删掉分类「${row.name}」？`, "没有商品挂在它下面才可以删。");
+      if (!ok) return;
       try {
         await api(`/api/v1/b/categories/${row.id}`, { method: "DELETE" });
         toast("已删除", "ok");
@@ -909,20 +1041,7 @@ async function tagsAdmin() {
   };
 
   const move = async (index, delta) => {
-    const target = index + delta;
-    if (target < 0 || target >= rows.length) return;
-    const next = rows.slice();
-    const [moved] = next.splice(index, 1);
-    next.splice(target, 0, moved);
-    for (let order = 0; order < next.length; order += 1) {
-      if (next[order].sort_order === order + 1) continue;
-      await api(`/api/v1/b/tags/${next[order].id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ sort_order: order + 1 }),
-      });
-    }
-    toast("顺序已更新", "ok");
-    render();
+    if (await shiftRow("tags", rows, index, delta)) render();
   };
 
   rows.forEach((row, index) => {
@@ -936,9 +1055,11 @@ async function tagsAdmin() {
     color.className = "tag-color";
     color.value = row.color || "#ff5000";
 
-    // 预览：和买家端卡片上那个角标长得一样
+    // 预览：和买家端商品卡上那个角标一模一样的样式，改颜色即时跟着变
     const preview = h("span", "tag-preview", row.name);
-    preview.style.background = row.color || "var(--primary)";
+    const paintPreview = () => preview.style.setProperty("--tag", color.value || row.color || "");
+    color.addEventListener("input", paintPreview);
+    paintPreview();
 
     const ops = h("div", "ops");
     const count = h("span", "pill", `${row.product_count} 件商品`);
@@ -956,6 +1077,8 @@ async function tagsAdmin() {
     down.addEventListener("click", () => move(index, 1));
     const remove = h("button", "danger", "删除");
     remove.addEventListener("click", async () => {
+      const ok = await confirmAction(`删掉标签「${row.name}」？`, `挂过它的 ${row.product_count} 件商品会一起摘掉这个角标。`);
+      if (!ok) return;
       try {
         await api(`/api/v1/b/tags/${row.id}`, { method: "DELETE" });
         toast("已删除，挂过它的商品也一起摘掉了", "ok");
@@ -1330,8 +1453,9 @@ async function productEditor(id) {
 function renderSkuPanel(product) {
   const panel = h("div", "panel");
   panel.append(h("h2", "panel-title", `规格与库存（${product.skus.length}）`));
+  panel.append(h("p", "muted", "给规格单独配一张图，买家在详情页切规格（或点缩略图）时主图就换成这张"));
   const wrap = h("div", "table-wrap");
-  const table = h("table", "table");
+  const table = h("table", "table sku-table");
   const head = document.createElement("thead");
   const headRow = document.createElement("tr");
   ["规格", "规格图", "划线价", "售价", "库存", "状态", "操作"].forEach((text) => headRow.append(h("th", "", text)));
@@ -1339,30 +1463,34 @@ function renderSkuPanel(product) {
   const tbody = document.createElement("tbody");
   product.skus.forEach((sku) => {
     const tr = document.createElement("tr");
-    tr.append(h("td", "", sku.spec));
+    const specCell = document.createElement("td");
+    const specInput = document.createElement("input");
+    specInput.className = "stock-input spec-input";
+    specInput.value = sku.spec;
+    specInput.maxLength = 40;
+    specCell.append(specInput);
 
     // 每个规格一张图，买家端详情页切规格就会换主图
     const imageCell = document.createElement("td");
-    const imageWrap = imageField("", `sku-image-${sku.id}`, sku.image_url);
-    imageWrap.classList.add("sku-image");
+    const imageWrap = skuImageField(`sku-image-${sku.id}`, sku.image_url);
     imageCell.append(imageWrap);
 
     const marketCell = document.createElement("td");
     const marketInput = document.createElement("input");
-    marketInput.className = "stock-input";
+    marketInput.className = "stock-input sku-market";
     marketInput.value = sku.market_price_yuan ?? "";
     marketInput.placeholder = "不设";
     marketCell.append(marketInput);
 
     const priceCell = document.createElement("td");
     const priceInput = document.createElement("input");
-    priceInput.className = "stock-input";
+    priceInput.className = "stock-input sku-price";
     priceInput.value = sku.price_yuan;
     priceCell.append(priceInput);
 
     const stockCell = document.createElement("td");
     const stockInput = document.createElement("input");
-    stockInput.className = "stock-input";
+    stockInput.className = "stock-input sku-stock";
     stockInput.value = sku.stock;
     if (sku.status === "on" && sku.stock <= 5) stockInput.classList.add("low");
     stockCell.append(stockInput);
@@ -1373,15 +1501,18 @@ function renderSkuPanel(product) {
     const opsRow = h("div", "ops");
     const save = h("button", "", "保存");
     save.addEventListener("click", async () => {
+      const errors = checkSkuInput(specInput, priceInput, stockInput, marketInput);
+      if (errors) return toast(errors, "bad");
       try {
         const payload = {
+          spec: specInput.value.trim(),
           price_yuan: Number(priceInput.value),
           stock: Number(stockInput.value),
           image_url: imageWrap.querySelector("input").value.trim(),
         };
         if (marketInput.value) payload.market_price_yuan = Number(marketInput.value);
         await api(`/api/v1/b/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify(payload) });
-        toast(`${sku.spec} 已更新`, "ok");
+        toast(`${payload.spec} 已更新`, "ok");
         render();
       } catch (error) {
         toast(error.message, "bad");
@@ -1402,7 +1533,7 @@ function renderSkuPanel(product) {
       opsRow.append(button);
     });
     ops.append(opsRow);
-    tr.append(imageCell, marketCell, priceCell, stockCell, state, ops);
+    tr.append(specCell, imageCell, marketCell, priceCell, stockCell, state, ops);
     tbody.append(tr);
   });
   table.append(head, tbody);
@@ -1419,10 +1550,16 @@ function renderSkuPanel(product) {
   stock.placeholder = "库存";
   const add = h("button", "btn-ghost", "＋ 添加规格");
   add.addEventListener("click", async () => {
+    const errors = checkSkuInput(spec, price, stock);
+    if (errors) return toast(errors, "bad");
     try {
       await api(`/api/v1/b/products/${product.id}/skus`, {
         method: "POST",
-        body: JSON.stringify({ spec: spec.value, price_yuan: Number(price.value), stock: Number(stock.value) }),
+        body: JSON.stringify({
+          spec: spec.value.trim(),
+          price_yuan: Number(price.value),
+          stock: Number(stock.value),
+        }),
       });
       toast("规格已添加", "ok");
       render();
@@ -1433,6 +1570,69 @@ function renderSkuPanel(product) {
   addRow.append(spec, price, stock, add);
   panel.append(addRow);
   return panel;
+}
+
+/** 规格表单的本地校验，先拦一次，省得拿英文的接口报错去给商家看。 */
+function checkSkuInput(specInput, priceInput, stockInput, marketInput) {
+  const spec = specInput.value.trim();
+  if (!spec) return "规格名不能为空";
+  const price = Number(priceInput.value);
+  if (!priceInput.value.trim() || !Number.isFinite(price) || price <= 0) return "售价要填一个大于 0 的数字";
+  const stock = Number(stockInput.value);
+  if (!stockInput.value.trim() || !Number.isInteger(stock) || stock < 0) return "库存要填 0 或以上的整数";
+  if (marketInput && marketInput.value.trim()) {
+    const market = Number(marketInput.value);
+    if (!Number.isFinite(market) || market <= 0) return "划线价要么留空，要么填大于 0 的数字";
+    if (market <= price) return "划线价要高于售价，不然买家端看不到折扣";
+  }
+  return "";
+}
+
+/** 规格图：预览 + 上传 + 清除，路径输入框单独一行，表格里也放得下。 */
+function skuImageField(name, value) {
+  const wrap = h("div", "field sku-image");
+  const head = h("div", "row sku-image-head");
+  const preview = h("div", "sku-image-preview");
+  const input = document.createElement("input");
+  input.name = name;
+  input.value = value || "";
+  input.placeholder = "/covers/xxx.jpg";
+  const file = document.createElement("input");
+  file.type = "file";
+  file.accept = "image/*";
+  file.style.display = "none";
+  const paint = () => {
+    preview.classList.toggle("empty", !input.value);
+    preview.style.backgroundImage = input.value ? `url("${input.value}")` : "";
+  };
+  const pick = h("button", "btn-ghost btn-mini", "上传");
+  pick.type = "button";
+  pick.addEventListener("click", () => file.click());
+  file.addEventListener("change", async () => {
+    if (!file.files?.length) return;
+    pick.disabled = true;
+    pick.textContent = "上传中…";
+    try {
+      input.value = await uploadImage(file.files[0]);
+      paint();
+      toast("图片已上传，记得点这一行的「保存」", "ok");
+    } catch (error) {
+      toast(error.message, "bad");
+    }
+    pick.disabled = false;
+    pick.textContent = "上传";
+  });
+  const clear = h("button", "btn-ghost btn-mini", "清除");
+  clear.type = "button";
+  clear.addEventListener("click", () => {
+    input.value = "";
+    paint();
+  });
+  input.addEventListener("input", paint);
+  paint();
+  head.append(preview, pick, clear, file);
+  wrap.append(head, input);
+  return wrap;
 }
 
 /* ---------------- 订单 ---------------- */
@@ -1581,7 +1781,7 @@ async function shopForm() {
   panel.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
-      await api("/api/v1/b/shop", {
+      shopInfo = await api("/api/v1/b/shop", {
         method: "PATCH",
         body: JSON.stringify({
           name: val(panel, "name"),

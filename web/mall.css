@@ -671,9 +671,15 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 /* .field input 会把宽度撑满，这里压回去 */
 .field .tag-color { width: 54px; padding: 3px; }
 .field small { font-size: 12px; }
+/* 商品标签的预览角标：和买家端商品卡上那个保持一致（浅底 + 同色字） */
 .tag-preview {
-  color: #fff; font-size: 13px; font-weight: 600; padding: 5px 13px; border-radius: 7px;
-  letter-spacing: 1px; white-space: nowrap; background: var(--primary);
+  --tag: var(--theme);
+  background: color-mix(in srgb, var(--tag) 9%, #fff);
+  border: 1px solid color-mix(in srgb, var(--tag) 30%, #fff);
+  color: color-mix(in srgb, var(--tag) 84%, #000);
+  font-size: 13px; font-weight: 600; padding: 5px 13px; border-radius: 7px;
+  letter-spacing: 1px; white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 .tag-picker { display: flex; flex-wrap: wrap; gap: 9px; }
 .chip {
@@ -686,13 +692,37 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
   box-shadow: 0 2px 8px color-mix(in srgb, var(--theme) 28%, transparent);
 }
 
-/* 规格表里的图片格：缩到一列能放下的宽度 */
-.table td .field.sku-image { width: 132px; gap: 4px; }
-.table td .field.sku-image .row { gap: 6px; }
-.table td .field.sku-image .row input { min-width: 0; font-size: 12px; padding: 6px 8px; }
-.table td .field.sku-image .btn-mini { padding: 6px 8px; font-size: 12px; white-space: nowrap; }
+/* 规格表里的图片格：预览 + 上传 / 清除一行，路径输入框单独一行 */
+.table td .field.sku-image { width: 178px; gap: 5px; }
+.sku-image-head { gap: 6px; flex-wrap: nowrap; }
+.sku-image-preview {
+  width: 38px; height: 38px; border-radius: 6px; flex-shrink: 0;
+  background: #f2f4f6 center / cover no-repeat; border: 1px solid var(--line);
+}
+.sku-image-preview.empty {
+  background-image: none;
+  border-style: dashed;
+  background-image: linear-gradient(45deg, transparent 46%, var(--line) 46%, var(--line) 54%, transparent 54%), linear-gradient(-45deg, transparent 46%, var(--line) 46%, var(--line) 54%, transparent 54%);
+}
+/* .field input 会撑满整行，这里让它有个合理的宽度 */
+.table td .field.sku-image > input { width: 100%; font-size: 12px; padding: 6px 8px; }
+.table td .field.sku-image .btn-mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
+.spec-input { width: 108px; }
 
-/* 后台首页样式：售后保障条一行一条 */.promise-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+/* 删除前的二次确认 */
+.confirm-mask {
+  position: fixed; inset: 0; z-index: 60; background: rgba(26, 22, 19, 0.42);
+  display: grid; place-items: center; padding: 20px; backdrop-filter: blur(2px);
+}
+.confirm-panel { width: min(400px, 100%); padding: 22px 24px; }
+.confirm-panel h3 { font-size: 17px; color: var(--ink); }
+.confirm-panel p { margin-top: 8px; }
+.confirm-actions { justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.btn.danger-fill { background: var(--danger); color: #fff; border-color: var(--danger); }
+.btn.danger-fill:hover { background: color-mix(in srgb, var(--danger) 85%, #000); }
+
+/* 后台首页样式：售后保障条一行一条 */
+.promise-rows { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
 .promise-row { display: grid; grid-template-columns: 180px 1fr 76px; gap: 10px; align-items: center; }
 .promise-row input {
   border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; font-size: 14px;
