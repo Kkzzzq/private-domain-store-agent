@@ -124,7 +124,7 @@ def list_c_products(db: Session, share_code: str, keyword: str = "", category: s
     if category:
         visible = [product for product in visible if product.category == category]
     if keyword:
-        visible = [product for product in visible if keyword in product.name]
+        visible = [product for product in visible if keyword in product.name or keyword in product.category]
     data = [serialize_product(product, audience="c") for product in visible]
     if sort == "price_asc":
         data.sort(key=lambda item: item["price_from"] or 0)
@@ -161,6 +161,21 @@ def dashboard(db: Session, user: User) -> dict:
     products = db.scalars(select(Product).where(Product.shop_id == shop.id)).all()
     orders = db.scalars(select(Order).where(Order.shop_id == shop.id)).all()
     sold = [order for order in orders if order.status in {"paid", "shipped", "completed"}]
+    low = [
+        {"product_name": sku.product.name, "spec": sku.spec, "stock": sku.stock}
+        for product in products
+        for sku in product.skus
+        if sku.status == "on" and sku.stock <= 5
+    ]
+    recent = [
+        {
+            "order_no": order.order_no,
+            "status": order.status,
+            "total_yuan": yuan(order.total_cents),
+            "buyer": order.buyer.nickname if order.buyer is not None else "",
+        }
+        for order in sorted(orders, key=lambda item: item.id, reverse=True)[:5]
+    ]
     return {
         "product_total": len(products),
         "on_sale": sum(1 for product in products if product.status == "on"),
@@ -170,6 +185,8 @@ def dashboard(db: Session, user: User) -> dict:
         "pending_ship": sum(1 for order in orders if order.status == "paid"),
         "shipped": sum(1 for order in orders if order.status == "shipped"),
         "sales_yuan": yuan(sum(order.total_cents for order in sold)),
+        "low_stock": low,
+        "recent_orders": recent,
     }
 
 
@@ -284,12 +301,13 @@ def load_sku_for_shop(db: Session, shop_id: int, sku_id: int) -> Sku | None:
 
 
 def search_on_sale(db: Session, shop_id: int, keyword: str, limit: int = 5) -> str:
-    products = db.scalars(
-        _product_query().where(Product.shop_id == shop_id, Product.name.contains(keyword.strip())).limit(limit)
-    ).unique().all()
+    products = db.scalars(_product_query().where(Product.shop_id == shop_id).limit(limit * 4)).unique().all()
+    word = keyword.strip()
     lines = []
     for product in products:
         if not listed_on_c(product):
+            continue
+        if word not in product.name and word not in product.category:
             continue
         sku_text = "；".join(
             f"{sku.spec} ¥{yuan(sku.price_cents):.2f} 库存{sku.stock}" for sku in visible_skus(product)

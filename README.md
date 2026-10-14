@@ -4,17 +4,25 @@
 
 ## 界面
 
-买家端按店铺页来做，可以搜索、筛类目、按销量或价格排序，进详情选规格加购或直接下单。
+买家端按店铺页来做：顶部通栏、橙色搜索框加热词、分类导航，左侧是商品分类，右侧是主视觉和商品卡。
 
 ![买家首页](docs/screenshots/buyer-home.png)
 
+分类直接筛选，商品卡右上角标热销，鼠标移上去可以快捷加购。
+
+![分类筛选](docs/screenshots/buyer-category.png)
+
+详情页左侧是缩略图切换，右侧是价格、优惠、规格和数量，下面还有商品详情和规格参数两个页签。
+
 ![商品详情](docs/screenshots/buyer-detail.png)
 
-购物车、结算和订单状态在同一套数据上流转，商家改动会立刻反映到买家端。
+购物车支持全选和批量删除，底部结算栏实时算运费；结算页左边填收货信息，右边是订单金额。
 
 ![购物车](docs/screenshots/buyer-cart.png)
 
 ![确认订单](docs/screenshots/buyer-checkout.png)
+
+订单按状态分页签，待支付、待发货、待收货各自有对应操作。
 
 ![我的订单](docs/screenshots/buyer-orders.png)
 
@@ -22,13 +30,19 @@
 
 ![店内助手](docs/screenshots/buyer-agent.png)
 
-商家后台是一套数据看板，商品上下架、价格库存和订单发货都在这里。
+商家后台是工作台样式：顶部深色条、左侧菜单，概览页给四项关键指标，另有最近订单和库存预警。
 
 ![经营概览](docs/screenshots/admin-dashboard.png)
 
+商品表格直接显示缩略图、库存和低库存提示，上下架、禁售都在行内完成。
+
 ![商品管理](docs/screenshots/admin-products.png)
 
+订单可以按状态筛选后一键发货。
+
 ![订单管理](docs/screenshots/admin-orders.png)
+
+![店铺设置](docs/screenshots/admin-shop.png)
 
 ## 数据怎么连在一起
 
@@ -62,7 +76,7 @@ python -m venv .venv
 .\.venv\Scripts\uvicorn app.main:app --reload
 ```
 
-打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)。买家端按店铺页来做：搜索、类目、销量/价格排序、规格、购物车、收货地址、满 99 元包邮、待支付/待发货/待收货。商家后台对应管理同一批商品和订单。
+打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)。买家端按店铺页来做：搜索（商品名和类目都能搜）、分类筛选、销量/价格排序、规格、购物车、收货地址、满 99 元包邮、待支付/待发货/待收货。商家后台对应管理同一批商品和订单。
 
 - 商家：`merchant` / `merchant123`，后台在 `/b.html`
 - 买家：`alice` / `alice123`，进店链接 `/c.html?code=nanzhi`

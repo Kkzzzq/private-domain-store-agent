@@ -17,9 +17,27 @@ def sku_of(product, spec):
 
 
 def test_pages_exist(client):
-    assert "商家后台" in client.get("/b.html").text
-    assert "买家登录" in client.get("/c.html").text
-    assert "分享码" in client.get("/").text
+    assert "买家店铺" in client.get("/c.html").text
+    assert "商家工作台" in client.get("/b.html").text
+    assert "私域电商智能运营平台" in client.get("/").text
+
+
+def test_search_matches_category_as_well_as_name(client):
+    by_name = client.get("/api/v1/c/shops/nanzhi/products", params={"keyword": "抱枕"}).json()
+    assert [item["name"] for item in by_name] == ["亚麻抱枕套"]
+    by_category = client.get("/api/v1/c/shops/nanzhi/products", params={"keyword": "文具"}).json()
+    assert [item["name"] for item in by_category] == ["棉麻笔记本"]
+    miss = client.get("/api/v1/c/shops/nanzhi/products", params={"keyword": "冰箱"}).json()
+    assert miss == []
+
+
+def test_dashboard_reports_low_stock_and_recent_orders(client):
+    b_headers = login(client, "merchant")
+    data = client.get("/api/v1/b/dashboard", headers=b_headers).json()
+    assert data["on_sale"] == 7
+    assert data["pending_pay"] == 0
+    assert any(item["product_name"] == "大豆香薰蜡烛" and item["stock"] == 0 for item in data["low_stock"])
+    assert [item["order_no"] for item in data["recent_orders"]][:1] == ["PS202601200001"]
 
 
 def test_c_only_sees_on_sale_products_from_the_same_shop(client):
