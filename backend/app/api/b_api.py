@@ -1,21 +1,50 @@
-from fastapi import APIRouter, Depends
+from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_db, require_merchant
 from app.models.tables import User
 from app.rag.knowledge import reindex_knowledge
 from app.schemas.dto import (
+    BannerIn,
+    BannerOut,
+    BannerUpdate,
     BatchShipIn,
     OrderOut,
     ProductIn,
     ProductOut,
     ProductUpdate,
     ReindexOut,
+    SectionIn,
+    SectionOut,
+    SectionUpdate,
     ShopOut,
     ShopUpdate,
     SkuIn,
     SkuUpdate,
     StatusAction,
+    TestimonialIn,
+    TestimonialOut,
+    TestimonialUpdate,
+    UploadOut,
+)
+from app.services.home import (
+    create_banner,
+    create_section,
+    create_testimonial,
+    delete_banner,
+    delete_section,
+    delete_testimonial,
+    list_banners,
+    list_sections,
+    list_testimonials,
+    update_banner,
+    update_section,
+    update_testimonial,
 )
 from app.services.catalog import (
     change_product_status,
@@ -134,3 +163,103 @@ def ship_many(body: BatchShipIn, user: User = Depends(require_merchant), db: Ses
 def reindex(user: User = Depends(require_merchant)):
     del user
     return reindex_knowledge()
+
+
+# ---------- 首页内容 ----------
+@router.get("/banners", response_model=list[BannerOut])
+def read_banners(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return list_banners(db, user)
+
+
+@router.post("/banners", response_model=BannerOut)
+def add_banner(body: BannerIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return create_banner(db, user, body)
+
+
+@router.patch("/banners/{banner_id}", response_model=BannerOut)
+def patch_banner(
+    banner_id: int,
+    body: BannerUpdate,
+    user: User = Depends(require_merchant),
+    db: Session = Depends(get_db),
+):
+    return update_banner(db, user, banner_id, body)
+
+
+@router.delete("/banners/{banner_id}")
+def remove_banner(banner_id: int, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    delete_banner(db, user, banner_id)
+    return {"ok": True}
+
+
+@router.get("/sections", response_model=list[SectionOut])
+def read_sections(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return list_sections(db, user)
+
+
+@router.post("/sections", response_model=SectionOut)
+def add_section(body: SectionIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return create_section(db, user, body)
+
+
+@router.patch("/sections/{section_id}", response_model=SectionOut)
+def patch_section(
+    section_id: int,
+    body: SectionUpdate,
+    user: User = Depends(require_merchant),
+    db: Session = Depends(get_db),
+):
+    return update_section(db, user, section_id, body)
+
+
+@router.delete("/sections/{section_id}")
+def remove_section(section_id: int, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    delete_section(db, user, section_id)
+    return {"ok": True}
+
+
+@router.get("/testimonials", response_model=list[TestimonialOut])
+def read_testimonials(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return list_testimonials(db, user)
+
+
+@router.post("/testimonials", response_model=TestimonialOut)
+def add_testimonial(body: TestimonialIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return create_testimonial(db, user, body)
+
+
+@router.patch("/testimonials/{row_id}", response_model=TestimonialOut)
+def patch_testimonial(
+    row_id: int,
+    body: TestimonialUpdate,
+    user: User = Depends(require_merchant),
+    db: Session = Depends(get_db),
+):
+    return update_testimonial(db, user, row_id, body)
+
+
+@router.delete("/testimonials/{row_id}")
+def remove_testimonial(row_id: int, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    delete_testimonial(db, user, row_id)
+    return {"ok": True}
+
+
+@router.post("/uploads", response_model=UploadOut)
+async def upload_image(
+    file: UploadFile = File(...),
+    user: User = Depends(require_merchant),
+):
+    """商家自己传图。存到 web/covers/uploads 下，返回可直接用的路径。"""
+    del user
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+        raise HTTPException(status_code=400, detail="只支持 jpg / png / webp / gif")
+    folder = settings.web_dir / "covers" / "uploads"
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:6]}{suffix}"
+    target = folder / name
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片不要超过 5MB")
+    target.write_bytes(content)
+    return {"url": f"/covers/uploads/{name}"}

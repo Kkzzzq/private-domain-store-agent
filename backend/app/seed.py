@@ -1,7 +1,20 @@
 from sqlalchemy import select
 
 from app.core.security import hash_password
-from app.models.tables import Address, Order, OrderItem, Product, Review, Shop, Sku, User
+from app.models.tables import (
+    Address,
+    Banner,
+    Order,
+    OrderItem,
+    Product,
+    Review,
+    Section,
+    SectionItem,
+    Shop,
+    Sku,
+    Testimonial,
+    User,
+)
 
 # 商品图用 Unsplash 的免费照片，已下载到 web/covers
 COVERS = {
@@ -40,6 +53,38 @@ def sku(spec: str, price_cents: int, stock: int) -> Sku:
         market_price_cents=MARKET_PRICE.get(spec, 0),
         stock=stock,
     )
+
+
+# 再补一批，让"全部商品"够三行以上，能演示展开
+EXTRA = [
+    ("亚麻餐垫", "家居", "双面亚麻餐垫，四片一组。桌布上再垫一层，汤水洒了也好收拾。", "/covers/runner.jpg", 3800, 24),
+    ("藤编收纳篮", "家居", "手工藤编，可以放在玄关装钥匙和口罩，也能当果盘。", "/covers/box.jpg", 12800, 9),
+    ("手工冷制皂", "香氛", "橄榄油配方，晾足了六周才出货，泡沫细，洗后不干。", "/covers/diffuser.jpg", 4200, 30),
+    ("木质早餐托盘", "餐具", "整块白蜡木开出来，边缘做了圆角，端到床上也稳。", "/covers/plate.jpg", 15800, 6),
+    ("陶瓷小花器", "家居", "瓶口收得很窄，一枝花也能站住，适合插窗外折回来的那枝。", "/covers/mug.jpg", 8800, 12),
+    ("棉麻窗帘绑带", "家居", "一对装，磁吸扣，不用打孔，米白配浅色窗帘正好。", "/covers/pillow.jpg", 3600, 40),
+    ("手作陶瓷茶碗", "餐具", "口径 9cm，一人一碗。釉面有细小的开片，用久了会更润。", "/covers/plate.jpg", 7800, 14),
+    ("香薰蜡烛礼盒", "香氛", "两支装，雪松和无花果，配牛皮纸礼盒，可以直接送人。", "/covers/candle.jpg", 10800, 8),
+    ("亚麻桌布", "家居", "水洗亚麻，铺上就有松弛感，可机洗。", "/covers/runner.jpg", 13800, 7),
+    ("陶瓷调味罐", "餐具", "带木盖的一对，密封圈可以拆下来洗。", "/covers/mug.jpg", 6800, 18),
+]
+
+
+def add_extra_products(db, shop: Shop) -> None:
+    for offset, (name, category, description, image, price, stock) in enumerate(EXTRA):
+        db.add(
+            Product(
+                shop_id=shop.id,
+                name=name,
+                category=category,
+                description=description,
+                image_url=image,
+                status="on",
+                sort_order=10 + offset,
+                sales_count=max(3, 40 - offset * 4),
+                skus=[sku("标准", price, stock)],
+            )
+        )
 
 
 def seed_if_empty(db) -> None:
@@ -176,7 +221,9 @@ def seed_if_empty(db) -> None:
         sort_order=9,
         skus=[sku("单枚", 1900, 40)],
     )
+    # 先加主推的几件，让它们的 id 靠前，再加上补充的
     db.add_all([pillow, mug, candle, box, runner, plate, stone, notebook, patch])
+    add_extra_products(db, shop)
     db.flush()
     db.add(
         Address(
@@ -286,7 +333,111 @@ def seed_if_empty(db) -> None:
             content="釉面很好看，早餐摆盘很上镜，边缘打磨得很光滑。",
         )
     )
+    seed_home(db, shop, [pillow, mug, candle, runner, plate, stone, notebook])
     db.commit()
+
+
+def seed_home(db, shop: Shop, products: list[Product]) -> None:
+    """首页内容：三张轮播图、推荐位、畅销榜、一个自定义栏目和几条用户评价。"""
+    by_name = {product.name: product for product in products}
+    db.add_all(
+        [
+            Banner(
+                shop_id=shop.id,
+                image_url="/covers/hero.jpg",
+                title=shop.name,
+                subtitle="小批量手作，每个季度只做几批",
+                link_type="none",
+                sort_order=1,
+            ),
+            Banner(
+                shop_id=shop.id,
+                image_url="/covers/pillow.jpg",
+                title="换季换一套床品",
+                subtitle="亚麻抱枕套新到雾蓝，低饱和耐看",
+                link_type="product",
+                link_value=str(by_name["亚麻抱枕套"].id),
+                sort_order=2,
+            ),
+            Banner(
+                shop_id=shop.id,
+                image_url="/covers/mug.jpg",
+                title="早餐从一只杯子开始",
+                subtitle="厚壁陶瓷，装热饮不烫手",
+                link_type="product",
+                link_value=str(by_name["陶瓷马克杯"].id),
+                sort_order=3,
+            ),
+        ]
+    )
+
+    recommend = Section(
+        shop_id=shop.id,
+        title="店主推荐",
+        subtitle="最近常被问到的几件",
+        source="manual",
+        sort_order=1,
+    )
+    best = Section(
+        shop_id=shop.id,
+        title="Best Seller 畅销榜",
+        subtitle="按销量自动排序",
+        source="sales",
+        sort_order=2,
+    )
+    gift = Section(
+        shop_id=shop.id,
+        title="送人体面 · 伴手礼",
+        subtitle="适合随手带一件的组合",
+        source="manual",
+        sort_order=3,
+    )
+    db.add_all([recommend, best, gift])
+    db.flush()
+    for index, name in enumerate(["亚麻抱枕套", "陶瓷马克杯", "手作餐盘", "亚麻桌旗", "棉麻笔记本", "无火扩香石"]):
+        db.add(SectionItem(section_id=recommend.id, product_id=by_name[name].id, sort_order=index))
+    for index, name in enumerate(["无火扩香石", "棉麻笔记本", "陶瓷马克杯", "大豆香薰蜡烛"]):
+        db.add(SectionItem(section_id=gift.id, product_id=by_name[name].id, sort_order=index))
+
+    db.add_all(
+        [
+            Testimonial(
+                shop_id=shop.id,
+                nickname="小满",
+                content="抱枕套洗了两次没有缩水，米白配原木桌很好看。",
+                rating=5,
+                sort_order=1,
+            ),
+            Testimonial(
+                shop_id=shop.id,
+                nickname="阿禾",
+                content="杯子比想象中厚实，早上泡茶放十分钟还是温的。",
+                rating=5,
+                sort_order=2,
+            ),
+            Testimonial(
+                shop_id=shop.id,
+                nickname="晚晚",
+                content="桌旗的长度标注很准，按店家建议选的尺寸刚好。",
+                rating=5,
+                sort_order=3,
+            ),
+            Testimonial(
+                shop_id=shop.id,
+                nickname="老周",
+                content="下单第二天就发了，包装是可回收的纸盒，没有多余塑料。",
+                rating=4,
+                sort_order=4,
+            ),
+            Testimonial(
+                shop_id=shop.id,
+                nickname="香菇",
+                content="扩香石放在玄关，进门就有一点雪松味，很舒服。",
+                rating=5,
+                sort_order=5,
+            ),
+        ]
+    )
 
 
 def upgrade_demo(db) -> None:
@@ -314,8 +465,7 @@ def upgrade_demo(db) -> None:
 
     if "棉麻笔记本" not in by_name:
         db.add_all(
-            [
-                Product(
+            [                Product(
                     shop_id=shop.id,
                     name="亚麻桌旗",
                     category="家居",
@@ -386,3 +536,12 @@ def upgrade_demo(db) -> None:
             )
         )
     db.commit()
+
+    if db.scalar(select(Product).where(Product.shop_id == shop.id, Product.name == "亚麻餐垫")) is None:
+        add_extra_products(db, shop)
+    db.commit()
+
+    if db.scalar(select(Banner).where(Banner.shop_id == shop.id)) is None:
+        fresh = db.scalars(select(Product).where(Product.shop_id == shop.id)).all()
+        seed_home(db, shop, fresh)
+        db.commit()

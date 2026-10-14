@@ -141,6 +141,8 @@ def list_c_products(
     category: str = "",
     sort: str = "default",
     user: User | None = None,
+    offset: int = 0,
+    limit: int | None = None,
 ) -> list[dict]:
     shop = shop_by_code(db, share_code)
     if shop.status != "open":
@@ -166,7 +168,10 @@ def list_c_products(
         cached = data
     # 收藏状态因人而异，不进缓存。
     favorites = favorite_ids(db, user, shop.id)
-    return [{**item, "favorited": item["id"] in favorites} for item in cached]
+    rows = [{**item, "favorited": item["id"] in favorites} for item in cached]
+    if limit is None:
+        return rows[offset:] if offset else rows
+    return rows[offset : offset + limit]
 
 
 def list_categories(db: Session, share_code: str) -> list[str]:

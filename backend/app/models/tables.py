@@ -177,3 +177,64 @@ class Review(Base):
     user: Mapped[User] = relationship()
     product: Mapped[Product] = relationship()
     order_item: Mapped["OrderItem"] = relationship()
+
+
+class Banner(Base):
+    """首页顶部横屏图。link_type 决定点击后跳商品还是跳某个栏目。"""
+
+    __tablename__ = "banners"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
+    image_url: Mapped[str] = mapped_column(String(500), default="")
+    title: Mapped[str] = mapped_column(String(64), default="")
+    subtitle: Mapped[str] = mapped_column(String(120), default="")
+    link_type: Mapped[str] = mapped_column(String(16), default="none")
+    link_value: Mapped[str] = mapped_column(String(64), default="")
+    sort_order: Mapped[int] = mapped_column(default=0)
+    enabled: Mapped[bool] = mapped_column(default=True)
+
+
+class Section(Base):
+    """首页的一行商品位。source 是 sales 时按销量自动取，manual 时按手选顺序。"""
+
+    __tablename__ = "sections"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
+    title: Mapped[str] = mapped_column(String(64))
+    subtitle: Mapped[str] = mapped_column(String(120), default="")
+    source: Mapped[str] = mapped_column(String(16), default="manual")
+    sort_order: Mapped[int] = mapped_column(default=0)
+    enabled: Mapped[bool] = mapped_column(default=True)
+
+    items: Mapped[list["SectionItem"]] = relationship(
+        back_populates="section", cascade="all, delete-orphan"
+    )
+
+
+class SectionItem(Base):
+    __tablename__ = "section_items"
+    __table_args__ = (UniqueConstraint("section_id", "product_id", name="uq_section_product"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    section_id: Mapped[int] = mapped_column(ForeignKey("sections.id"), index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    sort_order: Mapped[int] = mapped_column(default=0)
+
+    section: Mapped[Section] = relationship(back_populates="items")
+    product: Mapped[Product] = relationship()
+
+
+class Testimonial(Base):
+    """首页底部流动展示的买家评价，商家自己维护。"""
+
+    __tablename__ = "testimonials"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
+    nickname: Mapped[str] = mapped_column(String(32))
+    content: Mapped[str] = mapped_column(String(300))
+    rating: Mapped[int] = mapped_column(default=5)
+    sort_order: Mapped[int] = mapped_column(default=0)
+    enabled: Mapped[bool] = mapped_column(default=True)

@@ -13,4 +13,5 @@ langchain-core>=0.3.40
 langchain-ollama>=0.2.0
 chromadb>=1.0.0
 APScheduler>=3.10.4
+python-multipart>=0.0.20
 pytest>=8.3.0

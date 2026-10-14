@@ -13,6 +13,7 @@ from app.schemas.dto import (
     CartUpdate,
     ChatIn,
     ChatOut,
+    HomeOut,
     OrderCreate,
     OrderOut,
     PendingReview,
@@ -23,6 +24,7 @@ from app.schemas.dto import (
     ShopOut,
 )
 from app.services.catalog import get_c_product, list_categories, list_c_products, serialize_product, serialize_shop, shop_by_code
+from app.services.home import home_content
 from app.services.engagement import (
     clear_history,
     favorite_products,
@@ -68,10 +70,23 @@ def read_products(
     keyword: str = "",
     category: str = "",
     sort: str = "default",
+    offset: int = 0,
+    limit: int | None = None,
     user: User | None = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
-    return list_c_products(db, share_code, keyword=keyword, category=category, sort=sort, user=user)
+    return list_c_products(
+        db, share_code, keyword=keyword, category=category, sort=sort, user=user, offset=offset, limit=limit
+    )
+
+
+@router.get("/shops/{share_code}/home", response_model=HomeOut)
+def read_home(
+    share_code: str,
+    user: User | None = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+):
+    return home_content(db, share_code, user)
 
 
 @router.get("/shops/{share_code}/products/{product_id}", response_model=ProductOut)

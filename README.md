@@ -6,33 +6,33 @@
 
 商品图用的是 Unsplash 的免费照片，已经下载到 `web/covers`，本地跑不依赖外网。
 
-买家端按店铺页来做：顶部通栏、搜索框加热词、粘性分类导航，左侧是分类侧栏，右侧是主视觉和商品卡。商品卡上带折扣角标、评分、销量进度和划线价。
+买家端首页按顺序排下来：轮播主视觉 → 推荐位 → 畅销榜 → 自定义栏目 → 全部商品 → 用户评价。
+
+**轮播主视觉**：横屏大图，点右侧按钮翻下一张（也能点下面的小横条，或等它自动走）。图上是商家名称和文案，按钮可以跳到指定商品、指定栏目，或者直接往下滚到全部商品。
 
 ![买家首页](docs/screenshots/buyer-home.png)
 
-分类侧栏直接筛选，销量和价格都能排序。
+翻到第二张：
+
+![轮播第二张](docs/screenshots/buyer-hero-2.png)
+
+**商品栏目**：一行显示三个，右边有箭头，一次往前翻一张；到头了箭头会灰掉。推荐位和畅销榜都是这个形式，最多各放 6 件。
+
+**全部商品**：先给三行（12 件），还有剩下的就出现「展开更多」，点一次再给三行，直到到底显示「已经到底啦」。
+
+**用户评价**：底部两排反向流动的短评，鼠标停上去会暂停。内容商家在后台维护。
+
+分类和搜索走独立的筛选页，左边是分类侧栏：
 
 ![分类筛选](docs/screenshots/buyer-category.png)
 
-收藏点一下即时生效，收藏过的商品在「我的收藏」里单独一页。
-
-![收藏](docs/screenshots/buyer-favorited.png)
-
-![我的收藏](docs/screenshots/buyer-favorites.png)
-
-看过什么商品会记进浏览记录，只存在这家店。
-
-![浏览记录](docs/screenshots/buyer-history.png)
-
-详情页左侧是竖向缩略图切换，右侧是价格块（含划线价和折扣）、优惠、规格和数量，下面有商品详情、规格参数和用户评价三个页签，最底部还有同类推荐。
+商品详情页：左边竖向缩略图，右边价格块带划线价和折扣，下面是详情、参数、评价三个页签。
 
 ![商品详情](docs/screenshots/buyer-detail.png)
 
-主按钮滚出视野后，底部会浮出购买栏，规格和价格跟着当前选择走。
+主按钮滚出视野后底部浮出购买栏，规格和价格跟着当前选择走。详情页下方也有同样的推荐位，一行三个、最多 6 个、可以翻页。
 
 ![悬浮购买栏](docs/screenshots/buyer-detail-buybar.png)
-
-![用户评价](docs/screenshots/buyer-reviews.png)
 
 购物车支持全选和批量删除，底部结算栏实时算运费；结算页左边填收货信息，右边是订单金额。
 
@@ -44,25 +44,35 @@
 
 ![我的订单](docs/screenshots/buyer-orders.png)
 
+收藏点一下即时生效，收藏过的商品在「我的收藏」里单独一页。
+
+![我的收藏](docs/screenshots/buyer-favorites.png)
+
 商家后台是工作台样式：顶部深色条、左侧菜单，概览页给四项关键指标，另有最近订单、商品销量排行和库存预警。
 
 ![经营概览](docs/screenshots/admin-dashboard.png)
+
+**首页装修**分三个页签，买家端首页看到的东西都在这里改：
+
+轮播图可以上传本地图片（也可以填已有路径），设标题、副标题，选跳商品还是跳栏目，还能上移下移调顺序。
+
+![轮播图管理](docs/screenshots/admin-banners.png)
+
+商品栏目可以新建、改名、选「手选商品」或「按销量自动取前 6」，手选的可以勾选具体商品。
+
+![栏目管理](docs/screenshots/admin-sections.png)
+
+用户评价可以增删改，写好的短评会出现在首页底部的流动展示里。
+
+![评价管理](docs/screenshots/admin-quotes.png)
 
 商品表格带缩略图、库存和低库存提示，上下架、禁售都在行内完成。
 
 ![商品管理](docs/screenshots/admin-products.png)
 
-规格表里划线价、售价和库存都能直接改。
-
-![商品编辑](docs/screenshots/admin-product-edit.png)
-
 订单可以按状态筛选、勾选后批量发货，被跳过的订单会说明原因。
 
 ![订单管理](docs/screenshots/admin-orders.png)
-
-店铺设置里可以改店名、公告、Logo 和主题色，主题色会直接用在买家端。
-
-![店铺设置](docs/screenshots/admin-shop.png)
 
 ## 数据怎么连在一起
 
@@ -119,9 +129,9 @@ ollama pull nomic-embed-text
 
 ## 功能清单
 
-买家端：搜索（商品名和类目）、分类筛选、销量 / 价格排序、商品详情多图、规格选择、加入购物车、立即购买、收货地址、满 99 元包邮、待支付倒计时、支付 / 取消 / 确认收货、收藏、浏览记录、商品评价、店内助手多轮对话。
+买家端：首页轮播主视觉、推荐位 / 畅销榜 / 自定义栏目（一行三个可翻页）、全部商品分页展开、用户评价流动展示、分类筛选、搜索（商品名和类目）、销量 / 价格排序、商品详情多图、规格选择、加入购物车、立即购买、收货地址、满 99 元包邮、待支付倒计时、支付 / 取消 / 确认收货、收藏、浏览记录、商品评价、店内助手多轮对话。
 
-商家后台：经营概览（在售、成交额、待发货、库存预警）、最近订单、商品上下架 / 禁售 / 解禁、SKU 价格库存、每人限购、订单筛选、单个发货、批量发货、店铺 Logo 和主题色。
+商家后台：经营概览（在售、成交额、待发货、库存预警）、商品销量排行、最近订单、商品上下架 / 禁售 / 解禁、SKU 划线价与库存、每人限购、订单筛选、单个发货、批量发货、店铺 Logo 和主题色，以及首页装修（轮播图上传与排序、栏目位增删改、用户评价维护）。
 
 ## 参考了什么
 
@@ -148,12 +158,13 @@ cd Project\private-domain-store-agent\backend
 ```text
 backend/app/api/b_api.py           商家后台接口
 backend/app/api/c_api.py           买家店铺接口
+backend/app/services/home.py       首页轮播、栏目位、用户评价
 backend/app/services/shelf.py      上下架、禁售、能不能买
 backend/app/services/trade.py      购物车、收货地址、结算
 backend/app/services/engagement.py 收藏与浏览记录
 backend/app/services/reviews.py    商品评价
 backend/app/services/orders.py     下单、支付、发货、超时取消
-backend/app/models/tables.py       店铺、商品、SKU、购物车、收藏、评价、订单
+backend/app/models/tables.py       店铺、商品、SKU、购物车、收藏、评价、订单、轮播、栏目
 backend/app/agent/                 只查当前店铺的助手
 web/mall.css                       两端共用的样式
 web/c.js                           买家店铺

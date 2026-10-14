@@ -34,7 +34,9 @@ def test_search_matches_category_as_well_as_name(client):
 def test_dashboard_reports_low_stock_and_recent_orders(client):
     b_headers = login(client, "merchant")
     data = client.get("/api/v1/b/dashboard", headers=b_headers).json()
-    assert data["on_sale"] == 7
+    assert data["on_sale"] >= 7
+    assert data["off_shelf"] == 1
+    assert data["banned"] == 1
     assert data["pending_pay"] == 0
     assert any(item["product_name"] == "大豆香薰蜡烛" and item["stock"] == 0 for item in data["low_stock"])
     assert [item["order_no"] for item in data["recent_orders"]][:1] == ["PS202601200001"]

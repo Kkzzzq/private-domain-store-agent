@@ -193,6 +193,106 @@ class BatchShipIn(BaseModel):
     order_nos: list[str] = Field(min_length=1, max_length=50)
 
 
+class BannerIn(BaseModel):
+    image_url: str = Field(min_length=1, max_length=500)
+    title: str = Field(default="", max_length=64)
+    subtitle: str = Field(default="", max_length=120)
+    link_type: Literal["none", "product", "section"] = "none"
+    link_value: str = Field(default="", max_length=64)
+    enabled: bool = True
+
+
+class BannerUpdate(BaseModel):
+    image_url: str | None = Field(default=None, min_length=1, max_length=500)
+    title: str | None = Field(default=None, max_length=64)
+    subtitle: str | None = Field(default=None, max_length=120)
+    link_type: Literal["none", "product", "section"] | None = None
+    link_value: str | None = Field(default=None, max_length=64)
+    sort_order: int | None = Field(default=None, ge=0, le=9999)
+    enabled: bool | None = None
+
+
+class BannerOut(BaseModel):
+    id: int
+    image_url: str
+    title: str
+    subtitle: str
+    link_type: str
+    link_value: str
+    sort_order: int
+    enabled: bool
+
+
+class SectionIn(BaseModel):
+    title: str = Field(min_length=1, max_length=64)
+    subtitle: str = Field(default="", max_length=120)
+    source: Literal["manual", "sales"] = "manual"
+    enabled: bool = True
+    product_ids: list[int] = Field(default_factory=list, max_length=24)
+
+
+class SectionUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=64)
+    subtitle: str | None = Field(default=None, max_length=120)
+    source: Literal["manual", "sales"] | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=9999)
+    enabled: bool | None = None
+    product_ids: list[int] | None = Field(default=None, max_length=24)
+
+
+class SectionOut(BaseModel):
+    id: int
+    title: str
+    subtitle: str
+    source: str
+    sort_order: int
+    enabled: bool
+    product_ids: list[int]
+    product_names: list[str]
+
+
+class TestimonialIn(BaseModel):
+    nickname: str = Field(min_length=1, max_length=32)
+    content: str = Field(min_length=1, max_length=300)
+    rating: int = Field(default=5, ge=1, le=5)
+    enabled: bool = True
+
+
+class TestimonialUpdate(BaseModel):
+    nickname: str | None = Field(default=None, min_length=1, max_length=32)
+    content: str | None = Field(default=None, min_length=1, max_length=300)
+    rating: int | None = Field(default=None, ge=1, le=5)
+    sort_order: int | None = Field(default=None, ge=0, le=9999)
+    enabled: bool | None = None
+
+
+class TestimonialOut(BaseModel):
+    id: int
+    nickname: str
+    content: str
+    rating: int
+    sort_order: int
+    enabled: bool
+
+
+class HomeSection(BaseModel):
+    id: int
+    title: str
+    subtitle: str
+    products: list[ProductOut]
+
+
+class HomeOut(BaseModel):
+    banners: list[BannerOut]
+    sections: list[HomeSection]
+    testimonials: list[TestimonialOut]
+    shop: ShopOut
+
+
+class UploadOut(BaseModel):
+    url: str
+
+
 class OrderItemOut(BaseModel):
     product_id: int
     sku_id: int
