@@ -146,7 +146,7 @@ p { margin: 0; }
 /* 服务承诺条 */
 .promises {
   display: grid; grid-template-columns: repeat(4, 1fr); background: #fff;
-  border-radius: var(--radius); box-shadow: var(--shadow); margin: 34px 0 0; overflow: hidden;
+  border-radius: var(--radius); box-shadow: var(--shadow); margin: 46px 0 0; overflow: hidden;
 }
 .promises div {
   padding: 18px 16px; text-align: center; border-right: 1px solid var(--line-2);
@@ -180,7 +180,7 @@ p { margin: 0; }
 .sorts button.on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 
 /* ================= 商品卡 ================= */
-.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding-bottom: 30px; }
+.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 17px; padding-bottom: 36px; }
 /* 商品卡只在图片上叠加信息，不再有下方文字区 */
 .pcard {
   background: #fff; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
@@ -473,7 +473,7 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 /* ================= 首页：轮播主视觉 ================= */
 .hero {
   position: relative; border-radius: var(--radius); overflow: hidden; background: #2a2521;
-  height: 500px; box-shadow: var(--shadow);
+  height: 560px; box-shadow: var(--shadow); margin: 22px 0 0;
 }
 .hero .slide {
   position: absolute; inset: 0; opacity: 0; transition: opacity 0.6s ease;
@@ -492,21 +492,23 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 }
 .hero .caption h1 { font-size: 36px; letter-spacing: 3px; font-family: var(--serif); }
 .hero .caption p { color: rgba(255, 255, 255, 0.84); margin-top: 12px; }
+/* 圆钮做小、符号放大，底色很淡，尽量不挡后面的图 */
 .hero .nav {
-  position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px;
-  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.9);
-  font-size: 20px; display: grid; place-items: center; backdrop-filter: blur(2px);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px;
+  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.07); color: rgba(255, 255, 255, 0.94);
+  font-size: 27px; line-height: 1; padding-bottom: 4px;
+  display: grid; place-items: center; backdrop-filter: blur(1px);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
   transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 .hero .nav:hover {
-  background: rgba(255, 255, 255, 0.24);
-  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.22);
   color: #fff;
 }
-.hero .nav.prev { left: 18px; }
-.hero .nav.next { right: 18px; }
+.hero .nav.prev { left: 16px; }
+.hero .nav.next { right: 16px; }
 .hero .dots {
   position: absolute; left: 46px; bottom: 26px; display: flex; gap: 8px;
 }
@@ -517,8 +519,8 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .hero .dots button.on { background: #fff; width: 40px; }
 
 /* ================= 首页：横向商品位 ================= */
-.row-sec { margin-top: 26px; }
-.row-head { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 14px; }
+.row-sec { margin-top: 46px; }
+.row-head { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 18px; }
 .row-head h2 { font-size: 21px; letter-spacing: 1px; font-family: var(--serif); }
 .row-head .sub { color: var(--muted); font-size: 13px; padding-bottom: 3px; }
 .row-head .spacer { flex: 1; }
@@ -526,32 +528,33 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 /* 左右箭头浮在图片两侧、垂直居中，和轮播主视觉一致 */
 .rail { position: relative; }
 .rail-nav {
-  position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 42px;
-  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(30, 26, 23, 0.22); color: rgba(255, 255, 255, 0.92);
-  font-size: 20px; display: grid; place-items: center; z-index: 3;
-  backdrop-filter: blur(2px); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  position: absolute; top: 50%; transform: translateY(-50%); width: 36px; height: 36px;
+  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(28, 24, 21, 0.1); color: rgba(255, 255, 255, 0.95);
+  font-size: 25px; line-height: 1; padding-bottom: 4px;
+  display: grid; place-items: center; z-index: 3;
+  backdrop-filter: blur(1px); text-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
   transition: background 0.2s, border-color 0.2s, opacity 0.2s;
 }
 .rail-nav:hover:not(:disabled) {
-  background: rgba(30, 26, 23, 0.4);
-  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(28, 24, 21, 0.24);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 .rail-nav:disabled { opacity: 0; pointer-events: none; }
-.rail-nav.prev { left: 12px; }
-.rail-nav.next { right: 12px; }
+.rail-nav.prev { left: 10px; }
+.rail-nav.next { right: 10px; }
 
 .track {
-  display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 42px) / 4);
-  gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory;
+  display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 51px) / 4);
+  gap: 17px; overflow-x: auto; scroll-snap-type: x mandatory;
   scrollbar-width: none; padding-bottom: 4px;
 }
 .track::-webkit-scrollbar { display: none; }
 .track > * { scroll-snap-align: start; }
 
 /* ================= 首页：全部商品 + 展开 ================= */
-.all-sec { margin-top: 30px; }
-.all-foot { text-align: center; margin: 18px 0 4px; }
+.all-sec { margin-top: 50px; }
+.all-foot { text-align: center; margin: 24px 0 4px; }
 .expand {
   border: 1px solid var(--line); background: #fff; border-radius: 24px;
   padding: 11px 46px; font-size: 14px; color: var(--ink-2); transition: all 0.18s;
@@ -560,8 +563,8 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .expand[disabled] { opacity: 0.5; cursor: default; }
 
 /* ================= 首页：用户评价流动 ================= */
-.wall { margin-top: 30px; overflow: hidden; }
-.wall-head { text-align: center; margin-bottom: 20px; }
+.wall { margin-top: 50px; overflow: hidden; }
+.wall-head { text-align: center; margin-bottom: 24px; }
 .wall-head h2 { font-size: 21px; letter-spacing: 2px; font-family: var(--serif); }
 .wall-head p { color: var(--muted); font-size: 13px; margin-top: 6px; }
 .marquee { position: relative; overflow: hidden; padding: 4px 0; }
@@ -925,7 +928,7 @@ wa-dialog .field input:focus { border-color: var(--primary); }
   .cat-side h3 { display: none; }
   .cat-side button { width: auto; white-space: nowrap; border-left: 0; border-bottom: 3px solid transparent; }
   .cat-side button.on { border-left: 0; border-bottom-color: var(--primary); }
-  .track { grid-auto-columns: calc((100% - 28px) / 3); }
+  .track { grid-auto-columns: calc((100% - 34px) / 3); }
 }
 @media (max-width: 900px) {
   .detail, .checkout { grid-template-columns: 1fr; }
@@ -936,10 +939,11 @@ wa-dialog .field input:focus { border-color: var(--primary); }
   .side .side-brand, .side .side-user { display: none; }
   .side a, .side button.side-item { width: auto; white-space: nowrap; border-left: 0; border-bottom: 3px solid transparent; }
   .side a.on { border-left: 0; border-bottom-color: var(--primary); }
-  .hero { height: 380px; }
+  .hero { height: 420px; }
   .hero .caption { left: 26px; right: 26px; max-width: none; }
   .hero .caption h1 { font-size: 27px; }
   .hero .dots { left: 26px; }
+  .row-sec, .all-sec, .wall, .promises { margin-top: 36px; }
 }
 @media (max-width: 720px) {
   .grid { grid-template-columns: repeat(2, 1fr); }
@@ -955,12 +959,14 @@ wa-dialog .field input:focus { border-color: var(--primary); }
   .gallery .thumbs { flex-direction: row; }
   .chat { right: 12px; left: 12px; bottom: 12px; width: auto; }
   .footer .wrap { flex-direction: column; }
-  .hero { height: 280px; }
+  .hero { height: 300px; }
   .hero .caption h1 { font-size: 22px; letter-spacing: 1px; }
   .hero .caption p { font-size: 13px; }
-  .hero .nav { width: 36px; height: 36px; font-size: 16px; }
-  .track { grid-auto-columns: calc((100% - 14px) / 2); }
+  .hero .nav { width: 32px; height: 32px; font-size: 22px; }
+  .rail-nav { width: 30px; height: 30px; font-size: 21px; }
+  .track { grid-auto-columns: calc((100% - 17px) / 2); }
   .row-head h2 { font-size: 18px; }
+  .row-sec, .all-sec, .wall, .promises { margin-top: 30px; }
   .quote { width: 260px; }
   /* 购买按钮在窄屏排不下，让它们换行并平分宽度 */
   .actions button { flex: 1 1 46%; }
