@@ -493,12 +493,18 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .hero .caption h1 { font-size: 36px; letter-spacing: 3px; font-family: var(--serif); }
 .hero .caption p { color: rgba(255, 255, 255, 0.84); margin-top: 12px; }
 .hero .nav {
-  position: absolute; top: 50%; transform: translateY(-50%); width: 46px; height: 46px;
-  border-radius: 50%; border: 0; background: rgba(255, 255, 255, 0.22); color: #fff;
-  font-size: 20px; display: grid; place-items: center; backdrop-filter: blur(4px);
-  transition: background 0.2s;
+  position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px;
+  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.9);
+  font-size: 20px; display: grid; place-items: center; backdrop-filter: blur(2px);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
-.hero .nav:hover { background: rgba(255, 255, 255, 0.4); }
+.hero .nav:hover {
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #fff;
+}
 .hero .nav.prev { left: 18px; }
 .hero .nav.next { right: 18px; }
 .hero .dots {
@@ -521,17 +527,22 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .rail { position: relative; }
 .rail-nav {
   position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 42px;
-  border-radius: 50%; border: 0; background: rgba(30, 26, 23, 0.42); color: #fff;
+  border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(30, 26, 23, 0.22); color: rgba(255, 255, 255, 0.92);
   font-size: 20px; display: grid; place-items: center; z-index: 3;
-  backdrop-filter: blur(4px); transition: background 0.2s, opacity 0.2s;
+  backdrop-filter: blur(2px); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  transition: background 0.2s, border-color 0.2s, opacity 0.2s;
 }
-.rail-nav:hover:not(:disabled) { background: rgba(30, 26, 23, 0.68); }
+.rail-nav:hover:not(:disabled) {
+  background: rgba(30, 26, 23, 0.4);
+  border-color: rgba(255, 255, 255, 0.28);
+}
 .rail-nav:disabled { opacity: 0; pointer-events: none; }
 .rail-nav.prev { left: 12px; }
 .rail-nav.next { right: 12px; }
 
 .track {
-  display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 28px) / 3);
+  display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 42px) / 4);
   gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory;
   scrollbar-width: none; padding-bottom: 4px;
 }
@@ -914,7 +925,7 @@ wa-dialog .field input:focus { border-color: var(--primary); }
   .cat-side h3 { display: none; }
   .cat-side button { width: auto; white-space: nowrap; border-left: 0; border-bottom: 3px solid transparent; }
   .cat-side button.on { border-left: 0; border-bottom-color: var(--primary); }
-  .track { grid-auto-columns: calc((100% - 14px) / 2); }
+  .track { grid-auto-columns: calc((100% - 28px) / 3); }
 }
 @media (max-width: 900px) {
   .detail, .checkout { grid-template-columns: 1fr; }
@@ -948,7 +959,7 @@ wa-dialog .field input:focus { border-color: var(--primary); }
   .hero .caption h1 { font-size: 22px; letter-spacing: 1px; }
   .hero .caption p { font-size: 13px; }
   .hero .nav { width: 36px; height: 36px; font-size: 16px; }
-  .track { grid-auto-columns: 78%; }
+  .track { grid-auto-columns: calc((100% - 14px) / 2); }
   .row-head h2 { font-size: 18px; }
   .quote { width: 260px; }
   /* 购买按钮在窄屏排不下，让它们换行并平分宽度 */
