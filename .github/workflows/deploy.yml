@@ -1,0 +1,40 @@
+name: Test and deploy to Aliyun
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aliyun-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install test dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Test backend
+        working-directory: backend
+        run: python -m pytest -q
+      - name: Check frontend syntax
+        run: |
+          for file in web/*.js; do node --check "$file"; done
+      - name: Deploy the tested commit
+        env:
+          DEPLOY_KEY: ${{ secrets.ALIYUN_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.ALIYUN_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          git archive --format=tar HEAD backend/app backend/knowledge backend/requirements-server.txt web |
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -i ~/.ssh/deploy_key root@123.57.164.154 "deploy $GITHUB_SHA"

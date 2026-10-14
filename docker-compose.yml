@@ -24,6 +24,8 @@ services:
 
   api:
     build: .
+    volumes:
+      - agent-data:/app/data
     ports:
       - "8000:8000"
     environment:
@@ -45,3 +47,4 @@ services:
 
 volumes:
   mysql-data:
+  agent-data:

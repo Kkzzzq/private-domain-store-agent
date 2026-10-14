@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import get_db, require_merchant
 from app.models.tables import User
+from app.agent.assistant import assistant
+from app.agent.context import Actor, set_actor, reset_actor
+from app.schemas.dto import ChatIn, ChatOut, SessionOut
 from app.rag.knowledge import reindex_knowledge
 from app.schemas.dto import (
     BannerIn,
@@ -70,6 +73,21 @@ from app.services import categories as category_service
 from app.services import tags as tag_service
 
 router = APIRouter(prefix="/b", tags=["b"])
+
+
+@router.post("/chat", response_model=ChatOut)
+def chat(body: ChatIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    shop = merchant_shop(db, user)
+    token = set_actor(db, Actor(user.id, user.role, user.username, shop.id))
+    try:
+        return assistant.chat(user_id=user.id, shop_id=shop.id, session_id=body.session_id, message=body.message)
+    finally:
+        reset_actor(token)
+
+
+@router.get("/sessions/{session_id}", response_model=SessionOut)
+def read_agent_session(session_id: str, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return assistant.read_session(user.id, merchant_shop(db, user).id, session_id)
 
 
 @router.get("/shop", response_model=ShopOut)

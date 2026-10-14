@@ -51,6 +51,7 @@ def serialize_shop(shop: Shop) -> dict:
         "hero_height": shop.hero_height or 640,
         "strip_tint": bool(shop.strip_tint),
         "promises": promises_of(shop),
+        "social_accounts": json.loads(shop.social_accounts or "[]"),
     }
 
 
@@ -143,6 +144,7 @@ def _product_query():
 
 
 def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
+    # 平台账号与店铺其他设置使用同一套商家权限检查。
     shop = merchant_shop(db, user)
     if body.name is not None:
         shop.name = body.name.strip()
@@ -156,6 +158,8 @@ def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
         shop.hero_height = body.hero_height
     if body.strip_tint is not None:
         shop.strip_tint = body.strip_tint
+    if body.social_accounts is not None:
+        shop.social_accounts = json.dumps([row.model_dump() for row in body.social_accounts], ensure_ascii=False)
     if body.promises is not None:
         shop.promises = json.dumps(
             [{"title": row.title.strip(), "sub": row.sub.strip()} for row in body.promises],

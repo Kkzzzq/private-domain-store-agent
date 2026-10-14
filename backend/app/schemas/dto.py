@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class RegisterIn(BaseModel):
@@ -29,6 +29,16 @@ class PromiseItem(BaseModel):
     sub: str = Field(default="", max_length=40)
 
 
+class SocialAccount(BaseModel):
+    platform: str = Field(min_length=1, max_length=24)
+    account: str = Field(min_length=1, max_length=64)
+    followers: str = Field(default="", max_length=24)
+    url: str = Field(default="", max_length=500, pattern=r"^(https?://[^\s]+)?$")
+    icon: Literal["wechat", "video", "book", "weibo", "shop", "custom"] = "shop"
+    icon_url: str = Field(default="", max_length=500, pattern=r"^(https?://[^\s]+|/covers/[^\s]+)?$")
+    enabled: bool = True
+
+
 class ShopUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     notice: str | None = Field(default=None, max_length=500)
@@ -38,6 +48,7 @@ class ShopUpdate(BaseModel):
     hero_height: int | None = Field(default=None, ge=320, le=760)
     strip_tint: bool | None = None
     promises: list[PromiseItem] | None = Field(default=None, max_length=6)
+    social_accounts: list[SocialAccount] | None = Field(default=None, max_length=12)
 
 
 class ShopOut(BaseModel):
@@ -52,6 +63,7 @@ class ShopOut(BaseModel):
     hero_height: int
     strip_tint: bool
     promises: list[PromiseItem]
+    social_accounts: list[SocialAccount] = Field(default_factory=list)
 
 
 class StatusAction(BaseModel):
@@ -380,6 +392,8 @@ class OrderItemOut(BaseModel):
     sku_spec: str
     price_yuan: float
     quantity: int
+    image_url: str = ""
+    available: bool = True
 
 
 class OrderOut(BaseModel):
@@ -391,6 +405,7 @@ class OrderOut(BaseModel):
     goods_yuan: float
     freight_yuan: float
     total_yuan: float
+    created_at: str | None = None
     expires_in_seconds: int | None = None
     receiver: str = ""
     phone: str = ""
@@ -403,6 +418,13 @@ class OrderOut(BaseModel):
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
     session_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,64}$")
+
+    @field_validator("message")
+    @classmethod
+    def nonempty_message(cls, value):
+        if not value.strip():
+            raise ValueError("请输入问题")
+        return value.strip()
 
 
 class ToolTrace(BaseModel):
@@ -417,6 +439,8 @@ class ChatOut(BaseModel):
     mode: str
     tools: list[ToolTrace]
     notices: list[str]
+    intent: str = "unclear"
+    products: list[dict] = Field(default_factory=list)
 
 
 class SessionOut(BaseModel):

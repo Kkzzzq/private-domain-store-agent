@@ -1,21 +1,27 @@
 from app.db.redis_client import get_redis
+from app.agent.summarizer import summarize
 
 
-def compact_messages(state: dict, max_chars: int) -> tuple[dict, str | None]:
+def compact_messages(state: dict, max_chars: int, llm=None) -> tuple[dict, str | None]:
     messages = list(state.get("messages") or [])
     summary = (state.get("summary") or "").strip()
-    total = sum(len(item.get("content") or "") for item in messages)
-    if total <= max_chars or len(messages) <= 1:
+    total = len(summary) + sum(len(item.get("content") or "") for item in messages)
+    if total <= max_chars:
         return {"summary": summary, "messages": messages}, None
-    keep = 4 if len(messages) > 4 else 1
-    head, tail = messages[:-keep], messages[-keep:]
-    piece = "；".join(
-        item["content"].strip()[:80]
-        for item in head
-        if item.get("role") == "user" and item.get("content")
-    )
-    merged = "；".join(part for part in (summary, piece) if part)
-    return {"summary": merged[:400], "messages": tail}, "较早的对话已压缩为摘要"
+    summary_budget = min(600, max_chars // 3)
+    tail = []
+    remaining = max_chars - summary_budget
+    for item in reversed(messages):
+        content = item.get("content") or ""
+        if len(content) > remaining:
+            break
+        tail.insert(0, item)
+        remaining -= len(content)
+        if len(tail) >= 4:
+            break
+    head = messages[:len(messages) - len(tail)]
+    merged = summarize(head, summary, llm, max_chars=summary_budget)
+    return {"summary": merged, "messages": tail}, "较早的对话已压缩为摘要"
 
 
 class SessionService:

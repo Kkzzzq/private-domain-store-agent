@@ -1,0 +1,59 @@
+/* 原有业务结构上的暖色精品店视觉层。 */
+:root { --bg: #f8f6f2; --ink: #302e2a; --ink-2: #68645e; --muted: #827d75; --line: #e8e3da; --line-2: #f2eee7; --radius: 14px; --shadow: 0 4px 18px #3d302308; }
+body { background: var(--bg); }
+.strip { border-bottom-width: 1px; background: #fffdf9; }
+.strip.tinted { background: linear-gradient(180deg, color-mix(in srgb, var(--theme) 7%, #fffdf9), #fffdf9); }
+.strip .wrap { height: 80px; }
+.strip-name { font-size: 24px; letter-spacing: 3px; }
+.strip-mark { border-radius: 12px; box-shadow: 0 3px 10px #302e2a12; }
+.strip nav > * { border: 0; font-size: 14px; padding: 0 16px; }
+.strip nav a { transition: color .2s; }
+.hero { border-radius: 20px; overflow: hidden; margin-top: 24px; box-shadow: 0 12px 35px #37291c12; }
+.hero .caption h1 { font-size: clamp(28px, 3.1vw, 46px); line-height: 1.35; letter-spacing: 4px; }
+.hero .caption p { font-size: 15px; line-height: 1.8; }
+.hero .nav { background: #ffffff18; border: 1px solid #ffffff40; backdrop-filter: blur(8px); }
+.section-title { margin-top: 42px; margin-bottom: 22px; }
+.section-title h2 { font-size: 23px; font-family: var(--serif); letter-spacing: 2px; }
+.section-title .line { background: linear-gradient(90deg, var(--line), transparent); }
+.pcard { border-radius: 14px; box-shadow: none; border: 1px solid #e9e3da; overflow: hidden; }
+.pcard:hover { box-shadow: 0 14px 30px #36281d14; transform: translateY(-3px); }
+.pcard .thumb img { transition: transform .55s ease; }
+.pcard:hover .thumb img { transform: scale(1.035); }
+.thumb-cart { box-shadow: 0 3px 12px #2c241824; }
+.pcard .tag { border-radius: 5px; }
+.grid { gap: 22px; }
+.promises { border-radius: 14px; border: 1px solid var(--line); background: #fffdf9; padding: 26px 18px; box-shadow: none; margin-top: 30px; }
+.promises b { font-family: var(--serif); letter-spacing: 1px; }
+.wall { padding: 34px 0; margin-top: 36px; }
+.wall-head h2 { font-size: 25px; }
+.quote { border: 1px solid var(--line); box-shadow: none; border-radius: 14px; padding: 22px; }
+.footer { background: #eeebe4; border-top: 1px solid #e4ded3; padding: 42px 0; color: var(--ink-2); }
+.collection-head { border-radius: 14px; border: 1px solid var(--line); box-shadow: none; background: #fffdf9; }
+.collection aside, .collection .filter { border-radius: 14px; }
+.crumb { padding-top: 22px; padding-bottom: 20px; }
+.detail .main { border-radius: 18px; }
+.detail h1 { font-family: var(--serif); font-size: 29px; letter-spacing: 1px; }
+.detail .sub-title { line-height: 1.9; }
+.pricebox { border-radius: 12px; background: #f0e9df; padding: 20px; }
+.specs button { border-radius: 7px; }
+.section, .panel, .quick-panel { border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 14px; }
+.btn, .btn-ghost, .btn-line, .btn-buy, .btn-cart { border-radius: 8px; }
+.btn-big { min-height: 52px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid color-mix(in srgb, var(--theme) 65%, #fff); outline-offset: 3px; }
+.tabs { gap: 8px; }
+.tabs button { border-radius: 8px; }
+@media (max-width: 760px) {
+  .strip .wrap { height: 70px; }
+  .strip-name { font-size: 20px; letter-spacing: 1px; }
+  .strip nav > * { padding: 0 10px; font-size: 13px; }
+  .hero { border-radius: 14px; margin-top: 16px; }
+  .hero .caption h1 { font-size: 27px; letter-spacing: 2px; }
+  .grid { gap: 12px; }
+  .section-title { margin-top: 28px; margin-bottom: 18px; }
+  .section-title h2 { font-size: 20px; }
+  .detail h1 { font-size: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

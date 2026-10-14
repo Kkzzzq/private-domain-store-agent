@@ -10,6 +10,8 @@ let sort = "default";
 let sessionId = "";
 let chatLines = [];
 let chatOpen = false;
+let chatBusy = false;
+let chatIdentity = "";
 let addressId = null;
 let cartCount = 0;
 let cartPick = null;
@@ -143,13 +145,22 @@ function renderStrip() {
     left.append(login);
   }
 
-  const nav = h("nav");
-  const cart = h("a", "hvr-grow", cartCount ? `购物车（${cartCount}）` : "购物车");
+  const nav = h("nav", "store-nav");
+  nav.setAttribute("aria-label", "买家快捷入口");
+  const cart = h("a", "", "购物车");
   cart.href = "#/cart";
-  const orders = h("a", "hvr-grow", "订单中心");
+  const orders = h("a", "", "订单中心");
   orders.href = "#/orders";
-  const history = h("a", "hvr-grow", "浏览记录");
+  const history = h("a", "", "浏览记录");
   history.href = "#/history";
+  [[cart, "cart", "M3 4h2l3 12h11l2-9H6 M10 20h.01 M18 20h.01"], [orders, "orders", "M6 3h12v18l-3-2-3 2-3-2-3 2z M9 7h6 M9 11h6 M9 15h4"], [history, "history", "M4 7a9 9 0 1 1-1 8 M3 3v5h5 M12 7v5l3 2"]].forEach(([link, name, shape]) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", shape); svg.append(path); link.prepend(svg);
+    if (route().name === name) { link.classList.add("active"); link.setAttribute("aria-current", "page"); }
+  });
+  if (cartCount) cart.append(h("span", "nav-count", String(cartCount)));
   nav.append(cart, orders, history);
 
   inner.append(left, nav);
@@ -198,7 +209,8 @@ async function renderCollection(key) {
   const box = h("div");
   const crumb = h("div", "crumb");
   const home = h("a", "", "首页");
-  home.href = "#/";
+  home.href = `/c.html?code=${encodeURIComponent(code)}#/`;
+  home.addEventListener("click", () => { keyword = ""; category = ""; sort = "default"; });
   crumb.append(home, h("span", "", " / "), h("span", "", data.title));
   box.append(crumb);
 
@@ -358,8 +370,18 @@ function heroCarousel(banners) {
     dotButtons.forEach((dot, i) => dot.classList.toggle("on", i === index));
   }
 
-  const prev = h("button", "nav prev", "‹");
-  const next = h("button", "nav next", "›");
+  const prev = h("button", "nav prev");
+  const next = h("button", "nav next");
+  [[prev, "上一张", "M27 6L13 20L27 34"], [next, "下一张", "M13 6L27 20L13 34"]].forEach(([button, label, shape]) => {
+    button.setAttribute("aria-label", label);
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 40 40");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", shape);
+    svg.append(path);
+    button.append(svg);
+  });
   prev.addEventListener("click", (event) => {
     event.stopPropagation();
     show(index - 1);
@@ -421,8 +443,15 @@ function productRow(section) {
   const track = h("div", "track");
   section.products.forEach((product) => track.append(productCard(product)));
 
-  const prev = h("button", "rail-nav prev", "‹");
-  const next = h("button", "rail-nav next", "›");
+  const prev = h("button", "rail-nav prev");
+  const next = h("button", "rail-nav next");
+  [[prev, "上一组商品", "M27 6L13 20L27 34"], [next, "下一组商品", "M13 6L27 20L13 34"]].forEach(([button, label, shape]) => {
+    button.setAttribute("aria-label", label);
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 40 40"); svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", shape); svg.append(path); button.append(svg);
+  });
   rail.append(prev, track, next);
   sec.append(rail);
 
@@ -807,7 +836,15 @@ async function renderProduct(id) {
   const crumb = h("div", "crumb");
   const home = h("a", "", "全部商品");
   home.href = "#/collection/all";
-  crumb.append(home, h("span", "", " / "), h("span", "", `${product.category} / ${product.name}`));
+  home.addEventListener("click", () => { category = ""; keyword = ""; sort = "default"; });
+  crumb.append(home, h("span", "", " / "));
+  if (product.category) {
+    const categoryLink = h("a", "crumb-category", product.category);
+    categoryLink.href = "#/collection/all";
+    categoryLink.addEventListener("click", () => { category = product.category; keyword = ""; sort = "default"; });
+    crumb.append(categoryLink, h("span", "", " / "));
+  }
+  crumb.append(h("span", "", product.name));
   box.append(crumb);
 
   const state = createDetailState(product);
@@ -1640,7 +1677,9 @@ async function renderOrders(status) {
 }
 
 function orderCard(order) {
-  const card = h("article", "order");
+  const card = h("article", "order order-with-products");
+  const infoPanel = h("div", "order-info-panel");
+  const productsPanel = h("div", "order-products-panel");
   const head = h("div", "order-head");
   head.append(h("span", "no", `订单号 ${order.order_no}`));
   head.append(h("span", "", order.shop_name));
@@ -1654,7 +1693,7 @@ function orderCard(order) {
   price.style.fontSize = "16px";
   amount.append(price);
   head.append(amount);
-  card.append(head);
+  infoPanel.append(head);
 
   order.items.forEach((item, index) => {
     const line = h("div", index % 2 ? "order-line alt" : "order-line");
@@ -1663,7 +1702,23 @@ function orderCard(order) {
     info.append(h("div", "", item.product_name));
     info.append(h("div", "muted", `规格 ${item.sku_spec}`));
     line.append(info, h("span", "", money(item.price_yuan)), h("span", "muted", `x${item.quantity}`));
-    card.append(line);
+    infoPanel.append(line);
+    const productCard = h("article", item.available === false ? "pcard dim order-product-card" : "pcard order-product-card");
+    const thumb = h(item.available === false ? "div" : "a", "thumb");
+    if (item.available !== false) thumb.href = `#/product/${code}/${item.product_id}`;
+    thumb.setAttribute("aria-label", `${item.product_name}，${item.sku_spec}`);
+    const image = h("img");
+    image.alt = `${item.product_name} ${item.sku_spec}`;
+    image.loading = "lazy";
+    if (item.image_url) image.src = item.image_url;
+    else { image.hidden = true; thumb.append(h("span", "order-image-placeholder", "暂无商品图片")); }
+    image.addEventListener("error", () => { image.hidden = true; if (!thumb.querySelector(".order-image-placeholder")) thumb.append(h("span", "order-image-placeholder", "图片暂不可用")); });
+    const hover = h("div", "thumb-name");
+    hover.append(h("span", "hover-title", item.product_name), h("span", "hover-shop", `规格 ${item.sku_spec} · 数量 ${item.quantity}`), h("span", "hover-price", money(item.price_yuan)));
+    thumb.append(image, hover);
+    if (item.available === false) thumb.append(h("span", "shelf-flag", "暂不可售"));
+    productCard.append(thumb);
+    productsPanel.append(productCard);
   });
 
   const foot = h("div", "order-foot");
@@ -1690,7 +1745,8 @@ function orderCard(order) {
     review.addEventListener("click", () => go("#/reviews"));
     foot.append(review);
   }
-  card.append(foot);
+  infoPanel.append(foot);
+  card.append(infoPanel, productsPanel);
   return card;
 }
 
@@ -1773,7 +1829,7 @@ function loginModal() {
   dialog.style.setProperty("--width", "380px");
 
   const form = h("div", "stack");
-  form.append(h("p", "muted", "演示账号 alice / alice123"));
+  form.append(h("p", "muted", "请使用买家账号登录，或注册新账号"));
   const fields = h("div", "stack");
   fields.append(labeled("账号", "username", "alice"), labeled("密码", "password", "alice123"));
   const error = h("p", "muted", "");
@@ -1796,7 +1852,7 @@ function loginModal() {
         method: "POST",
         body: JSON.stringify({ username: read("username"), password: read("password") }),
       });
-      if (data.user.role !== "customer") throw new Error("请使用买家账号，例如 alice / alice123");
+      if (data.user.role !== "customer") throw new Error("请使用买家账号登录");
       sessionStorage.setItem("token_c", data.access_token);
       dialog.open = false;
       toast(`欢迎回来，${data.user.nickname}`, "ok");
@@ -1847,6 +1903,12 @@ function renderChatToggle() {
 }
 
 function renderChat() {
+  const identity = `${code}:${sessionStorage.getItem("token_c") || ""}`;
+  if (chatIdentity !== identity) {
+    chatIdentity = identity;
+    sessionId = "";
+    chatLines = [];
+  }
   const box = h("aside", "chat");
   const head = document.createElement("header");
   const title = h("div");
@@ -1859,9 +1921,30 @@ function renderChat() {
   head.append(title, close);
   const log = h("div", "log");
   if (!chatLines.length) {
-    log.append(h("div", "bubble", "你好，我是南枝手作的店内助手。可以帮你查在售商品、库存、你自己的订单，也能回答退货和养护问题。"));
+    log.append(h("div", "bubble", "你好，我是这家店的助手。可以推荐商品、查询库存和你自己的订单，也能检索售后和养护说明。"));
   }
-  chatLines.forEach((line) => log.append(h("div", line.me ? "bubble me" : "bubble", line.text)));
+  const appendCards = (products) => {
+    if (!products || !products.length) return;
+    const cards = h("div", "agent-products");
+    products.forEach((product) => {
+      const link = h("a", "agent-product");
+      link.href = `#/product/${code}/${product.id}`;
+      const image = document.createElement("img");
+      image.src = cover(product.image_url);
+      image.alt = product.name;
+      link.append(image, h("span", "", `${product.name} · ${money(product.price_from)}起`));
+      cards.append(link);
+    });
+    log.append(cards);
+  };
+  chatLines.forEach((line) => {
+    log.append(h("div", line.me ? "bubble me" : "bubble", line.text));
+    appendCards(line.products);
+  });
+  const reset = h("button", "chat-reset", "新对话");
+  reset.disabled = chatBusy;
+  reset.addEventListener("click", () => { sessionId = ""; chatLines = []; render(); });
+  head.append(reset);
   const tips = h("div", "tips");
   ["抱枕还有货吗", "我的订单到哪了", "定制品能退吗"].forEach((text) => {
     const chip = h("button", "", text);
@@ -1874,12 +1957,17 @@ function renderChat() {
   const form = document.createElement("form");
   const input = document.createElement("input");
   input.placeholder = "输入问题…";
-  form.append(input, h("button", "", "发送"));
+  input.maxLength = 1000;
+  const send = h("button", "", "发送");
+  send.disabled = chatBusy;
+  form.append(input, send);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!requireLogin()) return;
     const message = input.value.trim();
-    if (!message) return;
+    if (!message || chatBusy) return;
+    chatBusy = true;
+    send.disabled = reset.disabled = true;
     chatLines.push({ me: true, text: message });
     input.value = "";
     log.append(h("div", "bubble me", message));
@@ -1892,11 +1980,17 @@ function renderChat() {
         body: JSON.stringify({ message, session_id: sessionId || undefined }),
       });
       sessionId = data.session_id;
-      pending.textContent = data.answer;
-      chatLines.push({ me: false, text: data.answer });
+      const answer = `${data.answer}${data.mode === "fallback" ? "\n规则查询模式" : ""}${data.notices.length ? "\n" + data.notices.join("；") : ""}`;
+      pending.textContent = answer;
+      appendCards(data.products);
+      chatLines.push({ me: false, text: answer, products: data.products });
     } catch (error) {
       pending.textContent = error.message;
       chatLines.push({ me: false, text: error.message });
+      input.value = message;
+    } finally {
+      chatBusy = false;
+      send.disabled = reset.disabled = false;
     }
     log.scrollTop = log.scrollHeight;
   });

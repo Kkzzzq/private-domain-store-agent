@@ -1,6 +1,9 @@
 const api = createApi("token_b");
 let me = null;
 let shopInfo = null;
+let renderVersion = 0;
+const productFilters = { keyword: "", status: "", category: "", stock: "", sort: "default", page: 1 };
+const expandedProducts = new Set();
 
 function h(tag, className, text) {
   const node = document.createElement(tag);
@@ -33,16 +36,16 @@ function val(form, name) {
 }
 
 /** 删掉就找不回来的操作先问一句，避免误点。 */
-function confirmAction(title, detail) {
+function confirmAction(title, detail, actionLabel = "确认删除") {
   return new Promise((resolve) => {
     const mask = h("div", "modal confirm-mask");
     const panel = h("div", "panel confirm-panel");
     panel.append(h("h3", "", title));
     if (detail) panel.append(h("p", "muted", detail));
     const row = h("div", "row confirm-actions");
-    const cancel = h("button", "btn-ghost", "先不删");
+    const cancel = h("button", "btn-ghost", actionLabel === "确认删除" ? "先不删" : "取消");
     cancel.type = "button";
-    const sure = h("button", "btn danger-fill", "确认删除");
+    const sure = h("button", actionLabel === "确认删除" ? "btn danger-fill" : "btn", actionLabel);
     sure.type = "button";
     const done = (value) => {
       mask.remove();
@@ -51,6 +54,10 @@ function confirmAction(title, detail) {
     };
     const onKey = (event) => {
       if (event.key === "Escape") done(false);
+      if (event.key === "Tab") {
+        event.preventDefault();
+        (document.activeElement === cancel ? sure : cancel).focus();
+      }
     };
     cancel.addEventListener("click", () => done(false));
     sure.addEventListener("click", () => done(true));
@@ -61,8 +68,11 @@ function confirmAction(title, detail) {
     row.append(cancel, sure);
     panel.append(row);
     mask.append(panel);
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-label", title);
     document.body.append(mask);
-    sure.focus();
+    cancel.focus();
   });
 }
 
@@ -117,13 +127,14 @@ const MENU = [
 ];
 
 async function render() {
+  const version = ++renderVersion;
   const root = document.querySelector("#app");
   // 弹窗挂在 body 上，路由切换时不会跟着 #app 一起清掉，先手动收走，
   // 不然一层遮罩会一直挡着后台
   document.querySelectorAll("body > .modal").forEach((node) => node.remove());
-  root.replaceChildren();
+  root.replaceChildren(h("div", "panel admin-loading", "正在加载工作台…"));
   if (!loggedIn()) {
-    root.append(loginView());
+    root.replaceChildren(loginView());
     return;
   }
   if (!me) {
@@ -131,7 +142,7 @@ async function render() {
       me = await api("/api/v1/auth/me");
     } catch {
       sessionStorage.removeItem("token_b");
-      root.append(loginView());
+      if (version === renderVersion) root.replaceChildren(loginView());
       return;
     }
   }
@@ -148,14 +159,22 @@ async function render() {
   try {
     main.append(await mainView());
   } catch (error) {
-    main.append(h("div", "panel", error.message));
+    const failure = h("div", "panel stack");
+    failure.append(h("h2", "panel-title", "页面暂时无法加载"), h("p", "muted", error.message));
+    const retry = h("button", "btn-ghost", "重新加载");
+    retry.addEventListener("click", render);
+    failure.append(retry);
+    main.append(failure);
   }
+  if (version !== renderVersion) return;
   const frame = h("div", "admin");
   frame.append(topBar());
   const body = h("div", "admin-body");
   body.append(sidebar(), main);
   frame.append(body);
-  root.append(frame);
+  root.replaceChildren(frame);
+  frame.append(merchantAssistantToggle());
+  if (merchantChatOpen) frame.append(merchantAssistant());
 }
 
 function topBar() {
@@ -187,7 +206,7 @@ function loginView() {
   panel.style.maxWidth = "380px";
   panel.style.margin = "80px auto";
   panel.append(h("h2", "", "商家工作台"));
-  panel.append(h("p", "muted", "演示账号 merchant / merchant123"));
+  panel.append(h("p", "muted", "请使用商家账号登录"));
   panel.append(field("账号", "username", "merchant"), field("密码", "password", "merchant123", false, "password"));
   const error = h("p", "muted", "");
   const submit = h("button", "btn", "进入后台");
@@ -238,6 +257,10 @@ function sidebar() {
 
 async function mainView() {
   const current = route();
+  if (current.name === "assistant") {
+    history.replaceState(null, "", "#/dashboard");
+    current.name = "dashboard";
+  }
   if (current.name === "products") return current.id ? productEditor(current.id) : productList();
   if (current.name === "categories") return categoriesAdmin();
   if (current.name === "tags") return tagsAdmin();
@@ -245,6 +268,102 @@ async function mainView() {
   if (current.name === "home") return homeAdmin(current.id);
   if (current.name === "shop") return shopForm();
   return dashboard();
+}
+
+let merchantSession = "";
+let merchantMessages = [];
+let merchantChatUser = "";
+let merchantChatOpen = false;
+let merchantChatBusy = false;
+
+function merchantAssistantToggle() {
+  const button = h("button", "merchant-chat-fab", merchantChatOpen ? "×" : "💬");
+  button.title = "智能助手";
+  button.setAttribute("aria-label", merchantChatOpen ? "收起智能助手" : "打开智能助手");
+  button.setAttribute("aria-expanded", String(merchantChatOpen));
+  button.addEventListener("click", () => {
+    merchantChatOpen = !merchantChatOpen;
+    const frame = button.parentElement;
+    frame.querySelector(".merchant-assistant")?.remove();
+    button.replaceWith(merchantAssistantToggle());
+    if (merchantChatOpen) frame.append(merchantAssistant());
+  });
+  return button;
+}
+
+function merchantAssistant() {
+  if (merchantChatUser !== sessionStorage.getItem("token_b")) {
+    merchantChatUser = sessionStorage.getItem("token_b");
+    merchantSession = "";
+    merchantMessages = [];
+  }
+  const panel = h("aside", "panel merchant-assistant");
+  panel.setAttribute("aria-label", "智能运营助手");
+  const header = h("header", "merchant-chat-header");
+  const close = h("button", "btn-ghost", "×");
+  close.setAttribute("aria-label", "关闭智能助手");
+  close.addEventListener("click", () => {
+    merchantChatOpen = false;
+    panel.parentElement.querySelector(".merchant-chat-fab").replaceWith(merchantAssistantToggle());
+    panel.remove();
+  });
+  header.append(h("h2", "", "智能运营助手"), close);
+  panel.append(header, h("p", "muted", "商品 · 库存 · 订单 · 经营概览"));
+  const log = h("div", "merchant-chat-log");
+  const append = (data) => {
+    log.append(h("p", data.text.startsWith("你：") ? "merchant-question" : "merchant-answer", data.text));
+    (data.products || []).forEach((product) => {
+      const link = h("a", "btn-ghost", `${product.name} · ${money(product.price_from)}起`);
+      link.href = `#/products/${product.id}`;
+      log.append(link);
+    });
+  };
+  merchantMessages.forEach(append);
+  const welcome = h("p", "muted", "从一个问题开始：查看本店经营概览，找出需要补货的 SKU，或追踪订单状态。");
+  if (!merchantMessages.length) log.append(welcome);
+  const form = document.createElement("form");
+  const input = document.createElement("input");
+  input.placeholder = "例如：经营概览 / 库存预警 / 本店订单";
+  input.maxLength = 1000;
+  input.required = true;
+  const send = h("button", "btn", "发送");
+  const reset = h("button", "btn-ghost", "新对话");
+  send.disabled = reset.disabled = merchantChatBusy;
+  reset.type = "button";
+  reset.addEventListener("click", () => { merchantSession = ""; merchantMessages = []; log.replaceChildren(welcome); });
+  form.append(input, send, reset);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const message = input.value.trim();
+    if (!message || merchantChatBusy) return;
+    merchantChatBusy = true;
+    welcome.remove();
+    const question = { text: `你：${message}` };
+    merchantMessages.push(question);
+    append(question);
+    send.disabled = reset.disabled = true;
+    const waiting = h("p", "muted", "正在查询…");
+    log.append(waiting);
+    try {
+      const data = await api("/api/v1/b/chat", { method: "POST", body: JSON.stringify({ message, session_id: merchantSession || undefined }) });
+      merchantSession = data.session_id;
+      const reply = { text: `${data.answer}\n${data.mode === "fallback" ? "规则查询 · " : ""}${data.notices.join("；")}`, products: data.products };
+      merchantMessages.push(reply);
+      append(reply);
+      input.value = "";
+    } catch (error) {
+      append({ text: error.message + "，可再次发送重试。" });
+    } finally {
+      merchantChatBusy = false;
+      waiting.remove();
+      send.disabled = reset.disabled = false;
+      log.scrollTop = log.scrollHeight;
+      const visiblePanel = document.querySelector(".merchant-assistant");
+      if (visiblePanel && visiblePanel !== panel) visiblePanel.replaceWith(merchantAssistant());
+    }
+  });
+  panel.append(log, form);
+  return panel;
 }
 
 /** 商家自己传图，成功返回可直接用的路径。 */
@@ -278,7 +397,7 @@ function imageField(label, name, value) {
   input.value = value || "";
   input.placeholder = "/covers/xxx.jpg";
   input.style.flex = "1";
-  const pick = document.createElement("button", "btn-ghost btn-mini", "上传图片");
+  const pick = h("button", "btn-ghost btn-mini", "上传图片");
   pick.type = "button";
   const file = document.createElement("input");
   file.type = "file";
@@ -291,6 +410,7 @@ function imageField(label, name, value) {
     pick.textContent = "上传中…";
     try {
       input.value = await uploadImage(file.files[0]);
+      refresh();
       toast("图片已上传", "ok");
     } catch (error) {
       toast(error.message, "bad");
@@ -1260,53 +1380,94 @@ async function dashboard() {
 
 /* ---------------- 商品 ---------------- */
 async function productList() {
-  const box = h("div");
+  const box = h("div", "product-workspace");
   box.append(h("h1", "page-title", "商品管理"));
   box.append(h("p", "page-sub", "上下架、禁售、价格和库存的改动会立刻同步到买家端"));
+  let products = await api("/api/v1/b/products");
 
+  const busy = false;
+  const stats = h("div", "product-stats");
+  box.append(stats);
   const bar = h("div", "toolbar-inline");
   const keyword = document.createElement("input");
-  keyword.placeholder = "搜索商品名";
-  const status = document.createElement("select");
-  [["", "全部状态"], ["on", "在售"], ["off", "下架"], ["banned", "禁售"]].forEach(([value, label]) => {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    status.append(option);
-  });
-  const search = h("button", "btn-ghost", "筛选");
+  keyword.placeholder = "搜索商品名称或编号";
+  keyword.setAttribute("aria-label", "搜索商品名称或编号");
+  keyword.value = productFilters.keyword;
+  const select = (label, options, value) => {
+    const node = document.createElement("select");
+    node.setAttribute("aria-label", label);
+    options.forEach(([key, text]) => { const option = h("option", "", text); option.value = key; node.append(option); });
+    node.value = value;
+    return node;
+  };
+  const status = select("商品状态", [["", "全部状态"], ["on", "在售"], ["off", "下架"], ["banned", "禁售"]], productFilters.status);
+  const category = select("商品类目", [["", "全部类目"], ...[...new Set(products.map(p => p.category).filter(Boolean))].map(name => [name, name])], productFilters.category);
+  const stockFilter = select("库存筛选", [["", "全部库存"], ["low", "库存预警（≤5）"], ["zero", "已售罄"]], productFilters.stock);
+  const sort = select("商品排序", [["default", "默认排序"], ["sales", "销量从高到低"], ["stock", "库存从低到高"], ["price", "价格从低到高"]], productFilters.sort);
+  const reset = h("button", "btn-ghost", "重置");
   const add = h("button", "btn push", "＋ 发布商品");
   add.addEventListener("click", () => go("#/products/new"));
-  bar.append(keyword, status, search, add);
+  bar.append(keyword, status, category, stockFilter, sort, reset, add);
   box.append(bar);
-
   const host = h("div");
-  box.append(host);
-
-  async function load() {
-    const products = await api(
-      `/api/v1/b/products?keyword=${encodeURIComponent(keyword.value)}&status=${status.value}`
-    );
-    host.replaceChildren(products.length ? productTable(products) : h("div", "panel empty", "没有匹配的商品"));
+  const pager = h("div", "admin-pagination");
+  box.append(host, pager);
+  const stock = p => p.skus.reduce((sum, sku) => sum + sku.stock, 0);
+  const low = p => p.skus.some(sku => sku.status === "on" && sku.stock <= 5);
+  function paint() {
+    const query = productFilters.keyword.trim().toLowerCase();
+    const rows = products.filter(p => (!query || p.name.toLowerCase().includes(query) || String(p.id).includes(query)) && (!productFilters.status || p.status === productFilters.status) && (!productFilters.category || p.category === productFilters.category) && (!productFilters.stock || (productFilters.stock === "zero" ? stock(p) === 0 : low(p))));
+    if (productFilters.sort === "sales") rows.sort((a, b) => b.sales_count - a.sales_count);
+    if (productFilters.sort === "stock") rows.sort((a, b) => stock(a) - stock(b));
+    if (productFilters.sort === "price") rows.sort((a, b) => (a.price_from ?? Infinity) - (b.price_from ?? Infinity));
+    const pages = Math.max(1, Math.ceil(rows.length / 10));
+    productFilters.page = Math.min(productFilters.page, pages);
+    const pageRows = rows.slice((productFilters.page - 1) * 10, productFilters.page * 10);
+    stats.replaceChildren();
+    [["全部商品", products.length, ""], ["在售商品", products.filter(p => p.status === "on").length, "on"], ["已下架", products.filter(p => p.status === "off").length, "off"], ["库存预警", products.filter(low).length, "low"]].forEach(([label, count, filter]) => {
+      const card = h("button", "product-stat" + ((filter === "low" ? productFilters.stock === "low" : productFilters.status === filter) ? " active" : ""));
+      card.append(h("span", "", label), h("strong", "", String(count)));
+      card.disabled = busy;
+      card.addEventListener("click", () => { productFilters.status = filter === "low" ? "" : filter; productFilters.stock = filter === "low" ? "low" : ""; status.value = productFilters.status; stockFilter.value = productFilters.stock; productFilters.page = 1;  paint(); });
+      stats.append(card);
+    });
+    host.replaceChildren(rows.length ? productTable(pageRows, { reload, busy }) : h("div", "panel empty", "没有匹配的商品，试试重置筛选条件"));
+    const prev = h("button", "btn-ghost", "上一页");
+    const next = h("button", "btn-ghost", "下一页");
+    prev.disabled = busy || productFilters.page === 1;
+    next.disabled = busy || productFilters.page === pages;
+    prev.addEventListener("click", () => { productFilters.page--;  paint(); });
+    next.addEventListener("click", () => { productFilters.page++;  paint(); });
+    pager.replaceChildren(h("span", "muted", `共 ${rows.length} 件 · 第 ${productFilters.page} / ${pages} 页`), prev, next);
   }
-  search.addEventListener("click", load);
-  keyword.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") load();
-  });
-  await load();
+  async function reload() { products = await api("/api/v1/b/products");  paint(); }
+  [keyword, status, category, stockFilter, sort].forEach(node => node.addEventListener(node === keyword ? "input" : "change", () => {
+    Object.assign(productFilters, { keyword: keyword.value, status: status.value, category: category.value, stock: stockFilter.value, sort: sort.value, page: 1 });  paint();
+  }));
+  reset.addEventListener("click", () => { Object.assign(productFilters, { keyword: "", status: "", category: "", stock: "", sort: "default", page: 1 }); keyword.value = status.value = category.value = stockFilter.value = ""; sort.value = "default";  paint(); });
+  paint();
   return box;
 }
 
-function productTable(products) {
+function productTable(products, options = {}) {
   const wrap = h("div", "table-wrap");
   const table = h("table", "table");
   const head = document.createElement("thead");
   const headRow = document.createElement("tr");
+  const expandHead = h("th", "expand-cell");
+  // 表头留空，仅保留各商品的展开按钮。
+  headRow.append(expandHead);
   ["商品", "类目", "价格", "库存", "状态", "销量", "操作"].forEach((text) => headRow.append(h("th", "", text)));
   head.append(headRow);
   const body = document.createElement("tbody");
+
   products.forEach((product) => {
     const tr = document.createElement("tr");
+    const expandCell = h("td", "expand-cell");
+    const expand = h("button", "sku-expand");
+    expand.type = "button";
+    expand.disabled = options.busy;
+    expandCell.append(expand); tr.append(expandCell);
     const info = document.createElement("td");
     const row = h("div", "row");
     const image = document.createElement("img");
@@ -1315,7 +1476,7 @@ function productTable(products) {
     image.alt = product.name;
     const words = h("div");
     words.append(h("div", "name", product.name));
-    words.append(h("div", "muted", `${product.skus.length} 个规格`));
+    words.append(h("div", "muted", `#${product.id} · ${product.skus.length} 个规格`));
     row.append(image, words);
     info.append(row);
 
@@ -1338,18 +1499,25 @@ function productTable(products) {
     const edit = h("a", "", "编辑");
     edit.href = `#/products/${product.id}`;
     opsRow.append(edit);
-    statusActions(product.status).forEach(([act, label]) => {
+
+    statusActions(product.status).filter(([action]) => action !== "ban").forEach(([act, label]) => {
       const button = h("button", act === "ban" ? "danger" : "", label);
+      button.disabled = options.busy;
       button.addEventListener("click", async () => {
+        if (button.disabled) return;
+        if (act === "ban" && !(await confirmAction(`禁售「${product.name}」？`, "禁售后买家将无法查看或购买，解禁后商品会回到下架状态。", "确认禁售"))) return;
+        button.disabled = true;
         try {
           await api(`/api/v1/b/products/${product.id}/status`, {
             method: "POST",
             body: JSON.stringify({ action: act }),
           });
           toast(`${product.name} 已${label}`, "ok");
-          render();
+          if (options.reload) await options.reload(); else render();
         } catch (error) {
           toast(error.message, "bad");
+        } finally {
+          button.disabled = false;
         }
       });
       opsRow.append(button);
@@ -1358,7 +1526,33 @@ function productTable(products) {
 
     tr.append(info, category, price, stockCell, state, sales, ops);
     body.append(tr);
+    const detailRow = h("tr", "sku-expansion-row");
+    const detailCell = h("td");
+    detailCell.colSpan = 8;
+    detailRow.append(detailCell);
+    body.append(detailRow);
+    let mounted = false;
+    function paintExpansion() {
+      const open = expandedProducts.has(product.id);
+      expand.textContent = open ? "−" : "＋";
+      expand.setAttribute("aria-label", `${open ? "收起" : "展开"}${product.name}的 SKU`);
+      expand.setAttribute("aria-expanded", String(open));
+      detailRow.id = `product-skus-${product.id}`;
+      expand.setAttribute("aria-controls", detailRow.id);
+      detailRow.hidden = !open;
+      if (open && !mounted) {
+        detailCell.append(renderSkuPanel(product, options.reload));
+        mounted = true;
+      }
+    }
+
+    expand.addEventListener("click", () => {
+      expandedProducts.has(product.id) ? expandedProducts.delete(product.id) : expandedProducts.add(product.id);
+      paintExpansion();
+    });
+    paintExpansion();
   });
+
   table.append(head, body);
   wrap.append(table);
   return wrap;
@@ -1400,7 +1594,7 @@ async function productEditor(id) {
   grid.append(
     field("商品名称", "name", product.name),
     categoryField(catNames, product.category),
-    field("图片地址", "image_url", product.image_url, true),
+    imageField("商品主图", "image_url", product.image_url),
     field("每人限购（0 表示不限）", "limit_per_user", String(product.limit_per_user ?? 0)),    field("商品说明", "description", product.description, true, "textarea")
   );
   panel.append(grid, tagField);
@@ -1416,6 +1610,18 @@ async function productEditor(id) {
   submit.type = "submit";
   panel.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (submit.disabled) return;
+    const name = val(panel, "name");
+    const limit = Number(val(panel, "limit_per_user"));
+    if (!name) { error.textContent = "请填写商品名称"; return; }
+    if (!Number.isInteger(limit) || limit < 0) { error.textContent = "限购数量应为大于等于 0 的整数"; return; }
+    if (creating && (!val(panel, "spec") || !Number.isFinite(Number(val(panel, "price"))) || Number(val(panel, "price")) <= 0 || !val(panel, "stock") || !Number.isInteger(Number(val(panel, "stock"))) || Number(val(panel, "stock")) < 0)) {
+      error.textContent = "请填写规格名、有效售价和大于等于 0 的整数库存";
+      return;
+    }
+    error.textContent = "";
+    submit.disabled = true;
+    submit.textContent = "正在保存…";
     try {
       const payload = {
         name: val(panel, "name"),
@@ -1439,6 +1645,9 @@ async function productEditor(id) {
       go("#/products");
     } catch (err) {
       error.textContent = err.message;
+    } finally {
+      submit.disabled = false;
+      submit.textContent = creating ? "创建并保存" : "保存修改";
     }
   });
   panel.append(error, submit);
@@ -1450,7 +1659,7 @@ async function productEditor(id) {
   return box;
 }
 
-function renderSkuPanel(product) {
+function renderSkuPanel(product, reload = render) {
   const panel = h("div", "panel");
   panel.append(h("h2", "panel-title", `规格与库存（${product.skus.length}）`));
   panel.append(h("p", "muted", "给规格单独配一张图，买家在详情页切规格（或点缩略图）时主图就换成这张"));
@@ -1468,6 +1677,7 @@ function renderSkuPanel(product) {
     specInput.className = "stock-input spec-input";
     specInput.value = sku.spec;
     specInput.maxLength = 40;
+    specInput.setAttribute("aria-label", `${sku.spec} 规格名`);
     specCell.append(specInput);
 
     // 每个规格一张图，买家端详情页切规格就会换主图
@@ -1480,18 +1690,21 @@ function renderSkuPanel(product) {
     marketInput.className = "stock-input sku-market";
     marketInput.value = sku.market_price_yuan ?? "";
     marketInput.placeholder = "不设";
+    marketInput.setAttribute("aria-label", `${sku.spec} 划线价`);
     marketCell.append(marketInput);
 
     const priceCell = document.createElement("td");
     const priceInput = document.createElement("input");
     priceInput.className = "stock-input sku-price";
     priceInput.value = sku.price_yuan;
+    priceInput.setAttribute("aria-label", `${sku.spec} 售价`);
     priceCell.append(priceInput);
 
     const stockCell = document.createElement("td");
     const stockInput = document.createElement("input");
     stockInput.className = "stock-input sku-stock";
     stockInput.value = sku.stock;
+    stockInput.setAttribute("aria-label", `${sku.spec} 库存`);
     if (sku.status === "on" && sku.stock <= 5) stockInput.classList.add("low");
     stockCell.append(stockInput);
 
@@ -1501,8 +1714,10 @@ function renderSkuPanel(product) {
     const opsRow = h("div", "ops");
     const save = h("button", "", "保存");
     save.addEventListener("click", async () => {
+      if (save.disabled) return;
       const errors = checkSkuInput(specInput, priceInput, stockInput, marketInput);
       if (errors) return toast(errors, "bad");
+      save.disabled = true;
       try {
         const payload = {
           spec: specInput.value.trim(),
@@ -1513,21 +1728,27 @@ function renderSkuPanel(product) {
         if (marketInput.value) payload.market_price_yuan = Number(marketInput.value);
         await api(`/api/v1/b/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify(payload) });
         toast(`${payload.spec} 已更新`, "ok");
-        render();
+        await reload();
       } catch (error) {
         toast(error.message, "bad");
+      } finally {
+        save.disabled = false;
       }
     });
     opsRow.append(save);
-    statusActions(sku.status).forEach(([act, label]) => {
+    statusActions(sku.status).filter(([action]) => action !== "ban").forEach(([act, label]) => {
       const button = h("button", act === "ban" ? "danger" : "", label);
       button.addEventListener("click", async () => {
+        if (button.disabled) return;
+        button.disabled = true;
         try {
           await api(`/api/v1/b/skus/${sku.id}/status`, { method: "POST", body: JSON.stringify({ action: act }) });
           toast(`${sku.spec} 已${label}`, "ok");
-          render();
+          await reload();
         } catch (error) {
           toast(error.message, "bad");
+        } finally {
+          button.disabled = false;
         }
       });
       opsRow.append(button);
@@ -1550,8 +1771,10 @@ function renderSkuPanel(product) {
   stock.placeholder = "库存";
   const add = h("button", "btn-ghost", "＋ 添加规格");
   add.addEventListener("click", async () => {
+    if (add.disabled) return;
     const errors = checkSkuInput(spec, price, stock);
     if (errors) return toast(errors, "bad");
+    add.disabled = true;
     try {
       await api(`/api/v1/b/products/${product.id}/skus`, {
         method: "POST",
@@ -1562,9 +1785,11 @@ function renderSkuPanel(product) {
         }),
       });
       toast("规格已添加", "ok");
-      render();
+      await reload();
     } catch (error) {
       toast(error.message, "bad");
+    } finally {
+      add.disabled = false;
     }
   });
   addRow.append(spec, price, stock, add);
@@ -1656,6 +1881,13 @@ async function orderList(status) {
     return box;
   }
   const picked = new Set();
+  const searchBar = h("div", "toolbar-inline");
+  const searchInput = h("input");
+  searchInput.placeholder = "搜索订单号、买家、收货人或商品";
+  searchInput.setAttribute("aria-label", searchInput.placeholder);
+  const orderCount = h("span", "muted", `共 ${orders.length} 笔订单`);
+  searchBar.append(searchInput, orderCount);
+  box.append(searchBar);
   const wrap = h("div", "table-wrap");
   const table = h("table", "table");
   const head = document.createElement("thead");
@@ -1664,6 +1896,7 @@ async function orderList(status) {
   const allCheck = document.createElement("input");
   allCheck.type = "checkbox";
   allCheck.className = "check";
+  allCheck.setAttribute("aria-label", "选择当前可见的待发货订单");
   const shippable = orders.filter((order) => order.status === "paid").map((order) => order.order_no);
   headCheck.append(allCheck);
   headRow.append(headCheck);
@@ -1671,13 +1904,16 @@ async function orderList(status) {
   head.append(headRow);
 
   const tbody = h("tbody");
+  const orderRows = [];
   orders.forEach((order) => {
     const tr = document.createElement("tr");
+    orderRows.push({ order, tr, text: [order.order_no, order.buyer_nickname, order.receiver, ...order.items.map(item => item.product_name)].join(" ").toLowerCase() });
     const checkCell = h("td");
     if (order.status === "paid") {
       const check = document.createElement("input");
       check.type = "checkbox";
       check.className = "check";
+      check.setAttribute("aria-label", `选择订单${order.order_no}`);
       check.addEventListener("change", () => {
         if (check.checked) picked.add(order.order_no);
         else picked.delete(order.order_no);
@@ -1698,15 +1934,23 @@ async function orderList(status) {
     tr.append(state);
     const ops = h("td");
     const opsRow = h("div", "ops");
+    const detail = h("button", "", "查看详情");
+    detail.addEventListener("click", () => orderDetails(order));
+    opsRow.append(detail);
     if (order.status === "paid") {
       const ship = h("button", "", "发货");
       ship.addEventListener("click", async () => {
+        if (ship.disabled) return;
+        if (!(await confirmAction(`确认发货订单 ${order.order_no}？`, "确认后订单将变为已发货，请确保已完成实际发货。", "确认发货"))) return;
+        ship.disabled = true;
         try {
           await api(`/api/v1/b/orders/${order.order_no}/ship`, { method: "POST" });
           toast(`${order.order_no} 已发货`, "ok");
           render();
         } catch (error) {
           toast(error.message, "bad");
+        } finally {
+          ship.disabled = false;
         }
       });
       opsRow.append(ship);
@@ -1725,6 +1969,9 @@ async function orderList(status) {
   batchButton.disabled = true;
   batchButton.addEventListener("click", async () => {
     if (!picked.size) return toast("先勾选要发货的订单");
+    if (batchButton.disabled) return;
+    if (!(await confirmAction(`确认发货 ${picked.size} 笔订单？`, "确认后所选订单将同步为已发货。", "确认批量发货"))) return;
+    batchButton.disabled = true;
     try {
       const result = await api("/api/v1/b/orders/ship-batch", {
         method: "POST",
@@ -1735,23 +1982,71 @@ async function orderList(status) {
       render();
     } catch (error) {
       toast(error.message, "bad");
+    } finally {
+      syncBatch();
     }
   });
   const syncBatch = () => {
     batchButton.disabled = picked.size === 0;
     batchButton.textContent = picked.size ? `批量发货（${picked.size}）` : "批量发货";
+    const visible = orderRows.filter(row => !row.tr.hidden && row.order.status === "paid");
+    const count = visible.filter(row => picked.has(row.order.order_no)).length;
+    allCheck.disabled = visible.length === 0;
+    allCheck.checked = count > 0 && count === visible.length;
+    allCheck.indeterminate = count > 0 && count < visible.length;
   };
   allCheck.addEventListener("change", () => {
     picked.clear();
-    if (allCheck.checked) shippable.forEach((orderNo) => picked.add(orderNo));
+    if (allCheck.checked) orderRows.filter(row => !row.tr.hidden && row.order.status === "paid").forEach(row => picked.add(row.order.order_no));
     tbody.querySelectorAll("input[type=checkbox]").forEach((node) => {
-      if (!node.disabled) node.checked = allCheck.checked;
+      if (!node.disabled) node.checked = allCheck.checked && !node.closest("tr").hidden;
     });
     syncBatch();
   });
   batchBar.append(batchButton, batchHint);
-  box.append(wrap, batchBar);
+  const noMatch = h("div", "panel empty", "没有匹配的订单，请更换关键词");
+  noMatch.hidden = true;
+  searchInput.addEventListener("input", () => {
+    picked.clear();
+    const query = searchInput.value.trim().toLowerCase();
+    let count = 0;
+    orderRows.forEach(row => { row.tr.hidden = !row.text.includes(query); if (!row.tr.hidden) count++; });
+    tbody.querySelectorAll("input[type=checkbox]").forEach(check => { check.checked = false; });
+    orderCount.textContent = `共 ${count} 笔订单`;
+    noMatch.hidden = count !== 0;
+    wrap.hidden = count === 0;
+    syncBatch();
+  });
+  syncBatch();
+  box.append(wrap, noMatch, batchBar);
   return box;
+}
+
+function orderDetails(order) {
+  const mask = h("div", "modal");
+  const panel = h("section", "panel order-detail-panel");
+  panel.setAttribute("role", "dialog"); panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-label", "订单详情");
+  const previous = document.activeElement;
+  const close = h("button", "btn-ghost", "关闭详情");
+  const done = () => { mask.remove(); document.removeEventListener("keydown", onKey); previous?.focus(); };
+  const onKey = event => { if (event.key === "Escape") done(); if (event.key === "Tab") { event.preventDefault(); close.focus(); } };
+  close.addEventListener("click", done);
+  mask.addEventListener("click", event => { if (event.target === mask) done(); });
+  document.addEventListener("keydown", onKey);
+  const header = h("div", "order-detail-head");
+  header.append(h("h2", "panel-title", "订单详情"), close);
+  panel.append(header, h("p", "muted", order.order_no), h("span", `pill ${order.status}`, order.status_label));
+  const grid = h("dl", "order-detail-info");
+  [["买家", order.buyer_nickname], ["收货人", order.receiver], ["联系电话", order.phone], ["收货地址", order.address], ["下单时间（北京时间）", order.created_at ? new Date(order.created_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "—"]].forEach(([label, value]) => { grid.append(h("dt", "muted", label), h("dd", "", value || "—")); });
+  panel.append(grid, h("h3", "panel-title", "商品明细"));
+  order.items.forEach(item => {
+    const row = h("div", "order-detail-item");
+    row.append(h("div", "", `${item.product_name} · ${item.sku_spec}`), h("span", "muted", `${money(item.price_yuan)} × ${item.quantity}`));
+    panel.append(row);
+  });
+  panel.append(h("p", "muted", `商品 ${money(order.goods_yuan)} · 运费 ${money(order.freight_yuan)}`), h("div", "order-detail-total", `订单金额 ${money(order.total_yuan)}`));
+  mask.append(panel); document.body.append(mask); close.focus();
 }
 
 /* ---------------- 店铺 ---------------- */

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     agent_mode: str = "auto"
     session_max_chars: int = 2400
     agent_max_steps: int = 4
+    agent_rate_limit_per_minute: int = 30
 
     model_config = SettingsConfigDict(
         env_file=".env",

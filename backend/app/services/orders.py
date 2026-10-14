@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
@@ -32,6 +32,7 @@ def serialize_order(order: Order, *, audience: str) -> dict:
         "goods_yuan": yuan(sum(item.price_cents * item.quantity for item in order.items)),
         "freight_yuan": yuan(order.freight_cents),
         "total_yuan": yuan(order.total_cents),
+        "created_at": order.created_at.replace(tzinfo=timezone.utc).isoformat() if order.created_at else None,
         "receiver": order.receiver or "",
         "phone": order.phone or "",
         "address": order.address,
@@ -44,6 +45,8 @@ def serialize_order(order: Order, *, audience: str) -> dict:
                 "sku_spec": item.sku_spec,
                 "price_yuan": yuan(item.price_cents),
                 "quantity": item.quantity,
+                "image_url": (item.sku.image_url if item.sku else "") or (item.product.image_url if item.product else "") or "",
+                "available": bool(item.product and item.product.status == "on" and order.shop and order.shop.status == "open"),
             }
             for item in order.items
         ],

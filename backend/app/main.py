@@ -55,6 +55,7 @@ def _ensure_sqlite_columns() -> None:
             "hero_height": "INTEGER DEFAULT 640",
             "strip_tint": "BOOLEAN DEFAULT 1",
             "promises": "TEXT DEFAULT ''",
+            "social_accounts": "TEXT DEFAULT '[]'",
         },
     }
     with engine.begin() as conn:

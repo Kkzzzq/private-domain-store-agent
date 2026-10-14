@@ -10,6 +10,20 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+class AgentToolLog(Base):
+    __tablename__ = "agent_tool_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(index=True)
+    shop_id: Mapped[int] = mapped_column(index=True)
+    session_id: Mapped[str] = mapped_column(String(64))
+    tool: Mapped[str] = mapped_column(String(64))
+    args: Mapped[str] = mapped_column(Text)
+    ok: Mapped[bool] = mapped_column()
+    latency_ms: Mapped[int] = mapped_column()
+    flag: Mapped[str] = mapped_column(String(32), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -32,6 +46,7 @@ class Shop(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     merchant_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
     name: Mapped[str] = mapped_column(String(64))
+    social_accounts: Mapped[str] = mapped_column(Text, default="[]")
     notice: Mapped[str] = mapped_column(Text, default="")
     logo_url: Mapped[str] = mapped_column(String(500), default="")
     theme_color: Mapped[str] = mapped_column(String(16), default="#ff5000")

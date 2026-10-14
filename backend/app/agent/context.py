@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from contextvars import ContextVar
 
 from sqlalchemy.orm import Session
@@ -10,6 +10,8 @@ class Actor:
     role: str
     username: str
     shop_id: int
+    session_id: str = ""
+    products: list[dict] = field(default_factory=list)
 
 
 _ctx: ContextVar[tuple[Session, Actor] | None] = ContextVar("store_actor", default=None)

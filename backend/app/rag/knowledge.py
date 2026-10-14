@@ -2,7 +2,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.rag.chunker import chunk_text
+from app.rag.cleaner import structured_chunks
 
 
 class KnowledgeBase:
@@ -16,9 +16,9 @@ class KnowledgeBase:
         if not knowledge_dir.exists():
             return chunks
         for path in sorted(knowledge_dir.glob("*.md")):
-            parts = chunk_text(path.read_text(encoding="utf-8"))
+            parts = structured_chunks(path.read_text(encoding="utf-8"))
             for index, part in enumerate(parts):
-                chunks.append({"id": f"{path.stem}-{index}", "content": part, "source": path.name})
+                chunks.append({"id": f"{path.stem}-{index}", **part, "source": path.name})
         return chunks
 
     def rebuild(self, chunks: list[dict], embedder) -> int:
@@ -26,22 +26,24 @@ class KnowledgeBase:
 
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         client = chromadb.PersistentClient(path=str(self.persist_dir))
-        try:
-            client.delete_collection(self.collection)
-        except Exception:
-            pass
+        vectors = embedder.embed_documents([item["content"] for item in chunks]) if chunks else []
         collection = client.get_or_create_collection(
             self.collection, metadata={"hnsw:space": "cosine"}
         )
         if not chunks:
+            existing = collection.get()["ids"]
+            if existing:
+                collection.delete(ids=existing)
             return 0
-        vectors = embedder.embed_documents([item["content"] for item in chunks])
         collection.upsert(
             ids=[item["id"] for item in chunks],
             documents=[item["content"] for item in chunks],
-            metadatas=[{"source": item["source"]} for item in chunks],
+            metadatas=[{"source": item["source"], "heading_path": item.get("heading_path", "正文")} for item in chunks],
             embeddings=vectors,
         )
+        obsolete = set(collection.get()["ids"]) - {item["id"] for item in chunks}
+        if obsolete:
+            collection.delete(ids=list(obsolete))
         return len(chunks)
 
     def has_vectors(self) -> bool:
@@ -69,7 +71,7 @@ class KnowledgeBase:
         hits = []
         for index, document in enumerate(documents):
             meta = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
-            hits.append({"content": document, "source": meta.get("source", "chroma")})
+            hits.append({"content": document, "source": meta.get("source", "chroma"), "heading_path": meta.get("heading_path", "正文")})
         return hits
 
 
@@ -99,7 +101,7 @@ def _score(query: str, text: str) -> int:
 def format_hits(hits: list[dict]) -> str:
     if not hits:
         return "没有找到相关的店铺规则或商品说明。"
-    blocks = [f"【{hit['source']}】\n{hit['content']}" for hit in hits]
+    blocks = [f"【{hit['source']} / {hit.get('heading_path', '正文')}】\n{hit['content']}" for hit in hits]
     return "\n\n".join(blocks)
 
 

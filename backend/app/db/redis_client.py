@@ -1,5 +1,7 @@
 import fnmatch
 import json
+import time
+from threading import Lock
 from typing import Any
 
 import redis
@@ -13,21 +15,36 @@ class MemoryRedis:
 
     def __init__(self) -> None:
         self.store: dict[str, str] = {}
+        self.expires: dict[str, float] = {}
+        self.lock = Lock()
 
     def ping(self) -> bool:
         return True
 
     def get(self, key: str) -> str | None:
+        if self.expires.get(key, float("inf")) <= time.monotonic():
+            self.delete(key)
         return self.store.get(key)
 
     def set(self, key: str, value: str, ex: int | None = None) -> None:
         self.store[key] = value
+        if ex is not None:
+            self.expires[key] = time.monotonic() + ex
+        else:
+            self.expires.pop(key, None)
+
+    def increment(self, key, ttl):
+        with self.lock:
+            count = int(self.get(key) or 0) + 1
+            self.set(key, str(count), ex=ttl)
+            return count
 
     def delete(self, *keys: str) -> int:
         removed = 0
         for key in keys:
             if key in self.store:
                 del self.store[key]
+                self.expires.pop(key, None)
                 removed += 1
         return removed
 
@@ -36,6 +53,7 @@ class MemoryRedis:
 
     def flush(self) -> None:
         self.store.clear()
+        self.expires.clear()
 
 
 class RedisClient:
@@ -81,6 +99,12 @@ class RedisClient:
         except json.JSONDecodeError:
             logger.warning("Redis 键 %s 不是合法 JSON", key)
             return None
+
+    def increment(self, key, ttl):
+        client = self._ensure()
+        if isinstance(client, MemoryRedis):
+            return client.increment(key, ttl)
+        return int(client.eval("local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n", 1, key, ttl))
 
     def set_json(self, key: str, value: Any, ex: int | None = 3600) -> None:
         self._ensure().set(key, json.dumps(value, ensure_ascii=False), ex=ex)
