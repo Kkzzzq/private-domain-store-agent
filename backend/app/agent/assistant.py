@@ -8,6 +8,7 @@ from app.agent.context import current
 from app.agent.intent import classify
 from app.agent.rate_limit import check_rate
 from app.core.config import settings
+from app.agent.model import create_chat_model
 from app.core.logging import logger
 from app.services.session import SessionService, compact_messages
 
@@ -39,24 +40,15 @@ def run_tool_loop(history: list[dict], summary: str, user_text: str, llm=None, m
 
     tools = langchain_tools(classify(user_text))
     if llm is None:
-        from langchain_ollama import ChatOllama
-
-        llm = ChatOllama(
-            model=settings.ollama_model,
-            base_url=settings.ollama_base_url,
-            temperature=0,
-            reasoning=settings.ollama_reasoning,
-            num_ctx=settings.ollama_num_ctx,
-            num_predict=settings.ollama_num_predict,
-            client_kwargs={"timeout": settings.ollama_timeout_seconds},
-        )
+        llm = create_chat_model()
         if tools:
             llm = llm.bind_tools(tools)
     elif tools and hasattr(llm, "bind_tools"):
         llm = llm.bind_tools(tools)
 
     actor = current()[1]
-    messages = [SystemMessage(content=SYSTEM_PROMPT + f"\n当前身份：{actor.role}。商家可查本店全部订单和经营概览，买家只能查本人订单。工具仅支持查询，写操作请引导至业务页面。")]
+    model_name = settings.cloud_model if settings.model_provider == "cloud" else settings.ollama_model
+    messages = [SystemMessage(content=SYSTEM_PROMPT + f"\n当前模型：{model_name}。当前身份：{actor.role}。商家可查本店全部订单和经营概览，买家只能查本人订单。工具仅支持查询，写操作请引导至业务页面。")]
     if summary:
         messages.append(SystemMessage(content=f"此前对话摘要：{summary}"))
     for item in history:
@@ -104,8 +96,7 @@ class Assistant:
         summary_llm = llm
         if summary_llm is None and settings.agent_mode != "fallback":
             try:
-                from langchain_ollama import ChatOllama
-                summary_llm = ChatOllama(model=settings.ollama_model, base_url=settings.ollama_base_url, temperature=0, reasoning=settings.ollama_reasoning, num_ctx=settings.ollama_num_ctx, num_predict=settings.ollama_num_predict, client_kwargs={"timeout": settings.ollama_timeout_seconds})
+                summary_llm = create_chat_model()
             except ImportError:
                 summary_llm = None
         state, notice = compact_messages(state, settings.session_max_chars, summary_llm)

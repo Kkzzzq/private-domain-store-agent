@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     ollama_embed_model: str = "nomic-embed-text"
     chroma_path: str = "./data/chroma"
     agent_mode: str = "auto"
+    model_provider: str = "ollama"
+    cloud_api_key: str = ""
+    cloud_base_url: str = ""
+    cloud_model: str = "qwen-plus-2025-04-28"
     session_max_chars: int = 2400
     agent_max_steps: int = 4
     agent_rate_limit_per_minute: int = 30
