@@ -4,9 +4,15 @@
 
 ## 界面
 
-买家端按店铺页来做：顶部通栏、橙色搜索框加热词、分类导航，左侧是商品分类，右侧是主视觉和商品卡。商品卡上有评分，右上角是收藏心形。
+商品图用的是 Unsplash 的免费照片，已经下载到 `web/covers`，本地跑不依赖外网。
+
+买家端按店铺页来做：顶部通栏、搜索框加热词、粘性分类导航，左侧是分类侧栏，右侧是主视觉和商品卡。商品卡上带折扣角标、评分、销量进度和划线价。
 
 ![买家首页](docs/screenshots/buyer-home.png)
+
+分类侧栏直接筛选，销量和价格都能排序。
+
+![分类筛选](docs/screenshots/buyer-category.png)
 
 收藏点一下即时生效，收藏过的商品在「我的收藏」里单独一页。
 
@@ -18,15 +24,15 @@
 
 ![浏览记录](docs/screenshots/buyer-history.png)
 
-详情页左侧是缩略图切换，右侧是价格、优惠、规格和数量，下面有商品详情、规格参数和用户评价三个页签。
+详情页左侧是竖向缩略图切换，右侧是价格块（含划线价和折扣）、优惠、规格和数量，下面有商品详情、规格参数和用户评价三个页签，最底部还有同类推荐。
 
 ![商品详情](docs/screenshots/buyer-detail.png)
 
+主按钮滚出视野后，底部会浮出购买栏，规格和价格跟着当前选择走。
+
+![悬浮购买栏](docs/screenshots/buyer-detail-buybar.png)
+
 ![用户评价](docs/screenshots/buyer-reviews.png)
-
-确认收货之后就能评价，评分用 Web Awesome 的 `wa-rating`，提交后立刻出现在商品详情里。
-
-![提交评价](docs/screenshots/buyer-review-form.png)
 
 购物车支持全选和批量删除，底部结算栏实时算运费；结算页左边填收货信息，右边是订单金额。
 
@@ -38,21 +44,25 @@
 
 ![我的订单](docs/screenshots/buyer-orders.png)
 
-商家后台是工作台样式：顶部深色条、左侧菜单，概览页给四项关键指标，另有最近订单和库存预警。
+商家后台是工作台样式：顶部深色条、左侧菜单，概览页给四项关键指标，另有最近订单、商品销量排行和库存预警。
 
 ![经营概览](docs/screenshots/admin-dashboard.png)
 
-店铺设置里可以改店名、公告、Logo 和主题色，主题色会直接用在买家端。
+商品表格带缩略图、库存和低库存提示，上下架、禁售都在行内完成。
 
-![店铺设置](docs/screenshots/admin-shop.png)
+![商品管理](docs/screenshots/admin-products.png)
+
+规格表里划线价、售价和库存都能直接改。
+
+![商品编辑](docs/screenshots/admin-product-edit.png)
 
 订单可以按状态筛选、勾选后批量发货，被跳过的订单会说明原因。
 
 ![订单管理](docs/screenshots/admin-orders.png)
 
-商品编辑里能设每人限购，也可以直接改规格的价格和库存。
+店铺设置里可以改店名、公告、Logo 和主题色，主题色会直接用在买家端。
 
-![商品编辑](docs/screenshots/admin-product-edit.png)
+![店铺设置](docs/screenshots/admin-shop.png)
 
 ## 数据怎么连在一起
 
@@ -121,6 +131,8 @@ ollama pull nomic-embed-text
 - [mosliu/ldc-shop](https://github.com/mosliu/ldc-shop)：小店铺的功能清单。多规格、评分评论、公告栏、店铺主题色、订单超时取消从这里补。
 - [Web Awesome](https://webawesome.com/)（[Shoelace](https://github.com/shoelace-style/shoelace) 的后继者）：评分和弹层组件，CDN 直接引，不用构建。
 - [BpsEason/VueFastMart](https://github.com/BpsEason/VueFastMart)：FastAPI + Vue3 的商城骨架，接口分层参考它。
+
+商品照片来自 [Unsplash](https://unsplash.com/license)，按 Unsplash License 免费使用，下载后放在 `web/covers`，访问外网不是必需的。文件对应关系见 `backend/app/seed.py` 里的 `COVERS`。
 
 ## 测试
 

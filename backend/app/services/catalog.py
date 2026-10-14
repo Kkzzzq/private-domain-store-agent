@@ -54,6 +54,7 @@ def serialize_sku(sku: Sku, *, purchasable: bool | None = None) -> dict:
         "id": sku.id,
         "spec": sku.spec,
         "price_yuan": yuan(sku.price_cents),
+        "market_price_yuan": yuan(sku.market_price_cents) if sku.market_price_cents else None,
         "stock": sku.stock,
         "status": sku.status,
     }
@@ -75,6 +76,7 @@ def serialize_product(
     else:
         sku_rows = [serialize_sku(sku) for sku in product.skus]
     average, count = (ratings or {}).get(product.id, (None, 0))
+    markets = [row["market_price_yuan"] for row in sku_rows if row.get("market_price_yuan")]
     return {
         "id": product.id,
         "shop_id": product.shop_id,
@@ -90,6 +92,7 @@ def serialize_product(
         "review_count": count,
         "favorited": product.id in (favorites or set()),
         "price_from": min((row["price_yuan"] for row in sku_rows), default=None),
+        "market_from": min(markets, default=None),
         "skus": sku_rows,
     }
 
@@ -230,6 +233,16 @@ def _owned_product(db: Session, user: User, product_id: int) -> Product:
     return product
 
 
+def _sku_row(sku: SkuIn) -> Sku:
+    return Sku(
+        spec=sku.spec.strip(),
+        price_cents=to_cents(sku.price_yuan),
+        market_price_cents=to_cents(sku.market_price_yuan) if sku.market_price_yuan else 0,
+        stock=sku.stock,
+        status="on",
+    )
+
+
 def create_product(db: Session, user: User, body: ProductIn) -> dict:
     shop = merchant_shop(db, user)
     max_sort = db.scalar(select(func.max(Product.sort_order)).where(Product.shop_id == shop.id)) or 0
@@ -244,9 +257,7 @@ def create_product(db: Session, user: User, body: ProductIn) -> dict:
         limit_per_user=body.limit_per_user,
     )
     for sku in body.skus:
-        product.skus.append(
-            Sku(spec=sku.spec.strip(), price_cents=to_cents(sku.price_yuan), stock=sku.stock, status="on")
-        )
+        product.skus.append(_sku_row(sku))
     db.add(product)
     db.commit()
     saved = _owned_product(db, user, product.id)
@@ -259,7 +270,7 @@ def add_sku(db: Session, user: User, product_id: int, body: SkuIn) -> dict:
     spec = body.spec.strip()
     if any(sku.spec == spec for sku in product.skus):
         raise HTTPException(status_code=400, detail="这个规格已经存在")
-    product.skus.append(Sku(spec=spec, price_cents=to_cents(body.price_yuan), stock=body.stock, status="on"))
+    product.skus.append(_sku_row(body))
     db.commit()
     invalidate_catalog_cache()
     return serialize_product(_owned_product(db, user, product_id), audience="b")
@@ -311,6 +322,8 @@ def update_sku(db: Session, user: User, sku_id: int, body: SkuUpdate) -> dict:
         sku.spec = body.spec.strip()
     if body.price_yuan is not None:
         sku.price_cents = to_cents(body.price_yuan)
+    if body.market_price_yuan is not None:
+        sku.market_price_cents = to_cents(body.market_price_yuan)
     if body.stock is not None:
         sku.stock = body.stock
     db.commit()

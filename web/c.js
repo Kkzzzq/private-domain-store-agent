@@ -38,7 +38,18 @@ function loggedIn() {
 }
 
 function cover(url) {
-  return url || "/covers/pillow.svg";
+  return url || "/covers/pillow.jpg";
+}
+
+/** 折扣按实付 / 划线价算，没有划线价就返回 null。 */
+function discountOf(price, market) {
+  if (!market || market <= price) return null;
+  const value = (price / market) * 10;
+  return `${value.toFixed(1)}折`;
+}
+
+function discountLabel(text) {
+  return text ? `省 ${text}` : "";
 }
 
 async function render() {
@@ -253,7 +264,7 @@ async function renderHome() {
 
   const layout = h("div", "home");
   layout.append(renderCategorySide(all.length, counts), renderHomeMain(filtered, all));
-  box.append(layout);
+  box.append(layout, renderPromises());
   return box;
 }
 
@@ -338,23 +349,36 @@ function renderHomeMain(filtered, all) {
 function renderBanner(all) {
   const featured = [...all].sort((a, b) => b.sales_count - a.sales_count)[0];
   const banner = h("section", "banner");
+  const bg = h("div", "bg");
+  const image = document.createElement("img");
+  image.src = "/covers/hero.jpg";
+  image.alt = "";
+  bg.append(image);
+  banner.append(bg, h("div", "veil"));
+
+  const inner = h("div", "inner");
   const left = h("div");
-  left.append(h("h2", "", `${shop.name} · 手作日常`));
-  left.append(h("p", "", shop.notice || "店主还没有写公告。这里的每一件都是小批量做的，有需要可以直接问店内助手。"));
-  const tags = h("div", "row");
-  tags.style.marginTop = "16px";
+  left.append(h("div", "eyebrow", "HANDMADE · SMALL BATCH"));
+  left.append(h("h2", "", shop.name));
+  left.append(
+    h("p", "", shop.notice || "小批量手作，每一件都会有一点手工的痕迹。有需要可以直接问店内助手。")
+  );
+  const actions = h("div", "actions");
   if (featured) {
-    const go_ = h("button", "btn", `看看 ${featured.name}`);
+    const go_ = h("button", "btn-buy btn-big", `看看热销的${featured.name}`);
     go_.addEventListener("click", () => go(`#/product/${featured.id}`));
-    tags.append(go_);
+    actions.append(go_);
   }
-  const ask = h("button", "btn-ghost", "问问助手");
+  const ask = h("button", "btn-ghost btn-big", "问问助手");
+  ask.style.background = "rgba(255,255,255,0.14)";
+  ask.style.color = "#fff";
+  ask.style.borderColor = "rgba(255,255,255,0.3)";
   ask.addEventListener("click", () => {
     chatOpen = true;
     render();
   });
-  tags.append(ask);
-  left.append(tags);
+  actions.append(ask);
+  left.append(actions);
 
   const share = h("div", "share");
   share.append(document.createTextNode("本店分享码"));
@@ -365,8 +389,24 @@ function renderBanner(all) {
     toast("分享链接已复制", "ok");
   });
   share.append(copy);
-  banner.append(left, share);
+  inner.append(left, share);
+  banner.append(inner);
   return banner;
+}
+
+function renderPromises() {
+  const box = h("div", "promises");
+  [
+    ["正品保障", "店主直发，假一赔十"],
+    ["7 天无理由", "定制品和已使用商品除外"],
+    ["满 99 包邮", "未满收 8 元运费"],
+    ["48 小时发货", "付款后按顺序发出"],
+  ].forEach(([title, sub]) => {
+    const cell = h("div");
+    cell.append(h("b", "", title), h("span", "muted", sub));
+    box.append(cell);
+  });
+  return box;
 }
 
 async function toggleFavorite(product, button) {
@@ -399,7 +439,9 @@ function productCard(product) {
   image.alt = product.name;
   image.loading = "lazy";
   thumb.append(image);
-  if (product.sales_count >= 10) thumb.append(h("span", "tag", "热销"));
+  const off = discountOf(product.price_from, product.market_from);
+  if (off) thumb.append(h("span", "tag", off));
+  else if (product.sales_count >= 50) thumb.append(h("span", "tag", "热销"));
 
   const fav = h("button", product.favorited ? "fav on" : "fav", product.favorited ? "♥" : "♡");
   fav.title = product.favorited ? "取消收藏" : "加入收藏";
@@ -434,18 +476,31 @@ function productCard(product) {
   const title = h("a", "title", product.name);
   title.href = `#/product/${product.id}`;
   body.append(title);
-  const ratingRow = h("div", "rating-line");
-  ratingRow.append(ratingStars(product.rating_avg || 0), h("span", "muted", ratingText(product.rating_avg, product.review_count)));
-  body.append(ratingRow);
+
   const meta = h("div", "meta");
-  meta.append(h("span", "", product.category), h("span", "", `已售 ${product.sales_count}`));
-  if (product.limit_per_user) meta.append(h("span", "ship-tag", `限购 ${product.limit_per_user}`));
+  const rating = h("span", "stars");
+  rating.append(ratingStars(product.rating_avg || 0), document.createTextNode(ratingText(product.rating_avg, product.review_count)));
+  meta.append(rating, h("span", "", `已售 ${product.sales_count}`));
   body.append(meta);
+
   const foot = h("div", "foot");
   const price = h("div", "price");
   price.append(h("i", "", "¥"), h("b", "", Number(product.price_from || 0).toFixed(2)));
-  foot.append(price, h("span", "ship-tag", "包邮"));
+  if (product.market_from) price.append(h("span", "price-was", `¥${Number(product.market_from).toFixed(2)}`));
+  const tags = h("div", "row");
+  tags.style.gap = "4px";
+  if (product.limit_per_user) tags.append(h("span", "ship-tag", `限购${product.limit_per_user}`));
+  tags.append(h("span", "ship-tag", "包邮"));
+  foot.append(price, tags);
   body.append(foot);
+
+  const sold = Math.min(100, Math.round((product.sales_count / 140) * 100));
+  const bar = h("div", "sales-bar");
+  const fill = document.createElement("span");
+  fill.style.width = `${Math.max(6, sold)}%`;
+  bar.append(fill);
+  body.append(bar);
+
   card.append(thumb, body);
   return card;
 }
@@ -458,7 +513,10 @@ async function renderProduct(id) {
   } catch (error) {
     return h("div", "panel", error.message);
   }
-  const reviews = await api(`/api/v1/c/shops/${code}/products/${id}/reviews`);
+  const [reviews, all] = await Promise.all([
+    api(`/api/v1/c/shops/${code}/products/${id}/reviews`),
+    api(`/api/v1/c/shops/${code}/products?keyword=&category=&sort=sales`),
+  ]);
   const box = h("div");
   const crumb = h("div", "crumb");
   const home = h("a", "", "全部商品");
@@ -471,18 +529,38 @@ async function renderProduct(id) {
   layout.append(renderProductInfo(product));
   box.append(layout);
   box.append(renderProductSection(product, reviews));
+  box.append(renderRelated(product, all));
+  return box;
+}
+
+/** 同类的其他商品，没有同类就退回家居类。 */
+function renderRelated(product, all) {
+  const others = all.filter((item) => item.id !== product.id);
+  const same = others.filter((item) => item.category === product.category);
+  const picks = [...same, ...others].slice(0, 4);
+  if (!picks.length) return h("div");
+  const box = h("section", "section");
+  const head = h("div", "section-head");
+  head.append(h("span", "on", same.length ? `同类手作 · ${product.category}` : "看了还看"));
+  box.append(head);
+  const body = h("div", "section-body");
+  const grid = h("div", "grid");
+  grid.style.padding = "0";
+  picks.forEach((item) => grid.append(productCard(item)));
+  body.append(grid);
+  box.append(body);
   return box;
 }
 
 function renderGallery(product) {
   const gallery = h("div", "gallery");
+  const thumbs = h("div", "thumbs");
   const main = h("div", "main");
   const image = document.createElement("img");
   image.src = cover(product.image_url);
   image.alt = product.name;
   main.append(image);
-  const thumbs = h("div", "thumbs");
-  [["", "主图"], ["zoom-tl", "细节"], ["zoom-br", "局部"]].forEach(([cls, label], index) => {
+  [["", "整体"], ["zoom-tl", "细节"], ["zoom-br", "局部"]].forEach(([cls, label], index) => {
     const button = h("button", index === 0 ? "on" : "");
     button.title = label;
     const thumb = document.createElement("img");
@@ -497,14 +575,64 @@ function renderGallery(product) {
     });
     thumbs.append(button);
   });
-  gallery.append(main, thumbs);
+  gallery.append(thumbs, main);
   return gallery;
+}
+
+/** 详情页底部悬浮购买栏，滚过主按钮才出现。 */
+function renderBuyBar(product, ctx) {
+  const bar = h("div", "buy-bar");
+  const inner = h("div", "wrap");
+  const image = document.createElement("img");
+  image.className = "thumb";
+  image.src = cover(product.image_url);
+  image.alt = product.name;
+  const words = h("div");
+  words.append(h("div", "", product.name));
+  const meta = h("div", "muted", "");
+  words.append(meta);
+  const spacer = h("div", "spacer");
+  const price = h("div", "p", "");
+  const fav = h("button", product.favorited ? "fav-btn on" : "fav-btn", product.favorited ? "♥ 已收藏" : "♡ 收藏");
+  fav.addEventListener("click", () => toggleFavorite(product, fav));
+  const add = h("button", "btn-cart btn-big", "加入购物车");
+  const buy = h("button", "btn-buy btn-big", "立即购买");
+  add.addEventListener("click", ctx.addToCart);
+  buy.addEventListener("click", ctx.buyNow);
+  inner.append(image, words, spacer, price, fav, add, buy);
+  bar.append(inner);
+
+  const refresh = () => {
+    const value = ctx.price();
+    price.textContent = value == null ? "" : money(value);
+    meta.textContent = ctx.spec() ? `已选 ${ctx.spec()}` : "请选择规格";
+  };
+  refresh();
+  const timer = setInterval(() => {
+    if (!document.body.contains(bar)) return clearInterval(timer);
+    refresh();
+  }, 400);
+
+  // 主按钮滚出视野后再浮出来，避免和主按钮重复
+  requestAnimationFrame(() => {
+    const anchor = document.querySelector(".detail .actions");
+    if (anchor && "IntersectionObserver" in window) {
+      const observer = new IntersectionObserver(
+        ([entry]) => bar.classList.toggle("show", !entry.isIntersecting),
+        { threshold: 0 }
+      );
+      observer.observe(anchor);
+    } else {
+      bar.classList.add("show");
+    }
+  });
+  return bar;
 }
 
 function renderProductInfo(product) {
   const info = h("div");
   info.append(h("h1", "", product.name));
-  info.append(h("div", "sub-title", "私域独立店铺 · 店主直发 · 支持 7 天无理由退货"));
+  info.append(h("div", "sub-title", "店主直发 · 支持 7 天无理由退货 · 满 99 元包邮"));
 
   const ratingRow = h("div", "rating-line");
   ratingRow.append(
@@ -518,10 +646,13 @@ function renderProductInfo(product) {
 
   let current = product.skus.find((sku) => sku.purchasable) || product.skus[0];
   const pricebox = h("div", "pricebox");
+  const priceLine = h("div", "line");
   const big = h("span", "big");
-  const stockNote = h("span", "muted");
-  const save = h("span", "save", "满 99 元包邮");
-  pricebox.append(big, save, h("br"), stockNote);
+  const was = h("span", "old", "");
+  const offTag = h("span", "off", "");
+  priceLine.append(big, was, offTag);
+  const stockNote = h("div", "stock");
+  pricebox.append(priceLine, stockNote);
 
   const promotions = h("div", "promotions");
   const promo = h("span");
@@ -538,10 +669,15 @@ function renderProductInfo(product) {
   function paint() {
     if (!current) {
       big.replaceChildren(document.createTextNode("暂无规格"));
+      was.textContent = "";
+      offTag.textContent = "";
       stockNote.textContent = "";
       return;
     }
     big.replaceChildren(h("i", "", "¥"), document.createTextNode(Number(current.price_yuan).toFixed(2)));
+    const off = discountOf(current.price_yuan, current.market_price_yuan);
+    was.textContent = current.market_price_yuan ? `¥${Number(current.market_price_yuan).toFixed(2)}` : "";
+    offTag.textContent = off || "";
     stockNote.textContent = current.purchasable
       ? `库存 ${current.stock} 件　·　${product.sales_count} 人已买`
       : "该规格暂时缺货，可以问问店主";
@@ -598,7 +734,7 @@ function renderProductInfo(product) {
   const fav = h("button", product.favorited ? "fav-btn on" : "fav-btn", product.favorited ? "♥ 已收藏" : "♡ 收藏");
   add.disabled = !current || !current.purchasable;
   buy.disabled = !current || !current.purchasable;
-  add.addEventListener("click", async () => {
+  const addToCart = async () => {
     if (!requireLogin()) return;
     try {
       const cart = await api(`/api/v1/c/shops/${code}/cart`, {
@@ -611,8 +747,8 @@ function renderProductInfo(product) {
     } catch (error) {
       toast(error.message, "bad");
     }
-  });
-  buy.addEventListener("click", () => {
+  };
+  const buyNow = () => {
     if (!requireLogin()) return;
     sessionStorage.setItem(
       "buy_now",
@@ -625,10 +761,15 @@ function renderProductInfo(product) {
       })
     );
     go("#/checkout");
-  });
+  };
+  add.addEventListener("click", addToCart);
+  buy.addEventListener("click", buyNow);
   fav.addEventListener("click", () => toggleFavorite(product, fav));
   actions.append(add, buy, fav);
   info.append(actions);
+  info.append(
+    renderBuyBar(product, { addToCart, buyNow, price: () => current?.price_yuan, spec: () => current?.spec })
+  );
 
   const services = h("div", "services");
   ["正品保障", "7 天无理由退货", "满 99 元包邮", "48 小时内发货"].forEach((text) => services.append(h("span", "", text)));
@@ -647,9 +788,20 @@ function renderProductSection(product, reviews) {
 
   const detail = h("div", "section-body");
   detail.append(h("p", "", product.description || "店主还没有补充说明。"));
-  detail.append(
-    h("p", "muted", "小批量手作，尺寸和颜色会有轻微差异。收货后如有问题可以直接问店内助手，或者点右下角联系店主。")
-  );
+  const blocks = [
+    ["关于这件手作", "每一件都是小批量做出来的，尺寸、颜色和纹理会有轻微差别，这正是手作的特点。收到的实物可能和照片有一点色差，介意的话可以先问问店主。"],
+    ["使用与打理", "日常用干布擦拭即可。可水洗的材质建议冷水轻柔手洗，不要漂白，展开阴干，避免长时间暴晒和高温熨烫。"],
+    ["发货与包装", "付款后 48 小时内按顺序发出，默认用可回收的纸盒和牛皮纸缓冲，不额外加塑料填充。需要送礼可以备注，店主会换成礼盒包装。"],
+  ];
+  blocks.forEach(([title, text]) => {
+    const block = h("div");
+    block.style.marginTop = "22px";
+    const heading = h("h4", "", title);
+    const para = h("p", "", text);
+    para.style.marginTop = "6px";
+    block.append(heading, para);
+    detail.append(block);
+  });
 
   const params = h("div", "section-body");
   params.hidden = true;

@@ -24,7 +24,7 @@ function loggedIn() {
 }
 
 function cover(url) {
-  return url || "/covers/pillow.svg";
+  return url || "/covers/notebook.jpg";
 }
 
 function val(form, name) {
@@ -209,6 +209,28 @@ async function dashboard() {
     recent.append(list);
   }
 
+  const ranking = h("div", "panel");
+  ranking.append(h("h2", "panel-title", "商品销量排行"));
+  const products = await api("/api/v1/b/products");
+  const ranked = [...products].sort((a, b) => b.sales_count - a.sales_count).slice(0, 6);
+  if (!ranked.length) {
+    ranking.append(h("p", "muted", "还没有商品"));
+  } else {
+    const top = Math.max(...ranked.map((item) => item.sales_count), 1);
+    const bars = h("div", "bars");
+    ranked.forEach((item) => {
+      const col = h("div");
+      const bar = document.createElement("i");
+      bar.style.height = `${Math.max(8, Math.round((item.sales_count / top) * 100))}%`;
+      col.append(h("span", "", String(item.sales_count)), bar, h("span", "", item.name.slice(0, 2)));
+      bars.append(col);
+    });
+    ranking.append(bars);
+  }
+
+  cols.append(recent, ranking);
+  box.append(cols);
+
   const low = h("div", "panel");
   low.append(h("h2", "panel-title", "库存预警"));
   if (!lowCount) {
@@ -225,9 +247,7 @@ async function dashboard() {
     });
     low.append(list);
   }
-
-  cols.append(recent, low);
-  box.append(cols);
+  box.append(low);
 
   const quick = h("div", "panel");
   quick.append(h("h2", "panel-title", "常用操作"));
@@ -377,8 +397,7 @@ async function productEditor(id) {
     field("商品名称", "name", product.name),
     field("类目", "category", product.category),
     field("图片地址", "image_url", product.image_url, true),
-    field("每人限购（0 表示不限）", "limit_per_user", String(product.limit_per_user ?? 0)),
-    field("商品说明", "description", product.description, true, "textarea")
+    field("每人限购（0 表示不限）", "limit_per_user", String(product.limit_per_user ?? 0)),    field("商品说明", "description", product.description, true, "textarea")
   );
   panel.append(grid);
   if (creating) {
@@ -433,12 +452,19 @@ function renderSkuPanel(product) {
   const table = h("table", "table");
   const head = document.createElement("thead");
   const headRow = document.createElement("tr");
-  ["规格", "价格", "库存", "状态", "操作"].forEach((text) => headRow.append(h("th", "", text)));
+  ["规格", "划线价", "售价", "库存", "状态", "操作"].forEach((text) => headRow.append(h("th", "", text)));
   head.append(headRow);
   const tbody = document.createElement("tbody");
   product.skus.forEach((sku) => {
     const tr = document.createElement("tr");
     tr.append(h("td", "", sku.spec));
+
+    const marketCell = document.createElement("td");
+    const marketInput = document.createElement("input");
+    marketInput.className = "stock-input";
+    marketInput.value = sku.market_price_yuan ?? "";
+    marketInput.placeholder = "不设";
+    marketCell.append(marketInput);
 
     const priceCell = document.createElement("td");
     const priceInput = document.createElement("input");
@@ -460,10 +486,9 @@ function renderSkuPanel(product) {
     const save = h("button", "", "保存");
     save.addEventListener("click", async () => {
       try {
-        await api(`/api/v1/b/skus/${sku.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ price_yuan: Number(priceInput.value), stock: Number(stockInput.value) }),
-        });
+        const payload = { price_yuan: Number(priceInput.value), stock: Number(stockInput.value) };
+        if (marketInput.value) payload.market_price_yuan = Number(marketInput.value);
+        await api(`/api/v1/b/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify(payload) });
         toast(`${sku.spec} 已更新`, "ok");
         render();
       } catch (error) {
@@ -485,7 +510,7 @@ function renderSkuPanel(product) {
       opsRow.append(button);
     });
     ops.append(opsRow);
-    tr.append(h("td", "", sku.spec), priceCell, stockCell, state, ops);
+    tr.append(marketCell, priceCell, stockCell, state, ops);
     tbody.append(tr);
   });
   table.append(head, tbody);

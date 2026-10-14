@@ -71,6 +71,7 @@ class Sku(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     spec: Mapped[str] = mapped_column(String(64))
     price_cents: Mapped[int] = mapped_column()
+    market_price_cents: Mapped[int] = mapped_column(default=0)
     stock: Mapped[int] = mapped_column(default=0)
     status: Mapped[str] = mapped_column(String(16), default="on")
 

@@ -54,6 +54,7 @@ class TokenOut(BaseModel):
 class SkuIn(BaseModel):
     spec: str = Field(min_length=1, max_length=40)
     price_yuan: float = Field(gt=0, le=100000)
+    market_price_yuan: float | None = Field(default=None, gt=0, le=100000)
     stock: int = Field(ge=0, le=100000)
 
 
@@ -78,6 +79,7 @@ class ProductUpdate(BaseModel):
 class SkuUpdate(BaseModel):
     spec: str | None = Field(default=None, min_length=1, max_length=40)
     price_yuan: float | None = Field(default=None, gt=0, le=100000)
+    market_price_yuan: float | None = Field(default=None, gt=0, le=100000)
     stock: int | None = Field(default=None, ge=0, le=100000)
 
 
@@ -85,6 +87,7 @@ class SkuOut(BaseModel):
     id: int
     spec: str
     price_yuan: float
+    market_price_yuan: float | None = None
     stock: int
     status: str
     purchasable: bool | None = None
@@ -105,6 +108,7 @@ class ProductOut(BaseModel):
     review_count: int = 0
     favorited: bool = False
     price_from: float | None = None
+    market_from: float | None = None
     skus: list[SkuOut]
 
 

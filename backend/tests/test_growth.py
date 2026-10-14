@@ -140,7 +140,7 @@ def test_review_only_after_completed_order(client):
     assert plate["rating_avg"] == 5.0
     assert plate["review_count"] == 1
     reviews = client.get(f"/api/v1/c/shops/nanzhi/products/{plate['id']}/reviews").json()
-    assert reviews[0]["content"] == "釉面很好看，早餐摆盘很上镜。"
+    assert "釉面很好看" in reviews[0]["content"]
     assert reviews[0]["nickname"] == "小*"
 
     pending = client.get("/api/v1/c/reviews/pending", headers=alice).json()
@@ -188,6 +188,27 @@ def test_review_only_after_completed_order(client):
     updated = find(client.get("/api/v1/c/shops/nanzhi/products").json(), "陶瓷马克杯")
     assert updated["rating_avg"] == 4.0
     assert updated["review_count"] == 1
+
+
+def test_sku_exposes_market_price_for_discount(client):
+    product = find(client.get("/api/v1/c/shops/nanzhi/products").json(), "亚麻抱枕套")
+    white = sku_of(product, "米白")
+    assert white["price_yuan"] == 59
+    assert white["market_price_yuan"] == 89
+    b_headers = login(client, "merchant")
+    b_product = find(client.get("/api/v1/b/products", headers=b_headers).json(), "亚麻抱枕套")
+    assert sku_of(b_product, "米白")["market_price_yuan"] == 89
+    # 商家改价时可以一起改划线价
+    updated = client.patch(
+        f"/api/v1/b/skus/{white['id']}",
+        headers=b_headers,
+        json={"market_price_yuan": 99},
+    )
+    assert updated.status_code == 200
+    assert sku_of(updated.json(), "米白")["market_price_yuan"] == 99
+    assert sku_of(find(client.get("/api/v1/c/shops/nanzhi/products").json(), "亚麻抱枕套"), "米白")[
+        "market_price_yuan"
+    ] == 99
 
 
 def test_shop_theme_is_saved_and_validated(client):

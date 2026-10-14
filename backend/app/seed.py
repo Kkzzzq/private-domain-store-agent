@@ -3,17 +3,43 @@ from sqlalchemy import select
 from app.core.security import hash_password
 from app.models.tables import Address, Order, OrderItem, Product, Review, Shop, Sku, User
 
+# 商品图用 Unsplash 的免费照片，已下载到 web/covers
 COVERS = {
-    "亚麻抱枕套": "/covers/pillow.svg",
-    "陶瓷马克杯": "/covers/mug.svg",
-    "大豆香薰蜡烛": "/covers/candle.svg",
-    "桌面收纳盒": "/covers/box.svg",
-    "亚麻桌旗": "/covers/runner.svg",
-    "手作餐盘": "/covers/plate.svg",
-    "无火扩香石": "/covers/stone.svg",
-    "棉麻笔记本": "/covers/notebook.svg",
-    "刺绣姓名贴": "/covers/patch.svg",
+    "亚麻抱枕套": "/covers/pillow.jpg",
+    "陶瓷马克杯": "/covers/mug.jpg",
+    "大豆香薰蜡烛": "/covers/candle.jpg",
+    "桌面收纳盒": "/covers/box.jpg",
+    "亚麻桌旗": "/covers/runner.jpg",
+    "手作餐盘": "/covers/plate.jpg",
+    "无火扩香石": "/covers/diffuser.jpg",
+    "棉麻笔记本": "/covers/notebook.jpg",
+    "刺绣姓名贴": "/covers/patch.jpg",
 }
+
+# 划线价按规格写死，只用来展示折扣，实付仍是 price_cents
+MARKET_PRICE = {
+    "米白": 8900,
+    "雾蓝": 8900,
+    "单只": 5900,
+    "雪松": 7900,
+    "原木": 11900,
+    "米白 140cm": 12900,
+    "雾蓝 180cm": 15900,
+    "暖白": 9900,
+    "圆石": 6900,
+    "A5 空白": 4900,
+    "A5 横线": 4900,
+    "单枚": 2900,
+}
+
+
+def sku(spec: str, price_cents: int, stock: int) -> Sku:
+    return Sku(
+        spec=spec,
+        price_cents=price_cents,
+        market_price_cents=MARKET_PRICE.get(spec, 0),
+        stock=stock,
+    )
 
 
 def seed_if_empty(db) -> None:
@@ -44,8 +70,8 @@ def seed_if_empty(db) -> None:
         merchant_id=merchant.id,
         name="南枝手作",
         notice="这是商家分享的独立店铺。满 99 元包邮，定制品不支持无理由退货。",
-        logo_url="/covers/shop.svg",
-        theme_color="#ff5000",
+        logo_url="",
+        theme_color="#c9502f",
         share_code="nanzhi",
         status="open",
     )
@@ -56,102 +82,99 @@ def seed_if_empty(db) -> None:
         shop_id=shop.id,
         name="亚麻抱枕套",
         category="家居",
-        description="可拆洗的亚麻抱枕套，冷水轻柔洗涤。",
-        image_url="/covers/pillow.svg",
+        description="可拆洗的亚麻抱枕套，冷水轻柔洗涤，展开阴干即可。两个色号都是低饱和度的，配原木和藤编家具都合适。",
+        image_url="/covers/pillow.jpg",
         status="on",
         sort_order=1,
-        sales_count=26,
-        skus=[
-            Sku(spec="米白", price_cents=5900, stock=20),
-            Sku(spec="雾蓝", price_cents=5900, stock=8),
-        ],
+        sales_count=126,
+        skus=[sku("米白", 5900, 20), sku("雾蓝", 5900, 8)],
     )
     mug = Product(
         shop_id=shop.id,
         name="陶瓷马克杯",
         category="餐具",
-        description="日用陶瓷杯，可放洗碗机上层。",
-        image_url="/covers/mug.svg",
+        description="日用陶瓷杯，容量 320ml，可以放在洗碗机上层。杯壁偏厚，装热饮手感不烫。",
+        image_url="/covers/mug.jpg",
         status="on",
         sort_order=2,
-        sales_count=18,
-        skus=[Sku(spec="单只", price_cents=3900, stock=15)],
+        sales_count=88,
+        skus=[sku("单只", 3900, 15)],
     )
     candle = Product(
         shop_id=shop.id,
         name="大豆香薰蜡烛",
         category="香氛",
-        description="雪松香。点燃后不支持无理由退货。",
-        image_url="/covers/candle.svg",
+        description="雪松香。第一次点燃请烧到表面蜡油完全融化，避免只烧出一条坑。已经点燃的蜡烛不支持退货。",
+        image_url="/covers/candle.jpg",
         status="on",
         sort_order=3,
-        sales_count=11,
-        skus=[Sku(spec="雪松", price_cents=4900, stock=0)],
+        sales_count=41,
+        skus=[sku("雪松", 4900, 0)],
     )
     box = Product(
         shop_id=shop.id,
         name="桌面收纳盒",
         category="家居",
-        description="原木收纳盒，当前下架。",
-        image_url="/covers/box.svg",
+        description="原木收纳盒，表面只上木蜡油。当前下架，补货后再上架。",
+        image_url="/covers/box.jpg",
         status="off",
         sort_order=4,
-        skus=[Sku(spec="原木", price_cents=7900, stock=5)],
+        skus=[sku("原木", 7900, 5)],
     )
     runner = Product(
         shop_id=shop.id,
         name="亚麻桌旗",
         category="家居",
-        description="餐桌中间的一条亚麻桌旗，可机洗。",
-        image_url="/covers/runner.svg",
+        description="餐桌中间的一条亚麻桌旗，可机洗。两条长度对应不同尺寸的餐桌，量一下再下单。",
+        image_url="/covers/runner.jpg",
         status="on",
         sort_order=5,
-        sales_count=9,
-        skus=[Sku(spec="米白 140cm", price_cents=8900, stock=12), Sku(spec="雾蓝 180cm", price_cents=10900, stock=6)],
+        sales_count=63,
+        skus=[sku("米白 140cm", 8900, 12), sku("雾蓝 180cm", 10900, 6)],
     )
     plate = Product(
         shop_id=shop.id,
         name="手作餐盘",
         category="餐具",
-        description="不规则釉面餐盘，适合日常早餐。",
-        image_url="/covers/plate.svg",
+        description="不规则釉面餐盘，直径 21cm，适合日常早餐。每一只的釉色深浅都会有一点差别。",
+        image_url="/covers/plate.jpg",
         status="on",
         sort_order=6,
-        sales_count=7,
-        skus=[Sku(spec="暖白", price_cents=6900, stock=10)],
+        sales_count=57,
+        skus=[sku("暖白", 6900, 10)],
     )
     stone = Product(
         shop_id=shop.id,
         name="无火扩香石",
         category="香氛",
-        description="石膏扩香石，滴上香薰油即可。",
-        image_url="/covers/stone.svg",
+        description="石膏扩香石，滴上香薰油即可，不用点火。放衣柜和玄关都合适。",
+        image_url="/covers/diffuser.jpg",
         status="on",
         sort_order=7,
-        sales_count=4,
-        skus=[Sku(spec="圆石", price_cents=4500, stock=16)],
+        sales_count=29,
+        skus=[sku("圆石", 4500, 16)],
     )
     notebook = Product(
         shop_id=shop.id,
         name="棉麻笔记本",
         category="文具",
-        description="裸背线装，内页无酸纸。",
-        image_url="/covers/notebook.svg",
+        description="裸背线装，可以完全摊平，内页无酸纸不洇墨。手作商品数量有限，每人限购两本。",
+        image_url="/covers/notebook.jpg",
         status="on",
         sort_order=8,
-        sales_count=15,
+        sales_count=74,
         limit_per_user=2,
-        skus=[Sku(spec="A5 空白", price_cents=3200, stock=30), Sku(spec="A5 横线", price_cents=3200, stock=22)],
+        skus=[sku("A5 空白", 3200, 30), sku("A5 横线", 3200, 22)],
     )
     patch = Product(
         shop_id=shop.id,
         name="刺绣姓名贴",
         category="家居",
-        description="定制品。禁售期间买家不可见。",
-        image_url="/covers/patch.svg",
+        description="手工刺绣的姓名贴，可以做校服和书包标记。属于定制品，审批通过前暂时禁售。",
+        image_url="/covers/patch.jpg",
         status="banned",
         sort_order=9,
-        skus=[Sku(spec="单枚", price_cents=1900, stock=40)],
+        skus=[sku("单枚", 1900, 40)],
     )
     db.add_all([pillow, mug, candle, box, runner, plate, stone, notebook, patch])
     db.flush()
@@ -166,7 +189,7 @@ def seed_if_empty(db) -> None:
         )
     )
 
-    white = next(sku for sku in pillow.skus if sku.spec == "米白")
+    white = next(item for item in pillow.skus if item.spec == "米白")
     cedar = candle.skus[0]
     cup = mug.skus[0]
     plate_sku = plate.skus[0]
@@ -187,6 +210,8 @@ def seed_if_empty(db) -> None:
                 status="completed",
                 total_cents=6900,
                 address="长沙市岳麓区示范路 1 号",
+                receiver="小满",
+                phone="13800001111",
                 items=[done_item],
             ),
             Order(
@@ -196,6 +221,8 @@ def seed_if_empty(db) -> None:
                 status="paid",
                 total_cents=5900,
                 address="长沙市岳麓区示范路 1 号",
+                receiver="小满",
+                phone="13800001111",
                 items=[
                     OrderItem(
                         product_id=pillow.id,
@@ -214,6 +241,8 @@ def seed_if_empty(db) -> None:
                 status="shipped",
                 total_cents=4900,
                 address="长沙市岳麓区示范路 1 号",
+                receiver="小满",
+                phone="13800001111",
                 items=[
                     OrderItem(
                         product_id=candle.id,
@@ -232,6 +261,8 @@ def seed_if_empty(db) -> None:
                 status="paid",
                 total_cents=3900,
                 address="益阳市赫山区示范街 8 号",
+                receiver="阿禾",
+                phone="13900002222",
                 items=[
                     OrderItem(
                         product_id=mug.id,
@@ -252,23 +283,35 @@ def seed_if_empty(db) -> None:
             product_id=plate.id,
             order_item_id=done_item.id,
             rating=5,
-            content="釉面很好看，早餐摆盘很上镜。",
+            content="釉面很好看，早餐摆盘很上镜，边缘打磨得很光滑。",
         )
     )
     db.commit()
 
 
 def upgrade_demo(db) -> None:
-    """旧库只有第一版商品时，补上后来的规格、封面和默认地址。"""
+    """旧库升级：补封面、补划线价、补默认地址，缺的商品也补齐。"""
     shop = db.scalar(select(Shop).where(Shop.share_code == "nanzhi"))
     if shop is None:
         return
     products = db.scalars(select(Product).where(Product.shop_id == shop.id)).all()
     by_name = {product.name: product for product in products}
+
+    if shop.logo_url and shop.logo_url.endswith(".svg"):
+        shop.logo_url = ""
+    if not shop.theme_color:
+        shop.theme_color = "#c9502f"
+
     for name, url in COVERS.items():
         product = by_name.get(name)
-        if product is not None and not product.image_url:
+        if product is None:
+            continue
+        if not product.image_url or product.image_url.endswith(".svg"):
             product.image_url = url
+        for item in product.skus:
+            if not item.market_price_cents:
+                item.market_price_cents = MARKET_PRICE.get(item.spec, 0)
+
     if "棉麻笔记本" not in by_name:
         db.add_all(
             [
@@ -280,8 +323,8 @@ def upgrade_demo(db) -> None:
                     image_url=COVERS["亚麻桌旗"],
                     status="on",
                     sort_order=5,
-                    sales_count=9,
-                    skus=[Sku(spec="米白 140cm", price_cents=8900, stock=12), Sku(spec="雾蓝 180cm", price_cents=10900, stock=6)],
+                    sales_count=63,
+                    skus=[sku("米白 140cm", 8900, 12), sku("雾蓝 180cm", 10900, 6)],
                 ),
                 Product(
                     shop_id=shop.id,
@@ -291,8 +334,8 @@ def upgrade_demo(db) -> None:
                     image_url=COVERS["手作餐盘"],
                     status="on",
                     sort_order=6,
-                    sales_count=7,
-                    skus=[Sku(spec="暖白", price_cents=6900, stock=10)],
+                    sales_count=57,
+                    skus=[sku("暖白", 6900, 10)],
                 ),
                 Product(
                     shop_id=shop.id,
@@ -302,8 +345,8 @@ def upgrade_demo(db) -> None:
                     image_url=COVERS["无火扩香石"],
                     status="on",
                     sort_order=7,
-                    sales_count=4,
-                    skus=[Sku(spec="圆石", price_cents=4500, stock=16)],
+                    sales_count=29,
+                    skus=[sku("圆石", 4500, 16)],
                 ),
                 Product(
                     shop_id=shop.id,
@@ -313,9 +356,9 @@ def upgrade_demo(db) -> None:
                     image_url=COVERS["棉麻笔记本"],
                     status="on",
                     sort_order=8,
-                    sales_count=15,
+                    sales_count=74,
                     limit_per_user=2,
-                    skus=[Sku(spec="A5 空白", price_cents=3200, stock=30), Sku(spec="A5 横线", price_cents=3200, stock=22)],
+                    skus=[sku("A5 空白", 3200, 30), sku("A5 横线", 3200, 22)],
                 ),
                 Product(
                     shop_id=shop.id,
@@ -325,14 +368,11 @@ def upgrade_demo(db) -> None:
                     image_url=COVERS["刺绣姓名贴"],
                     status="banned",
                     sort_order=9,
-                    skus=[Sku(spec="单枚", price_cents=1900, stock=40)],
+                    skus=[sku("单枚", 1900, 40)],
                 ),
             ]
         )
-    if shop.logo_url is None:
-        shop.logo_url = ""
-    if not shop.theme_color:
-        shop.theme_color = "#ff5000"
+
     alice = db.scalar(select(User).where(User.username == "alice"))
     if alice is not None and db.scalar(select(Address).where(Address.user_id == alice.id)) is None:
         db.add(
