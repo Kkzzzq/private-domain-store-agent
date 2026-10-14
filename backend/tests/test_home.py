@@ -7,12 +7,12 @@ def test_home_returns_banners_sections_and_testimonials(client):
     assert home["banners"][0]["image_url"].endswith(".jpg")
     assert home["banners"][0]["title"] == "南枝手作"
     titles = [section["title"] for section in home["sections"]]
-    assert titles == ["店主推荐", "Best Seller 畅销榜", "送人体面 · 伴手礼"]
+    assert titles == ["店主推荐", "畅销榜", "送人体面 · 伴手礼"]
     # 每个栏目最多 6 件
     for section in home["sections"]:
         assert 1 <= len(section["products"]) <= 6
     # 畅销榜按销量降序
-    best = next(section for section in home["sections"] if section["title"].startswith("Best Seller"))
+    best = next(section for section in home["sections"] if section["title"] == "畅销榜")
     sales = [product["sales_count"] for product in best["products"]]
     assert sales == sorted(sales, reverse=True)
     assert best["products"][0]["name"] == "亚麻抱枕套"

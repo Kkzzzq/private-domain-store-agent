@@ -96,42 +96,40 @@ async function render() {
     cartCount = 0;
   }
   let view;
-  let navbar;
   try {
-    [view, navbar] = await Promise.all([renderView(), renderNavbar()]);
+    view = await renderView();
   } catch (error) {
     view = h("div", "panel", error.message);
-    navbar = h("nav", "navbar");
   }
   if (gen !== renderGen) return;
   const page = h("main", "wrap");
   page.append(view);
-  root.replaceChildren(renderStrip(), renderHeader(), navbar, page, renderFooter(), renderChatToggle());
+  root.replaceChildren(renderStrip(), page, renderFooter(), renderChatToggle());
   if (chatOpen) root.append(renderChat());
   watchCountdowns();
 }
 
-/* ---------------- 顶部通栏：店铺名 + 购物车 / 订单 / 收藏 / 浏览记录 ---------------- */
+/* ---------------- 顶部一行：店铺名 + 购物车 / 订单 / 收藏 / 浏览记录 ---------------- */
 function renderStrip() {
   const bar = h("div", "strip");
   const inner = h("div", "wrap");
 
   const left = h("div", "row");
-  const brand = h("a", "strip-shop hvr-underline-from-center", shop.name);
+  const brand = h("a", "strip-shop");
   brand.href = "#/";
-  left.append(brand);
-  if (loggedIn()) {
-    left.append(h("span", "who", "亲，欢迎回来"));
-    const out = h("button", "", "退出");
-    out.addEventListener("click", () => {
-      sessionStorage.removeItem("token_c");
-      pendingDeadlines = {};
-      toast("已退出登录");
-      render();
-    });
-    left.append(out);
+  if (shop.logo_url) {
+    const mark = document.createElement("img");
+    mark.className = "strip-mark";
+    mark.src = shop.logo_url;
+    mark.alt = shop.name;
+    brand.append(mark);
   } else {
-    const login = h("button", "", "亲，请登录");
+    brand.append(h("span", "strip-mark", shop.name.slice(0, 1)));
+  }
+  brand.append(h("span", "strip-name", shop.name));
+  left.append(brand);
+  if (!loggedIn()) {
+    const login = h("button", "strip-login", "亲，请登录");
     login.addEventListener("click", loginModal);
     left.append(login);
   }
@@ -146,126 +144,49 @@ function renderStrip() {
   const history = h("a", "hvr-grow", "浏览记录");
   history.href = "#/history";
   nav.append(cart, orders, favs, history);
-  const help = h("button", "hvr-grow", "联系店主");
-  help.addEventListener("click", () => {
-    chatOpen = true;
-    render();
-  });
-  nav.append(help);
 
   inner.append(left, nav);
   bar.append(inner);
   return bar;
 }
 
-/* ---------------- 页头 ---------------- */
-function renderHeader() {
-  const bar = h("header", "header");
+/* ---------------- 顶部一行：店铺名 + 购物车 / 订单 / 收藏 / 浏览记录 ---------------- */
+function renderStrip() {
+  const bar = h("div", "strip");
   const inner = h("div", "wrap");
-  const brand = h("a", "brand");
+
+  const left = h("div", "row");
+  const brand = h("a", "strip-shop");
   brand.href = "#/";
-  let mark;
   if (shop.logo_url) {
-    mark = document.createElement("img");
-    mark.className = "mark";
+    const mark = document.createElement("img");
+    mark.className = "strip-mark";
     mark.src = shop.logo_url;
     mark.alt = shop.name;
-    mark.style.objectFit = "cover";
-    mark.style.background = "none";
-    mark.style.padding = "0";
+    brand.append(mark);
   } else {
-    mark = h("div", "mark", shop.name.slice(0, 1));
+    brand.append(h("span", "strip-mark", shop.name.slice(0, 1)));
   }
-  const words = h("div");
-  words.append(h("div", "name", shop.name), h("div", "sub", "HANDMADE STORE"));
-  brand.append(mark, words);
+  brand.append(h("span", "strip-name", shop.name));
+  left.append(brand);
+  if (!loggedIn()) {
+    const login = h("button", "strip-login", "亲，请登录");
+    login.addEventListener("click", loginModal);
+    left.append(login);
+  }
 
-  const box = h("div", "searchbox");
-  const form = h("form", "search");
-  const input = document.createElement("input");
-  input.placeholder = "搜索本店商品";
-  input.value = keyword;
-  form.append(input, h("button", "", "搜索"));
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    keyword = input.value.trim();
-    category = "";
-    go("#/");
-  });
-  const hot = h("div", "hotwords");
-  hot.append(h("span", "", "热门："));
-  (cats || []).slice(0, 5).forEach((item) => {
-    const button = h("button", "", item);
-    button.addEventListener("click", () => {
-      keyword = item;
-      category = "";
-      go("#/");
-    });
-    hot.append(button);
-  });
-  box.append(form, hot);
-
-  const actions = h("div", "header-actions");
-  const cart = h("button", "cart-btn");
-  cart.append(h("span", "", "🛒 购物车"));
-  if (cartCount) cart.append(h("b", "", String(cartCount)));
-  cart.addEventListener("click", () => go("#/cart"));
-  const account = h("button", "btn-ghost", loggedIn() ? "退出" : "登录");
-  account.addEventListener("click", () => {
-    if (loggedIn()) {
-      sessionStorage.removeItem("token_c");
-      pendingDeadlines = {};
-      toast("已退出登录");
-      render();
-    } else loginModal();
-  });
-  actions.append(account, cart);
-  inner.append(brand, box, actions);
-  bar.append(inner);
-  return bar;
-}
-
-/* ---------------- 导航 ---------------- */
-async function renderNavbar() {
-  const bar = h("nav", "navbar");
-  const inner = h("div", "wrap");
-  const all = h("button", "all", "☰ 全部商品分类");
-  all.addEventListener("click", () => {
-    keyword = "";
-    category = "";
-    go("#/");
-  });
-  inner.append(all);
-  const home = h("button", !keyword && !category && route().name === "home" ? "on" : "", "首页");
-  home.addEventListener("click", () => {
-    keyword = "";
-    category = "";
-    go("#/");
-  });
-  const shopAll = h("button", "", "全部商品");
-  shopAll.addEventListener("click", () => {
-    keyword = "";
-    category = "";
-    go("#/");
-  });
-  inner.append(home, shopAll);
-  // 顶部放几个常用分类，点了进筛选页
-  (cats || []).slice(0, 6).forEach((item) => {
-    const button = h("button", category === item ? "on" : "", item);
-    button.addEventListener("click", () => {
-      keyword = "";
-      category = item;
-      go("#/");
-    });
-    inner.append(button);
-  });
-  const orders = h("a", route().name === "orders" ? "on" : "", "订单中心");
+  const nav = h("nav");
+  const cart = h("a", "hvr-grow", cartCount ? `购物车（${cartCount}）` : "购物车");
+  cart.href = "#/cart";
+  const orders = h("a", "hvr-grow", "订单中心");
   orders.href = "#/orders";
-  const favs = h("a", route().name === "favorites" ? "on" : "", "我的收藏");
+  const favs = h("a", "hvr-grow", "我的收藏");
   favs.href = "#/favorites";
-  const history = h("a", route().name === "history" ? "on" : "", "浏览记录");
+  const history = h("a", "hvr-grow", "浏览记录");
   history.href = "#/history";
-  inner.append(orders, favs, history);
+  nav.append(cart, orders, favs, history);
+
+  inner.append(left, nav);
   bar.append(inner);
   return bar;
 }
@@ -290,19 +211,17 @@ async function renderHome() {
   const home = await api(`/api/v1/c/shops/${code}/home`);
   const box = h("div");
   box.append(heroCarousel(home.banners));
-  box.append(renderPromises());
   home.sections.forEach((section) => box.append(productRow(section)));
   box.append(allProductsBlock());
   if (home.testimonials.length) box.append(reviewWall(home.testimonials));
+  box.append(renderPromises());
   return box;
 }
 
-/* 轮播主视觉：左右按钮切换，也可以点下面的小横条 */
+/* 轮播主视觉：整张图可点，左右箭头浮在图片两侧 */
 function heroCarousel(banners) {
   if (!banners.length) return renderFallbackHero();
   const hero = h("section", "hero");
-  const badge = h("div", "shop-badge", `本店分享码 ${shop.share_code}`);
-  hero.append(badge);
 
   let index = 0;
   const slides = banners.map((banner) => {
@@ -312,20 +231,21 @@ function heroCarousel(banners) {
     image.alt = banner.title || shop.name;
     slide.append(image, h("div", "veil"));
     const caption = h("div", "caption");
-    caption.append(h("div", "eyebrow", "HANDMADE · SMALL BATCH"));
     caption.append(h("h1", "", banner.title || shop.name));
     caption.append(h("p", "", banner.subtitle || shop.notice || "小批量手作，每一件都会有一点手工的痕迹。"));
-    const go_ = h("button", "btn-buy btn-big go", banner.link_type === "none" ? "进店逛逛" : "去看看");
-    go_.addEventListener("click", () => {
-      if (banner.link_type === "product" && banner.link_value) go(`#/product/${code}/${banner.link_value}`);
-      else if (banner.link_type === "section") {
-        document.getElementById(`sec-${banner.link_value}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-      } else {
-        document.querySelector(".all-sec")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    });
-    caption.append(go_);
     slide.append(caption);
+
+    // 点图直接去商品详情；跳栏目的就滚到那一行
+    const jump = {
+      product: () => banner.link_value && go(`#/product/${code}/${banner.link_value}`),
+      section: () =>
+        document.getElementById(`sec-${banner.link_value}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      none: () => document.querySelector(".all-sec")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    }[banner.link_type] || (() => {});
+    slide.addEventListener("click", (event) => {
+      if (event.target.closest(".nav")) return;
+      jump();
+    });
     hero.append(slide);
     return slide;
   });
@@ -334,7 +254,10 @@ function heroCarousel(banners) {
   const dotButtons = banners.map((banner, i) => {
     const dot = h("button", "", "");
     dot.title = banner.title || `第 ${i + 1} 张`;
-    dot.addEventListener("click", () => show(i));
+    dot.addEventListener("click", (event) => {
+      event.stopPropagation();
+      show(i);
+    });
     dots.append(dot);
     return dot;
   });
@@ -347,11 +270,13 @@ function heroCarousel(banners) {
 
   const prev = h("button", "nav prev", "‹");
   const next = h("button", "nav next", "›");
-  prev.addEventListener("click", () => {
+  prev.addEventListener("click", (event) => {
+    event.stopPropagation();
     show(index - 1);
     restart();
   });
-  next.addEventListener("click", () => {
+  next.addEventListener("click", (event) => {
+    event.stopPropagation();
     show(index + 1);
     restart();
   });
@@ -382,32 +307,33 @@ function renderFallbackHero() {
   image.alt = "";
   slide.append(image, h("div", "veil"));
   const caption = h("div", "caption");
-  caption.append(h("div", "eyebrow", "HANDMADE · SMALL BATCH"));
   caption.append(h("h1", "", shop.name));
   caption.append(h("p", "", shop.notice || "小批量手作，每一件都会有一点手工的痕迹。"));
   slide.append(caption);
+  slide.addEventListener("click", () => {
+    document.querySelector(".all-sec")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   hero.append(slide);
   return hero;
 }
 
-/* 一行商品位：桌面显示三个，超过就按右箭头往前翻 */
+/* 一行商品位：桌面显示三个，左右箭头浮在图片两侧、垂直居中 */
 function productRow(section) {
   const sec = h("section", "row-sec");
   sec.id = `sec-${section.id}`;
   const head = h("div", "row-head");
   head.append(h("h2", "", section.title));
   if (section.subtitle) head.append(h("span", "sub", section.subtitle));
-  head.append(h("div", "spacer"));
+  sec.append(head);
 
+  const rail = h("div", "rail");
   const track = h("div", "track");
   section.products.forEach((product) => track.append(productCard(product)));
 
-  const arrows = h("div", "arrows");
-  const prev = h("button", "", "‹");
-  const next = h("button", "", "›");
-  arrows.append(prev, next);
-  head.append(arrows);
-  sec.append(head, track);
+  const prev = h("button", "rail-nav prev", "‹");
+  const next = h("button", "rail-nav next", "›");
+  rail.append(prev, track, next);
+  sec.append(rail);
 
   const step = () => {
     const card = track.firstElementChild;
@@ -436,7 +362,21 @@ function allProductsBlock() {
   const PAGE = 12;
   const sec = h("section", "all-sec");
   const head = h("div", "row-head");
-  head.append(h("h2", "", "全部商品"), h("span", "sub", "店里所有在售的东西"));
+  head.append(h("h2", "", "全部商品"));
+  head.append(h("div", "spacer"));
+  // 搜索放在「全部商品」这一行的右侧
+  const form = h("form", "search all-search");
+  const input = document.createElement("input");
+  input.placeholder = "搜索本店商品";
+  input.value = keyword;
+  form.append(input, h("button", "", "搜索"));
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    keyword = input.value.trim();
+    category = "";
+    go("#/");
+  });
+  head.append(form);
   sec.append(head);
 
   const grid = h("div", "grid");
@@ -532,7 +472,9 @@ function renderCategorySide(total, counts) {
   const all = h("button", category ? "" : "on");
   all.append(h("span", "", "全部商品"), h("i", "", String(total)));
   all.addEventListener("click", () => {
+    // 回到首页，关键词和类目一起清掉
     category = "";
+    keyword = "";
     go("#/");
   });
   side.append(all);
@@ -642,6 +584,7 @@ function productCard(product) {
   image.alt = product.name;
   image.loading = "lazy";
   thumb.append(image);
+
   const off = discountOf(product.price_from, product.market_from);
   if (off) thumb.append(h("span", "tag", off));
   else if (product.sales_count >= 50) thumb.append(h("span", "tag", "热销"));
@@ -655,25 +598,21 @@ function productCard(product) {
   });
   thumb.append(fav);
 
-  const quick = h("button", "quick", "加入购物车");
-  quick.addEventListener("click", async (event) => {
+  // 图片左下角一个小购物车，点了在当前页面弹小窗选规格
+  const cart = h("button", "thumb-cart", "🛒");
+  cart.title = "加入购物车 / 直接购买";
+  cart.addEventListener("click", (event) => {
     event.preventDefault();
-    if (!requireLogin()) return;
-    const sku = (product.skus || []).find((item) => item.purchasable) || product.skus[0];
-    if (!sku) return;
-    try {
-      const cart = await api(`/api/v1/c/shops/${code}/cart`, {
-        method: "POST",
-        body: JSON.stringify({ sku_id: sku.id, quantity: 1 }),
-      });
-      cartCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
-      toast("已加入购物车", "ok");
-      render();
-    } catch (error) {
-      toast(error.message, "bad");
-    }
+    event.stopPropagation();
+    quickBuy(product);
   });
-  thumb.append(quick);
+  thumb.append(cart);
+
+  // 图片右下角放最低价
+  const badge = h("div", "thumb-price");
+  badge.append(h("i", "", "¥"), h("b", "", Number(product.price_from || 0).toFixed(2)));
+  if (product.market_from) badge.append(h("span", "price-was", `¥${Number(product.market_from).toFixed(2)}`));
+  thumb.append(badge);
 
   const body = h("div", "body");
   const title = h("a", "title", product.name);
@@ -682,30 +621,148 @@ function productCard(product) {
 
   const meta = h("div", "meta");
   const rating = h("span", "stars");
-  rating.append(ratingStars(product.rating_avg || 0), document.createTextNode(ratingText(product.rating_avg, product.review_count)));
+  rating.append(
+    ratingStars(product.rating_avg || 0),
+    document.createTextNode(ratingText(product.rating_avg, product.review_count))
+  );
   meta.append(rating, h("span", "", `已售 ${product.sales_count}`));
+  if (product.limit_per_user) meta.append(h("span", "ship-tag", `限购${product.limit_per_user}`));
   body.append(meta);
-
-  const foot = h("div", "foot");
-  const price = h("div", "price");
-  price.append(h("i", "", "¥"), h("b", "", Number(product.price_from || 0).toFixed(2)));
-  if (product.market_from) price.append(h("span", "price-was", `¥${Number(product.market_from).toFixed(2)}`));
-  const tags = h("div", "row");
-  tags.style.gap = "4px";
-  if (product.limit_per_user) tags.append(h("span", "ship-tag", `限购${product.limit_per_user}`));
-  tags.append(h("span", "ship-tag", "包邮"));
-  foot.append(price, tags);
-  body.append(foot);
-
-  const sold = Math.min(100, Math.round((product.sales_count / 140) * 100));
-  const bar = h("div", "sales-bar");
-  const fill = document.createElement("span");
-  fill.style.width = `${Math.max(6, sold)}%`;
-  bar.append(fill);
-  body.append(bar);
 
   card.append(thumb, body);
   return card;
+}
+
+/** 卡片上的小购物车：在当前页面弹小窗，选规格后加购或直接买。 */
+function quickBuy(product) {
+  if (!requireLogin()) return;
+  const mask = h("div", "modal quick-mask");
+  const panel = h("div", "panel quick-panel");
+
+  const close = h("button", "quick-close", "×");
+  close.addEventListener("click", () => mask.remove());
+  mask.addEventListener("click", (event) => {
+    if (event.target === mask) mask.remove();
+  });
+
+  const top = h("div", "quick-top");
+  const image = document.createElement("img");
+  image.src = cover(product.image_url);
+  image.alt = product.name;
+  const info = h("div", "quick-info");
+  info.append(h("h3", "", product.name));
+  const skuCount = (product.skus || []).length;
+  info.append(h("div", "muted", `${product.category} · ${skuCount} 个规格可选`));
+  const priceRow = h("div", "quick-price");
+  const priceText = h("b", "", "");
+  const wasText = h("span", "price-was", "");
+  priceRow.append(h("i", "", "¥"), priceText, wasText);
+  info.append(priceRow);
+  top.append(image, info);
+  panel.append(close, top);
+
+  // 规格
+  let current = (product.skus || []).find((sku) => sku.purchasable) || product.skus?.[0] || null;
+  panel.append(h("div", "field-label", "选择规格"));
+  const specs = h("div", "sku-list");
+  (product.skus || []).forEach((sku) => {
+    const button = h("button", sku.id === current?.id ? "on" : "", sku.spec);
+    if (!sku.purchasable) button.classList.add("dead");
+    button.addEventListener("click", () => {
+      current = sku;
+      [...specs.children].forEach((item) => item.classList.remove("on"));
+      button.classList.add("on");
+      paint();
+    });
+    specs.append(button);
+  });
+  panel.append(specs);
+
+  // 数量
+  panel.append(h("div", "field-label", "购买数量"));
+  const qtyInput = document.createElement("input");
+  qtyInput.value = "1";
+  qtyInput.inputMode = "numeric";
+  const qty = h("div", "qty");
+  const minus = h("button", "", "−");
+  const plus = h("button", "", "+");
+  const clamp = () => {
+    const cap = Math.min(20, product.limit_per_user || 20, current ? Math.max(1, current.stock) : 20);
+    const value = Math.max(1, Math.min(cap, Number(qtyInput.value) || 1));
+    qtyInput.value = String(value);
+    return value;
+  };
+  minus.addEventListener("click", () => {
+    qtyInput.value = String(Math.max(1, Number(qtyInput.value) - 1));
+  });
+  plus.addEventListener("click", () => {
+    qtyInput.value = String(Number(qtyInput.value) + 1);
+    clamp();
+  });
+  qtyInput.addEventListener("change", clamp);
+  qty.append(minus, qtyInput, plus);
+  panel.append(qty);
+
+  const stockNote = h("p", "muted", "");
+  panel.append(stockNote);
+
+  function paint() {
+    if (!current) {
+      priceText.textContent = "暂无规格";
+      wasText.textContent = "";
+      stockNote.textContent = "";
+      return;
+    }
+    priceText.textContent = Number(current.price_yuan).toFixed(2);
+    wasText.textContent = current.market_price_yuan ? `¥${Number(current.market_price_yuan).toFixed(2)}` : "";
+    stockNote.textContent = current.purchasable
+      ? `库存 ${current.stock} 件${product.limit_per_user ? ` · 每人限购 ${product.limit_per_user} 件` : ""}`
+      : "该规格暂时缺货";
+  }
+
+  const actions = h("div", "quick-actions");
+  const add = h("button", "btn-cart btn-big", "加入购物车");
+  const buy = h("button", "btn-buy btn-big", "立即购买");
+  const disabled = !current || !current.purchasable;
+  add.disabled = disabled;
+  buy.disabled = disabled;
+  add.addEventListener("click", async () => {
+    if (!current) return;
+    try {
+      const cart = await api(`/api/v1/c/shops/${code}/cart`, {
+        method: "POST",
+        body: JSON.stringify({ sku_id: current.id, quantity: clamp() }),
+      });
+      cartCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+      mask.remove();
+      toast("已加入购物车", "ok");
+      render();
+    } catch (error) {
+      toast(error.message, "bad");
+    }
+  });
+  buy.addEventListener("click", () => {
+    if (!current) return;
+    sessionStorage.setItem(
+      "buy_now",
+      JSON.stringify({
+        sku_id: current.id,
+        quantity: clamp(),
+        name: product.name,
+        spec: current.spec,
+        price_yuan: current.price_yuan,
+      })
+    );
+    code = product.shop_share_code || code;
+    mask.remove();
+    go("#/checkout");
+  });
+  actions.append(add, buy);
+  panel.append(actions);
+  paint();
+
+  mask.append(panel);
+  document.body.append(mask);
 }
 
 /* ---------------- 商品详情 ---------------- */

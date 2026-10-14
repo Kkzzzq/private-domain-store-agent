@@ -67,61 +67,34 @@ p { margin: 0; }
 .link { color: var(--primary); }
 .link:hover { text-decoration: underline; }
 
-/* ================= 顶部通栏 ================= */
-.strip { background: #fafafa; border-bottom: 1px solid var(--line); color: var(--ink-2); font-size: 12px; }
-.strip .wrap { display: flex; align-items: center; justify-content: space-between; height: 36px; gap: 12px; overflow-x: auto; }
+/* ================= 顶部一行：店铺名 + 购物车 / 订单 / 收藏 / 浏览记录 ================= */
+.strip { background: #fff; border-bottom: 2px solid var(--primary); color: var(--ink-2); font-size: 13px; }
+.strip .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; gap: 12px; overflow-x: auto; }
 .strip > .wrap > * { flex-shrink: 0; }
 .strip nav { display: flex; align-items: center; }
-.strip nav > * { padding: 0 12px; border-right: 1px solid var(--line); }
+.strip nav > * { padding: 0 14px; border-right: 1px solid var(--line); }
 .strip nav > *:last-child { border-right: 0; padding-right: 0; }
+.strip nav > *:first-child { padding-left: 0; }
 .strip a:hover, .strip button:hover { color: var(--primary); }
-.strip button { background: none; border: 0; padding: 0; font-size: 12px; color: var(--ink-2); }
-.strip .who { color: var(--primary); }
+.strip button { background: none; border: 0; padding: 0; font-size: 13px; color: var(--ink-2); }
 
-/* ================= 页头 ================= */
-.header { background: #fff; padding: 20px 0 16px; }
-.header .wrap { display: flex; align-items: center; gap: 36px; }
-.brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-.brand .mark {
-  width: 52px; height: 52px; border-radius: 50%; object-fit: cover; background: var(--brand-soft);
-  display: grid; place-items: center; font-size: 24px; font-weight: 700;
-  font-family: var(--serif); color: var(--theme); box-shadow: var(--shadow);
+.strip-shop { display: flex; align-items: center; gap: 10px; color: var(--ink); }
+.strip-mark {
+  width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+  display: grid; place-items: center; font-size: 16px; font-weight: 700;
+  color: #fff; background: linear-gradient(140deg, var(--theme), var(--primary-dark));
+  font-family: var(--serif);
 }
-.brand .name { font-size: 22px; font-weight: 700; letter-spacing: 2px; line-height: 1.25; font-family: var(--serif); }
-.brand .sub { font-size: 10px; color: var(--muted); letter-spacing: 3px; }
+.strip-name { font-size: 19px; font-weight: 700; letter-spacing: 2px; font-family: var(--serif); }
+.strip-shop:hover .strip-name { color: var(--primary); }
+.strip-login { color: var(--primary); }
 
-.searchbox { flex: 1; max-width: 620px; }
-.search { display: flex; height: 42px; border: 2px solid var(--primary); border-radius: 8px; overflow: hidden; }
-.search input { flex: 1; border: 0; outline: none; padding: 0 16px; font-size: 14px; }
-.search button { border: 0; background: var(--primary); color: #fff; padding: 0 32px; font-size: 15px; letter-spacing: 2px; }
+/* 搜索框，放在「全部商品」这一行右侧 */
+.search { display: flex; height: 38px; border: 2px solid var(--primary); border-radius: 8px; overflow: hidden; background: #fff; }
+.search input { flex: 1; border: 0; outline: none; padding: 0 14px; font-size: 14px; min-width: 0; }
+.search button { border: 0; background: var(--primary); color: #fff; padding: 0 24px; font-size: 14px; letter-spacing: 1px; }
 .search button:hover { background: var(--primary-dark); }
-.hotwords { display: flex; gap: 14px; padding: 8px 2px 0; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
-.hotwords button { background: none; border: 0; padding: 0; font-size: 12px; color: var(--muted); }
-.hotwords button:hover { color: var(--primary); }
-
-.header-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
-.cart-btn {
-  display: flex; align-items: center; gap: 8px; border: 1px solid var(--line);
-  background: #fff; border-radius: 8px; padding: 10px 18px; color: var(--primary);
-}
-.cart-btn:hover { border-color: var(--primary); background: var(--primary-soft); }
-.cart-btn b {
-  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
-  background: var(--primary); color: #fff; font-size: 12px; display: grid; place-items: center;
-}
-
-/* ================= 导航 ================= */
-.navbar { background: #fff; border-bottom: 2px solid var(--primary); position: sticky; top: 0; z-index: 6; }
-.navbar .wrap { display: flex; align-items: stretch; height: 44px; }
-.navbar .all {
-  background: var(--primary); color: #fff; padding: 0 22px; display: flex; align-items: center;
-  font-size: 15px; font-weight: 600; gap: 8px; letter-spacing: 1px;
-}
-.navbar button, .navbar a {
-  background: none; border: 0; padding: 0 22px; font-size: 15px; color: var(--ink);
-  display: flex; align-items: center; white-space: nowrap;
-}
-.navbar button:hover, .navbar a:hover, .navbar .on { color: var(--primary); font-weight: 600; }
+.all-search { width: 300px; flex-shrink: 0; }
 
 /* ================= 首页两栏 ================= */
 .home { display: grid; grid-template-columns: 200px 1fr; gap: 14px; padding: 14px 0 0; align-items: start; }
@@ -173,7 +146,7 @@ p { margin: 0; }
 /* 服务承诺条 */
 .promises {
   display: grid; grid-template-columns: repeat(4, 1fr); background: #fff;
-  border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 14px; overflow: hidden;
+  border-radius: var(--radius); box-shadow: var(--shadow); margin: 34px 0 0; overflow: hidden;
 }
 .promises div {
   padding: 18px 16px; text-align: center; border-right: 1px solid var(--line-2);
@@ -221,19 +194,32 @@ p { margin: 0; }
   position: absolute; top: 10px; left: 10px; background: var(--primary); color: #fff;
   font-size: 11px; padding: 3px 9px; border-radius: 4px; letter-spacing: 0.5px;
 }
-.pcard .quick {
-  position: absolute; left: 0; right: 0; bottom: 0; background: var(--primary); color: #fff;
-  border: 0; padding: 11px; font-size: 13px; transform: translateY(100%); transition: transform 0.22s;
-  letter-spacing: 1px;
+/* 图片上的价格（右下）和购物车（左下） */
+.thumb-price {
+  position: absolute; right: 10px; bottom: 10px; z-index: 2;
+  display: flex; align-items: baseline; gap: 5px;
+  background: rgba(255, 255, 255, 0.94); border-radius: 6px; padding: 3px 10px;
+  box-shadow: var(--shadow);
 }
-.pcard:hover .quick { transform: translateY(0); }
+.thumb-price i { font-size: 12px; font-style: normal; color: var(--price); }
+.thumb-price b { font-size: 18px; color: var(--price); font-family: var(--serif); }
+.thumb-price .price-was { margin-left: 0; font-size: 11px; }
+.thumb-cart {
+  position: absolute; left: 10px; bottom: 10px; z-index: 2;
+  width: 36px; height: 36px; border-radius: 50%; border: 0;
+  background: var(--primary); color: #fff; font-size: 15px;
+  display: grid; place-items: center; box-shadow: var(--shadow);
+  transition: transform 0.15s, background 0.15s;
+}
+.thumb-cart:hover { transform: scale(1.12); background: var(--primary-dark); }
 .pcard .body { padding: 12px 14px 16px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
 .pcard .title {
   font-size: 14px; line-height: 1.5; height: 42px; overflow: hidden; color: var(--ink);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
 .pcard:hover .title { color: var(--primary); }
-.pcard .meta { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.pcard .meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.pcard .meta .ship-tag { margin-left: auto; }
 .pcard .foot { display: flex; align-items: baseline; justify-content: space-between; margin-top: auto; }
 .price { color: var(--price); font-weight: 700; }
 .price i { font-size: 12px; font-style: normal; font-weight: 400; }
@@ -482,6 +468,7 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
   position: absolute; inset: 0; opacity: 0; transition: opacity 0.6s ease;
   pointer-events: none;
 }
+.hero .slide { cursor: pointer; }
 .hero .slide.on { opacity: 1; pointer-events: auto; }
 .hero .slide img { width: 100%; height: 100%; object-fit: cover; }
 .hero .slide .veil {
@@ -492,10 +479,8 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
   position: absolute; left: 46px; top: 50%; transform: translateY(-50%);
   color: #fff; max-width: 560px;
 }
-.hero .caption .eyebrow { font-size: 11px; letter-spacing: 6px; color: rgba(255, 255, 255, 0.55); }
-.hero .caption h1 { font-size: 36px; letter-spacing: 3px; margin-top: 12px; font-family: var(--serif); }
+.hero .caption h1 { font-size: 36px; letter-spacing: 3px; font-family: var(--serif); }
 .hero .caption p { color: rgba(255, 255, 255, 0.84); margin-top: 12px; }
-.hero .caption .go { margin-top: 24px; }
 .hero .nav {
   position: absolute; top: 50%; transform: translateY(-50%); width: 46px; height: 46px;
   border-radius: 50%; border: 0; background: rgba(255, 255, 255, 0.22); color: #fff;
@@ -513,11 +498,6 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
   background: rgba(255, 255, 255, 0.35); transition: background 0.2s, width 0.2s;
 }
 .hero .dots button.on { background: #fff; width: 40px; }
-.hero .shop-badge {
-  position: absolute; right: 24px; top: 22px; color: #fff; font-size: 12px;
-  background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 20px; padding: 6px 14px; backdrop-filter: blur(4px);
-}
 
 /* ================= 首页：横向商品位 ================= */
 .row-sec { margin-top: 26px; }
@@ -525,14 +505,19 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 .row-head h2 { font-size: 21px; letter-spacing: 1px; font-family: var(--serif); }
 .row-head .sub { color: var(--muted); font-size: 13px; padding-bottom: 3px; }
 .row-head .spacer { flex: 1; }
-.row-head .arrows { display: flex; gap: 8px; }
-.row-head .arrows button {
-  width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line);
-  background: #fff; color: var(--ink-2); font-size: 15px; display: grid; place-items: center;
-  transition: all 0.18s;
+
+/* 左右箭头浮在图片两侧、垂直居中，和轮播主视觉一致 */
+.rail { position: relative; }
+.rail-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 42px;
+  border-radius: 50%; border: 0; background: rgba(30, 26, 23, 0.42); color: #fff;
+  font-size: 20px; display: grid; place-items: center; z-index: 3;
+  backdrop-filter: blur(4px); transition: background 0.2s, opacity 0.2s;
 }
-.row-head .arrows button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
-.row-head .arrows button:disabled { opacity: 0.32; cursor: not-allowed; }
+.rail-nav:hover:not(:disabled) { background: rgba(30, 26, 23, 0.68); }
+.rail-nav:disabled { opacity: 0; pointer-events: none; }
+.rail-nav.prev { left: 12px; }
+.rail-nav.next { right: 12px; }
 
 .track {
   display: grid; grid-auto-flow: column; grid-auto-columns: calc((100% - 28px) / 3);
@@ -648,22 +633,19 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
 }
 @keyframes shine-sweep { to { left: 125%; } }
 
-/* 导航和分类：悬停时从左往右长出一条主题色下划线 */
-.navbar button, .navbar a { position: relative; }
-.navbar button::after, .navbar a::after {
+/* 顶部一行和分类：悬停时从左往右长出一条主题色下划线 */
+.strip nav a { position: relative; }
+.strip nav a::after {
   content: "";
   position: absolute;
   left: 50%;
   right: 50%;
-  bottom: 4px;
+  bottom: -6px;
   height: 2px;
   background: var(--primary);
   transition: left 0.28s ease-out, right 0.28s ease-out;
 }
-.navbar button:hover::after, .navbar a:hover::after, .navbar a.on::after {
-  left: 18px;
-  right: 18px;
-}
+.strip nav a:hover::after { left: 12px; right: 12px; }
 
 /* 后台行内按钮轻微放大 */
 .table .ops button:hover, .table .ops a:hover,
@@ -742,6 +724,33 @@ wa-dialog::part(dialog) { border-radius: 12px; font-family: inherit; }
 wa-dialog::part(title) { font-size: 17px; font-weight: 600; }
 wa-dialog .field input { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; outline: none; width: 100%; }
 wa-dialog .field input:focus { border-color: var(--primary); }
+
+/* ================= 卡片上的快速购买小窗 ================= */
+.modal { position: fixed; inset: 0; background: rgba(30, 30, 30, 0.45); display: grid; place-items: center; z-index: 20; padding: 16px; }
+.modal .panel { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.quick-mask { align-items: center; }
+.quick-panel { position: relative; width: min(440px, 100%); padding: 24px; }
+.quick-close {
+  position: absolute; top: 12px; right: 14px; width: 30px; height: 30px; border-radius: 50%;
+  border: 0; background: var(--line-2); color: var(--ink-2); font-size: 18px; line-height: 1;
+}
+.quick-close:hover { background: var(--line); color: var(--ink); }
+.quick-top { display: flex; gap: 14px; align-items: center; padding-right: 30px; }
+.quick-top img {
+  width: 88px; height: 88px; border-radius: 8px; object-fit: cover; background: #f7f7f7; flex-shrink: 0;
+}
+.quick-info { min-width: 0; }
+.quick-info h3 { font-size: 16px; line-height: 1.4; margin-bottom: 4px; }
+.quick-price { display: flex; align-items: baseline; gap: 8px; margin-top: 8px; color: var(--price); }
+.quick-price i { font-size: 14px; font-style: normal; }
+.quick-price b { font-size: 26px; font-family: var(--serif); }
+.quick-panel .sku-list { margin-top: 4px; }
+.quick-panel .sku-list button { padding: 8px 16px; font-size: 13px; }
+.quick-panel .qty { margin-top: 4px; }
+.quick-panel .qty button { width: 34px; height: 34px; }
+.quick-panel .qty input { width: 52px; }
+.quick-actions { display: flex; gap: 12px; margin-top: 20px; }
+.quick-actions button { flex: 1; padding: 13px 0; font-size: 15px; }
 
 /* ================= 商家后台 ================= */
 .admin { min-height: 100vh; display: flex; flex-direction: column; background: #eef0f2; }

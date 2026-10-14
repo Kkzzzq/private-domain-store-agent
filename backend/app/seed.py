@@ -380,7 +380,7 @@ def seed_home(db, shop: Shop, products: list[Product]) -> None:
     )
     best = Section(
         shop_id=shop.id,
-        title="Best Seller 畅销榜",
+        title="畅销榜",
         subtitle="按销量自动排序",
         source="sales",
         sort_order=2,
@@ -539,6 +539,10 @@ def upgrade_demo(db) -> None:
 
     if db.scalar(select(Product).where(Product.shop_id == shop.id, Product.name == "亚麻餐垫")) is None:
         add_extra_products(db, shop)
+    # 栏目改过名，旧库跟着改一下
+    for row in db.scalars(select(Section).where(Section.shop_id == shop.id)).all():
+        if row.title.startswith("Best Seller"):
+            row.title = row.title.replace("Best Seller", "").strip()
     db.commit()
 
     if db.scalar(select(Banner).where(Banner.shop_id == shop.id)) is None:
