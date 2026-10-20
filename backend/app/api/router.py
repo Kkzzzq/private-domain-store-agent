@@ -14,6 +14,8 @@ router.include_router(c_router)
 router.include_router(support_router)
 from app.api.op_api import router as op_router
 router.include_router(op_router)
+from app.api.quality import router as quality_router
+router.include_router(quality_router)
 from app.api.agent_actions import router as agent_actions_router
 router.include_router(agent_actions_router)
 

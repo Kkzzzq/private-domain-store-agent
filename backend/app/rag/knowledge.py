@@ -1,4 +1,5 @@
 from pathlib import Path
+from hashlib import sha256
 
 from app.core.config import settings
 from app.core.logging import logger
@@ -26,7 +27,6 @@ class KnowledgeBase:
 
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         client = chromadb.PersistentClient(path=str(self.persist_dir))
-        vectors = embedder.embed_documents([f"{item.get('heading_path', '')}\n{item['content']}" for item in chunks]) if chunks else []
         model_name = getattr(embedder, "model_name", "custom")
         input_version = getattr(embedder, "input_version", "plain-v1")
         collection = client.get_or_create_collection(
@@ -41,12 +41,17 @@ class KnowledgeBase:
             if existing:
                 collection.delete(ids=existing)
             return 0
-        collection.upsert(
-            ids=[item["id"] for item in chunks],
-            documents=[item["content"] for item in chunks],
-            metadatas=[{"source": item["source"], "heading_path": item.get("heading_path", "正文")} for item in chunks],
-            embeddings=vectors,
-        )
+        existing = collection.get(include=["documents", "metadatas"])
+        previous = {chunk_id: (document, metadata or {}) for chunk_id, document, metadata in zip(existing["ids"], existing["documents"], existing["metadatas"])}
+        changed = [item for item in chunks if item["id"] not in previous or previous[item["id"]][0] != item["content"] or previous[item["id"]][1].get("source") != item["source"] or previous[item["id"]][1].get("heading_path") != item.get("heading_path", "正文") or not previous[item["id"]][1].get("version")]
+        if changed:
+            vectors = embedder.embed_documents([f"{item.get('heading_path', '')}\n{item['content']}" for item in changed])
+            collection.upsert(
+                ids=[item["id"] for item in changed],
+                documents=[item["content"] for item in changed],
+                metadatas=[{"source": item["source"], "heading_path": item.get("heading_path", "正文"), "chunk_id": item["id"], "version": sha256(item["content"].encode()).hexdigest()} for item in changed],
+                embeddings=vectors,
+            )
         obsolete = set(collection.get()["ids"]) - {item["id"] for item in chunks}
         if obsolete:
             collection.delete(ids=list(obsolete))
@@ -61,6 +66,14 @@ class KnowledgeBase:
             return collection.count() > 0
         except Exception:
             return False
+
+    def export_chunks(self):
+        if not self.has_vectors():
+            return []
+        import chromadb
+        rows = chromadb.PersistentClient(path=str(self.persist_dir)).get_collection(self.collection).get(include=["documents", "metadatas"])
+        return [{"id": chunk_id, "content": document, "source": (metadata or {}).get("source", "chroma"), "heading_path": (metadata or {}).get("heading_path", "正文")}
+                for chunk_id, document, metadata in zip(rows["ids"], rows["documents"], rows["metadatas"])]
 
     def semantic_search(self, question: str, embedder, k: int = 3) -> list[dict]:
         import chromadb
@@ -83,7 +96,10 @@ class KnowledgeBase:
         hits = []
         for index, document in enumerate(documents):
             meta = metadatas[index] if index < len(metadatas) and metadatas[index] else {}
-            hits.append({"content": document, "source": meta.get("source", "chroma"), "heading_path": meta.get("heading_path", "正文"), "distance": distances[index] if index < len(distances) else None})
+            distance = distances[index] if index < len(distances) else None
+            if distance is None or distance > settings.rag_max_distance:
+                continue
+            hits.append({"content": document, "source": meta.get("source", "chroma"), "heading_path": meta.get("heading_path", "正文"), "distance": distance, "chunk_id": meta.get("chunk_id", ""), "version": meta.get("version", "")})
         return hits
 
 
@@ -142,20 +158,31 @@ class OllamaEmbedder:
         return self._embeddings.embed_documents([prefix + text for text in texts])
 
 
-def create_embedder():
+def create_embedder(model_name=None):
+    if settings.embedding_provider == "qwen":
+        from app.rag.cloud_embeddings import QwenEmbedder
+        return QwenEmbedder(model_name)
     if settings.embedding_provider == "zhipu":
         from app.rag.cloud_embeddings import ZhipuEmbedder
-        return ZhipuEmbedder()
+        return ZhipuEmbedder(model_name)
     return OllamaEmbedder()
 
 
 def retrieve_store_knowledge(question: str) -> dict:
+    if settings.cloud_embedding_fallback_models:
+        from app.rag.routing import retrieve
+        try:
+            return retrieve(question)
+        except Exception as exc:
+            if settings.rag_require_vectors:
+                raise RuntimeError("严格模式语义检索失败") from exc
+            logger.warning("向量路由不可用，退回关键词：%s", type(exc).__name__)
+            return {"mode": "keyword", "hits": keyword_search(question)}
     base = KnowledgeBase(settings.chroma_path)
     if base.has_vectors():
         try:
             hits = base.semantic_search(question, create_embedder())
-            if hits:
-                return {"mode": "chroma", "hits": hits}
+            return {"mode": "chroma", "hits": hits}
         except Exception as exc:
             if settings.rag_require_vectors:
                 raise RuntimeError("严格模式语义检索失败") from exc
@@ -172,6 +199,9 @@ def search_store_knowledge(question: str) -> str:
 def reindex_knowledge() -> dict:
     chunks = KnowledgeBase(settings.chroma_path).load_chunks()
     try:
+        if settings.cloud_embedding_fallback_models:
+            from app.rag.routing import rebuild
+            return rebuild(chunks)
         written = KnowledgeBase(settings.chroma_path).rebuild(chunks, create_embedder())
     except Exception as exc:
         if settings.rag_require_vectors:

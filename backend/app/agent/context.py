@@ -15,6 +15,8 @@ class Actor:
     products: list[dict] = field(default_factory=list)
     sources: list[dict] = field(default_factory=list)
     retrieval_mode: str = "none"
+    chat_models: list[str] = field(default_factory=list)
+    embedding_model: str = ""
     model_retries: int = 0
     catalog_loaded: bool = False
     progress: Callable | None = None

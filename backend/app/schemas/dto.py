@@ -494,6 +494,8 @@ class ChatOut(BaseModel):
     products: list[dict] = Field(default_factory=list)
     sources: list[dict] = Field(default_factory=list)
     retrieval_mode: str = "none"
+    chat_models: list[str] = Field(default_factory=list)
+    embedding_model: str = ""
     model_retries: int = 0
     summary_mode: str = "none"
 

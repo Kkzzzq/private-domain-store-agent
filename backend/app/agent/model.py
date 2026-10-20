@@ -18,10 +18,11 @@ atexit.register(cloud_http.close)
 
 
 def quota_exhausted(response):
-    if settings.cloud_api_style != "zhipu" or response.is_success:
+    if response.is_success:
         return False
     try:
-        return str(response.json().get("error", {}).get("code")) in {"1113", "1308", "1310"}
+        code = str(response.json().get("error", {}).get("code"))
+        return code in ({"1113", "1308", "1310"} if settings.cloud_api_style == "zhipu" else {"AllocationQuota.FreeTierOnly", "QuotaExhausted", "QuotaExceeded"})
     except (ValueError, AttributeError):
         return False
 
@@ -65,6 +66,8 @@ class CloudChatModel:
                     body["temperature"] = 1
                 else:
                     body["thinking"] = {"type": "disabled"}
+            elif settings.cloud_api_style == "deepseek":
+                body["thinking"] = {"type": "disabled"}
             else:
                 body["enable_thinking"] = False
             if self.tools:

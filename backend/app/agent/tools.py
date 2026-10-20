@@ -62,6 +62,8 @@ def search_knowledge(question: str) -> str:
     if shop.share_code != "nanzhi":
         hits = [hit for hit in hits if hit["source"] == "platform_rules.md"]
     actor.retrieval_mode = result["mode"]
+    from app.core.config import settings as model_settings
+    actor.embedding_model = result.get("embedding_model", model_settings.embedding_model_name if result["mode"] == "chroma" else "")
     actor.sources.extend(hits)
     from app.services.storefront import money_label, storefront_settings
     settings = storefront_settings(shop)
@@ -181,7 +183,7 @@ def langchain_tools(intent="unclear"):
     routes = {
         "product_write": {"prepare_product_draft", "get_store_catalog"},
         "order": {"query_orders"},
-        "policy": {"search_knowledge"},
+        "policy": {"search_knowledge", "query_orders"},
         "inventory": {"search_products", "check_inventory"},
         "product_search": {"search_products", "check_inventory", "search_knowledge"},
         "recommend": {"get_store_catalog"} if not current()[1].catalog_loaded else {"get_store_catalog", "recommend_products", "clarify_recommendation", "search_knowledge", "check_inventory"},

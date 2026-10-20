@@ -2,6 +2,7 @@ import json
 import time
 
 from pydantic import ValidationError
+from fastapi import HTTPException
 
 from app.agent.tools import IMPL, SPECS, allowed_tools
 from app.agent.context import current
@@ -59,6 +60,9 @@ def execute_tool(name: str, raw_args) -> str:
             result = str(func(**parsed.model_dump()))
             denied = result.startswith("没有找到这个订单")
             return finish(result, not denied, "order_not_found_or_denied" if denied else "")
+        except HTTPException as exc:
+            if 400 <= exc.status_code < 500 and exc.status_code != 429:
+                return finish("没有找到本店可访问的资源。" if exc.status_code == 404 else "业务操作被拒绝，请检查参数、权限或资源状态。", False, "business_rejected")
         except Exception:
             pass
     return finish("工具执行失败，请稍后重试。", False, "execution_error")

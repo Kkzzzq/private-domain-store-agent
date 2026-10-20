@@ -16,6 +16,50 @@ def isolated_quota_state(monkeypatch):
     _quota_cooldowns.clear()
 
 
+def test_deepseek_protocol_does_not_send_qwen_thinking_field(monkeypatch):
+    monkeypatch.setattr(settings, "cloud_api_style", "deepseek")
+    monkeypatch.setattr(settings, "cloud_model", "deepseek-flash")
+    monkeypatch.setattr(settings, "cloud_base_url", "https://api.deepseek.com")
+    monkeypatch.setattr(settings, "cloud_api_key", "test-only")
+    captured = []
+    def post(url, **kwargs):
+        assert url == "https://api.deepseek.com/chat/completions"
+        captured.append(kwargs["json"])
+        return httpx.Response(200, json={"choices": [{"message": {"content": "测试回答"}}]})
+    monkeypatch.setattr(httpx, "post", post)
+    assert CloudChatModel().invoke([HumanMessage(content="测试")]).content == "测试回答"
+    assert captured[0]["thinking"] == {"type": "disabled"}
+    assert "enable_thinking" not in captured[0]
+
+
+def test_qwen_free_tier_exhausted_switches_but_account_debt_does_not(monkeypatch):
+    monkeypatch.setattr(settings, "cloud_api_key", "test-only")
+    monkeypatch.setattr(settings, "cloud_api_style", "qwen")
+    monkeypatch.setattr(settings, "cloud_base_url", "https://example.test/v1")
+    monkeypatch.setattr(settings, "cloud_model", "primary")
+    monkeypatch.setattr(settings, "cloud_fallback_models", "fallback")
+    calls = []
+    def transport(url, **kwargs):
+        model = kwargs["json"]["model"]
+        calls.append(model)
+        if model == "primary":
+            return httpx.Response(403, json={"error": {"code": "AllocationQuota.FreeTierOnly"}})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "备用回答"}}]})
+    monkeypatch.setattr(httpx, "post", transport)
+    assert CloudChatModel().invoke([HumanMessage(content="测试")]).response_metadata["model"] == "fallback"
+    assert calls == ["primary", "fallback"]
+    from app.agent.model import _quota_cooldowns
+    _quota_cooldowns.clear();calls.clear()
+    def debt(url, **kwargs):
+        calls.append(kwargs["json"]["model"])
+        return httpx.Response(402, json={"error": {"code": "insufficient_balance"}})
+    monkeypatch.setattr(httpx, "post", debt)
+    monkeypatch.setattr(settings, "cloud_api_style", "deepseek")
+    with pytest.raises(RuntimeError, match="402"):
+        CloudChatModel().invoke([HumanMessage(content="测试")])
+    assert calls == ["primary"]
+
+
 def test_cloud_tool_messages(monkeypatch):
     monkeypatch.setattr(settings, "cloud_model", "qwen-plus-2025-04-28")
     monkeypatch.setattr(settings, "cloud_api_style", "qwen")

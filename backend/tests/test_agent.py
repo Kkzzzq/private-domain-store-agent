@@ -168,8 +168,9 @@ def test_chroma_rebuild_and_source_metadata(tmp_path):
     hit = base.semantic_search("退货", Embeddings())[0]
     assert hit["source"] == "policy.md" and hit["heading_path"] == "售后 > 退货"
     with pytest.raises(RuntimeError):
-        base.rebuild(chunks, Broken())
+        base.rebuild([{**chunks[0], "content": "已更新七天退货"}], Broken())
     assert base.has_vectors()
+    assert base.semantic_search("退货", Embeddings())[0]["content"] == "七天退货"
 
 
 @pytest.mark.parametrize("message,intent", [("我的订单", "order"), ("退货规则", "policy"), ("SKU 1 库存", "inventory"), ("推荐商品", "recommend"), ("经营概览", "overview"), ("库存预警", "low_inventory"), ("有没有抱枕", "product_search"), ("今天天气不错", "unclear")])

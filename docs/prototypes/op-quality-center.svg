@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1040" viewBox="0 0 1440 1040">
+  <defs>
+    <style>
+      text { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; fill: #343c37; font-size: 14px; }
+      .muted { fill: #7a827b; font-size: 12px; }
+      .nav { fill: #c9d4cc; font-size: 14px; }
+      .title { font-size: 26px; font-weight: 700; }
+      .h2 { font-size: 18px; font-weight: 700; }
+      .h3 { font-size: 14px; font-weight: 700; }
+      .accent { fill: #46735b; }
+      .small { font-size: 12px; }
+      .white { fill: #fffdf8; }
+      .line { stroke: #e5e5dc; stroke-width: 1; }
+    </style>
+  </defs>
+  <rect width="1440" height="1040" fill="#f5f3ed"/>
+  <rect width="204" height="1040" fill="#263d32"/>
+  <rect x="24" y="28" width="32" height="32" rx="9" fill="#67836a"/>
+  <text x="32" y="49" class="white h3">OP</text>
+  <text x="68" y="49" class="white h2">平台运营台</text>
+  <text x="25" y="88" class="nav small">OPERATIONS CONSOLE</text>
+  <text x="26" y="139" class="nav">运营概览</text>
+  <text x="26" y="184" class="nav">店铺管理</text>
+  <text x="26" y="229" class="nav">商品治理</text>
+  <text x="26" y="274" class="nav">订单中心</text>
+  <text x="26" y="319" class="nav">优惠券监控</text>
+  <text x="26" y="364" class="nav">助手调用审计</text>
+  <line x1="24" y1="393" x2="179" y2="393" stroke="#516456"/>
+  <text x="26" y="425" class="nav small">智能测试中心 · 规划新增</text>
+  <rect x="14" y="443" width="177" height="42" rx="7" fill="#49634e"/>
+  <text x="30" y="470" class="white">业务 Agent 评测</text>
+  <text x="30" y="514" class="nav">业务功能测试</text>
+  <text x="30" y="558" class="nav">用例与 Skills</text>
+  <text x="30" y="602" class="nav">运行与报告</text>
+  <text x="30" y="646" class="nav">环境与配额</text>
+  <text x="25" y="965" class="nav small">仅 OP 授权人员可用</text>
+  <text x="25" y="989" class="nav small">B / C 端不展示、不授予权限</text>
+  <text x="240" y="42" class="muted">WORKSPACE / INTELLIGENT QUALITY</text>
+  <text x="240" y="83" class="title">智能测试中心</text>
+  <text x="240" y="110" class="muted">两个测试 Agent，独立目标与数据，共用受限执行器。</text>
+  <rect x="1170" y="39" width="230" height="36" rx="7" fill="#ede8db"/>
+  <text x="1190" y="62" class="small">静态设计稿 · 非已实现功能</text>
+  <rect x="240" y="135" width="1160" height="42" rx="7" fill="#eeeee5"/>
+  <text x="256" y="161" class="small">以下用例、状态与步骤仅用于布局示意；无真实执行数据，不连接后台，不消耗模型额度。</text>
+  <rect x="240" y="196" width="568" height="166" rx="11" fill="#fffcf6" stroke="#d8dfd3"/>
+  <text x="260" y="225" class="h2">助手评测 Agent</text>
+  <rect x="688" y="207" width="100" height="25" rx="12" fill="#e6eee3"/>
+  <text x="702" y="224" class="accent small">40 条规划目标</text>
+  <text x="260" y="254">被测对象：买家 / 商家业务助手</text>
+  <text x="260" y="281" class="muted">推荐 · 工具调用 · RAG · 多轮 · 权限 · 操作确认</text>
+  <text x="260" y="333" class="accent h3">查看能力与用例 →</text>
+  <rect x="651" y="304" width="137" height="36" rx="7" fill="#59795f"/>
+  <text x="674" y="327" class="white small">新建助手评测</text>
+  <rect x="827" y="196" width="573" height="166" rx="11" fill="#fffcf6" stroke="#e2e0d4"/>
+  <text x="847" y="225" class="h2">功能测试 Agent</text>
+  <rect x="1280" y="207" width="100" height="25" rx="12" fill="#efede4"/>
+  <text x="1294" y="224" class="small">30 条规划目标</text>
+  <text x="847" y="254">被测对象：业务 API 与业务状态机</text>
+  <text x="847" y="281" class="muted">商品 / SKU · 订单 · 优惠券 · 账号 · 配置 · 售后</text>
+  <text x="847" y="333" class="accent h3">独立用例、工具和运行数据 →</text>
+  <rect x="1243" y="304" width="137" height="36" rx="7" fill="#fffcf6" stroke="#bac7b5"/>
+  <text x="1266" y="327" class="accent small">新建功能测试</text>
+  <text x="240" y="401" class="h2">助手评测工作区</text>
+  <text x="445" y="401" class="muted">布局示例 / A10 多轮指代 / 合成数据</text>
+  <rect x="1111" y="377" width="118" height="34" rx="7" fill="#fffcf6" stroke="#d8ddd1"/>
+  <text x="1133" y="399" class="small">计划与审批</text>
+  <rect x="1241" y="377" width="159" height="34" rx="7" fill="#fffcf6" stroke="#d8ddd1"/>
+  <text x="1262" y="399" class="small">取消 / 重跑 / 报告</text>
+  <rect x="240" y="427" width="1160" height="407" rx="10" fill="#fffcf6" stroke="#e2e2d8"/>
+  <line x1="488" y1="427" x2="488" y2="834" class="line"/>
+  <line x1="1018" y1="427" x2="1018" y2="834" class="line"/>
+  <text x="258" y="458" class="h3">审核用例</text>
+  <text x="388" y="458" class="muted">买家 / 商家</text>
+  <line x1="240" y1="476" x2="1400" y2="476" class="line"/>
+  <text x="506" y="458" class="h3">对话与公开执行链</text>
+  <text x="1036" y="458" class="h3">断言与可信事实</text>
+  <rect x="252" y="490" width="224" height="57" rx="7" fill="#eaf0e5"/>
+  <text x="265" y="512" class="accent h3">A10　“第二个”的多轮指代</text>
+  <text x="265" y="533" class="muted">当前展示 · 设计状态</text>
+  <text x="266" y="579">A04　100 元内商品推荐</text>
+  <text x="266" y="621">A13　跨用户订单拒绝</text>
+  <text x="266" y="663">A15　真实 RAG 政策问答</text>
+  <text x="266" y="705">A19　商品提案确认边界</text>
+  <text x="266" y="747">A18　超时重试与兜底</text>
+  <text x="258" y="802" class="muted">未执行 ≠ 通过；模拟 ≠ 真实链路</text>
+  <text x="508" y="508" class="muted">测试用户输入（规划）</text>
+  <rect x="508" y="521" width="490" height="45" rx="8" fill="#f1eee5"/>
+  <text x="525" y="549">推荐两件餐具，每件 100 元以内。</text>
+  <text x="508" y="596" class="h3">业务助手回复区</text>
+  <text x="508" y="619" class="muted">执行后展示实际回答、商品卡与工具依据。</text>
+  <text x="508" y="645" class="muted">记录实际第 2 件商品 ID，不预设回答顺序。</text>
+  <rect x="508" y="667" width="490" height="43" rx="8" fill="#f1eee5"/>
+  <text x="525" y="694">第二个还有货吗？有哪些规格？</text>
+  <line x1="508" y1="732" x2="998" y2="732" class="line"/>
+  <text x="508" y="757" class="h3">公开链路示意（不是模型私有思维链）</text>
+  <text x="508" y="783" class="accent small">业务 Agent → 库存工具 → SKU 快照 → 回答</text>
+  <text x="508" y="808" class="muted">每步显示真实状态、脱敏参数、结果与耗时。</text>
+  <text x="1038" y="511" class="h3">预期规则</text>
+  <text x="1038" y="539">1. 查询商品 = 上轮第 2 件</text>
+  <text x="1038" y="567">2. 规格 / 库存与读取快照一致</text>
+  <text x="1038" y="595">3. 不继承其他账号会话</text>
+  <line x1="1038" y1="617" x2="1380" y2="617" class="line"/>
+  <text x="1038" y="646" class="h3">证据与判定</text>
+  <text x="1038" y="673" class="muted">工具轨迹 / 标准快照 / 实际输出</text>
+  <text x="1038" y="700" class="muted">实际执行后逐条显示，不预填通过。</text>
+  <text x="1038" y="744" class="h3">硬断言优先，语义评分辅助</text>
+  <text x="1038" y="771" class="muted">模型评分不能覆盖越权或金额错误。</text>
+  <text x="1038" y="798" class="muted">无证据、阻塞、跳过均不算通过。</text>
+  <rect x="240" y="853" width="1160" height="121" rx="10" fill="#eeeee5"/>
+  <text x="260" y="883" class="h3">联合回归：两份结论，不混成一个总分</text>
+  <text x="260" y="913">功能测试副本 F → API / 状态核验</text>
+  <text x="719" y="913">助手评测副本 A → 对话 / 工具 / RAG 核验</text>
+  <text x="260" y="944" class="muted">独立会话 · 独立权限 · 独立可变数据 · 独立队列 / 配额 · 共用确定性执行器与证据系统</text>
+  <text x="240" y="1009" class="muted">设计说明：功能测试页将以 API 步骤 / 状态前后对比替代中间对话区；完整需求见 prd-op-quality-center.md。</text>
+</svg>

@@ -103,7 +103,7 @@ def test_tool_rejects_invalid_identity_price_and_buyer(client):
         token=set_actor(db,Actor(user.id,user.role,user.username,1))
         try:
             assert "先向商家确认" in execute_tool("prepare_product_draft", {"name":"只有名字"})
-            assert "工具执行失败" in execute_tool("prepare_product_draft", {"source_product_id":999999})
+            assert "没有找到本店可访问的资源" in execute_tool("prepare_product_draft", {"source_product_id":999999})
         finally:reset_actor(token)
 
 

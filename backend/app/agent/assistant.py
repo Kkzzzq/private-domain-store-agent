@@ -75,10 +75,15 @@ def run_tool_loop(history: list[dict], summary: str, user_text: str, llm=None, m
     for step in range(steps):
         if step and classify(user_text) == "recommend":
             tools = langchain_tools("recommend")
+            if any(trace["tool"] == "clarify_recommendation" and trace["result"].startswith("本轮信息不足") for trace in traces):
+                tools = []
             llm = base_llm.bind_tools(tools) if hasattr(base_llm, "bind_tools") else base_llm
         report_progress("model", step=step + 1)
         started = perf_counter()
         ai = llm.invoke(messages)
+        selected_model = getattr(ai, "response_metadata", {}).get("model")
+        if selected_model and selected_model not in actor.chat_models:
+            actor.chat_models.append(selected_model)
         report_progress("model_done", step=step + 1, duration_ms=round((perf_counter() - started) * 1000))
         calls = getattr(ai, "tool_calls", None) or []
         if not calls:
@@ -131,6 +136,8 @@ class Assistant:
         actor.products.clear()
         actor.sources.clear()
         actor.retrieval_mode = "none"
+        actor.chat_models.clear()
+        actor.embedding_model = ""
         actor.model_retries = 0
         actor.catalog_loaded = False
         from app.agent.product_preview import product_quick_reply
@@ -203,6 +210,8 @@ class Assistant:
             "products": list({row["id"]: row for row in actor.products}.values()),
             "sources": actor.sources,
             "retrieval_mode": actor.retrieval_mode,
+            "chat_models": actor.chat_models,
+            "embedding_model": actor.embedding_model,
             "summary_mode": state.get("summary_mode", "none"),
             "model_retries": actor.model_retries,
         }

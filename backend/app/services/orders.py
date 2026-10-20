@@ -71,9 +71,14 @@ def format_order_text(order: Order) -> str:
     item_text = "，".join(
         f"{item['product_name']} {item['sku_spec']} x{item['quantity']}" for item in data["items"]
     )
+    from sqlalchemy.orm import object_session
+    from app.models.support import Shipment
+    db = object_session(order)
+    shipment = db.scalar(select(Shipment).where(Shipment.order_id == order.id)) if db else None
+    logistics = f"。商家物流记录：{shipment.carrier}，运单号 {shipment.tracking_number}，状态 {shipment.status}" if shipment else "。暂无商家填写的物流记录，不可推测快递位置"
     return (
         f"订单 {data['order_no']}，{data['status_label']}，合计 ¥{data['total_yuan']:.2f}，"
-        f"地址 {data['address']}。商品：{item_text}"
+        f"地址 {data['address']}。商品：{item_text}{logistics}"
     )
 
 

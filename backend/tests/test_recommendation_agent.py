@@ -177,6 +177,11 @@ def test_recommendation_intents(message):
     assert classify(message) == "recommend"
 
 
+def test_refund_word_is_not_mistaken_for_product_style():
+    assert classify("订单杯子破损想换货，怎么联系商家，不要直接办理退款") == "policy"
+    assert classify("换一款白色商品") == "recommend"
+
+
 @pytest.mark.parametrize("skip_initial", [False, True])
 def test_overview_only_no_match_answer_is_corrected_into_filter(catalog_actor, monkeypatch, skip_initial):
     from app.agent.assistant import assistant

@@ -11,6 +11,7 @@ def cloud_configuration(monkeypatch):
     monkeypatch.setattr(settings, "cloud_base_url", "https://example.test/v4")
     monkeypatch.setattr(settings, "cloud_api_key", "test-only")
     monkeypatch.setattr(settings, "cloud_embedding_dimensions", 256)
+    monkeypatch.setattr(settings, "cloud_embedding_model", "embedding-3")
 
 
 def test_batching_sorting_and_embedding_protocol(monkeypatch):
@@ -64,3 +65,55 @@ def test_cloud_dimension_change_rejects_old_collection(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "cloud_embedding_dimensions", 512)
     with pytest.raises(ValueError, match="输入格式"):
         base.semantic_search("问题", ZhipuEmbedder())
+
+
+def test_qwen_embedding_uses_compatible_endpoint_and_ten_item_batches(monkeypatch):
+    from app.rag.cloud_embeddings import QwenEmbedder
+    from app.rag.knowledge import create_embedder
+    monkeypatch.setattr(settings, "cloud_api_style", "qwen")
+    monkeypatch.setattr(settings, "embedding_provider", "qwen")
+    monkeypatch.setattr(settings, "cloud_base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    monkeypatch.setattr(settings, "cloud_embedding_model", "text-embedding-v4")
+    sizes = []
+    def post(url, **kwargs):
+        assert url.endswith("/compatible-mode/v1/embeddings")
+        body = kwargs["json"]
+        assert body["model"] == "text-embedding-v4" and body["dimensions"] == 256
+        sizes.append(len(body["input"]))
+        return httpx.Response(200, json={"data": [{"index": index, "embedding": [1.0] + [0.0] * 255} for index in range(len(body["input"]))]})
+    monkeypatch.setattr(httpx, "post", post)
+    embedder = create_embedder()
+    assert isinstance(embedder, QwenEmbedder)
+    assert len(embedder.embed_documents(["政策"] * 21)) == 21
+    assert sizes == [10, 10, 1]
+    assert embedder.input_version == "qwen-heading-v1-d256"
+
+
+def test_embedding_quota_error_does_not_retry_chargeable_request(monkeypatch):
+    calls = []
+    def exhausted(*args, **kwargs):
+        calls.append(1)
+        return httpx.Response(429, json={"error": {"code": "1113", "message": "not-for-logs"}})
+    monkeypatch.setattr(httpx, "post", exhausted)
+    with pytest.raises(RuntimeError, match="1113"):
+        ZhipuEmbedder().embed_query("政策")
+    assert len(calls) == 1
+
+
+def test_embedding_uses_separate_provider_and_never_chat_key(monkeypatch, tmp_path):
+    key_file = tmp_path / "embedding-key.txt"
+    key_file.write_text("embedding-test-only", encoding="utf-8")
+    monkeypatch.setattr(settings, "cloud_api_style", "deepseek")
+    monkeypatch.setattr(settings, "cloud_api_key", "chat-test-only")
+    monkeypatch.setattr(settings, "cloud_base_url", "https://api.deepseek.com")
+    monkeypatch.setattr(settings, "cloud_embedding_base_url", "https://example.test/vectors")
+    monkeypatch.setattr(settings, "cloud_embedding_api_key_file", str(key_file))
+    def post(url, **kwargs):
+        assert url == "https://example.test/vectors/embeddings"
+        assert kwargs["headers"]["Authorization"] == "Bearer embedding-test-only"
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0] * 256}]})
+    monkeypatch.setattr(httpx, "post", post)
+    assert len(ZhipuEmbedder().embed_query("政策")) == 256
+    monkeypatch.setattr(settings, "cloud_embedding_api_key_file", "")
+    with pytest.raises(RuntimeError, match="独立密钥"):
+        ZhipuEmbedder().embed_query("政策")
