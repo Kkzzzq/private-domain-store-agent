@@ -6,8 +6,15 @@
   const labels = {requested:'待商家处理',accepted:'已受理',rejected:'已拒绝',resolved:'处理完成',withdrawn:'已撤销',return_shipped:'买家已寄回',shipped:'已发货',transit:'运输中',delivered:'已签收',exception:'物流异常'};
   const kinds = {return:'退货',exchange:'换货',repair:'维修',other:'其他问题'};
   const time = value => new Date(value).toLocaleString('zh-CN', {hour12:false});
-  const trigger = el('button', 'support-launch', merchant ? '客户消息 / 售后' : '联系商家'); trigger.type = 'button';
-  document.body.append(trigger);
+  const trigger = el('button', merchant ? 'support-launch' : 'support-header-launch', merchant ? '客户消息 / 售后' : '联系商家'); trigger.type = 'button';
+  trigger.setAttribute('aria-label',merchant?'客户消息与售后':'联系商家');
+  function placeTrigger() {
+    if(merchant) { if(!trigger.isConnected)document.body.append(trigger); return; }
+    const target=document.querySelector('.store-nav');
+    trigger.hidden=!target;
+    if(target&&trigger.parentElement!==target)target.append(trigger);
+  }
+  placeTrigger();
   let panel, main, nav, notice, tab = 'chat', token, controller, timer, conversation, cursor = 0, firstId = 0;
   let orders = [], conversations = [], code, polling = false, pendingSend = null, orderContext = '';
   function close() { clearInterval(timer); controller?.abort(); panel?.remove(); panel = null; conversation = null; cursor = 0; firstId = 0; trigger.setAttribute('aria-expanded', 'false'); }
@@ -39,12 +46,14 @@
     const list=el('ol','support-timeline');
     [...rows].reverse().forEach(row => { const li=el('li'); li.append(el('small','', `${row.role==='merchant'?'商家':'买家'} · ${time(row.at)}`),el('p','',row.text)); list.append(li); }); container.append(list);
   }
-  async function open() {
+  async function open(options={}) {
+    const requestedTab=['chat','shipping','tickets'].includes(options.tab)?options.tab:'chat';
+    const requestedOrder=/^PS\d{8,32}$/.test(options.orderNo||'')?options.orderNo:'';
     if (!sessionStorage.getItem(key)) {
       if (merchant) { location.href='/login'; return; }
-      StoreAuth.openDialog({role:'customer',onSuccess:open}); return;
+      StoreAuth.openDialog({role:'customer',onSuccess:()=>open(options)}); return;
     }
-    close(); token=sessionStorage.getItem(key); controller=new AbortController();
+    close(); tab=requestedTab;orderContext=requestedOrder;token=sessionStorage.getItem(key); controller=new AbortController();
     panel=el('section','support-panel'); panel.setAttribute('role','dialog'); panel.setAttribute('aria-label',merchant?'客户服务':'联系商家');
     const head=el('header','support-head'); head.append(el('div','', merchant?'客户服务':'店铺人工服务'),action('×',close,'support-close'));
     nav=el('nav','support-tabs');
@@ -55,10 +64,10 @@
     head.querySelector('button').setAttribute('aria-label','关闭客户服务');
     const openedPanel=panel;
     try {
-      code=merchant ? (await createApi(key)('/api/v1/b/shop',{signal:controller.signal})).share_code : new URLSearchParams(location.search).get('code')||'nanzhi';
+      code=merchant ? (await createApi(key)('/api/v1/b/shop',{signal:controller.signal})).share_code : document.querySelector('.store-nav')?.dataset.shopCode||new URLSearchParams(location.search).get('code')||'nanzhi';
       if(panel!==openedPanel)return;
       await loadOrders();
-      if (!merchant) conversation=await call(`/shops/${encodeURIComponent(code)}/conversation`,{method:'POST'});
+      if(orderContext&&!orders.some(order=>order.order_no===orderContext))throw Error('未找到当前账号在本店的这个订单，请从订单中心重新选择');
       [...nav.children].forEach(button=>button.disabled=false);
       await paint();
       timer=setInterval(async()=>{
@@ -87,6 +96,8 @@
     conversations.forEach(item=>{ const b=action(`${item.name}${item.unread?` · ${item.unread}条未读`:''}`,async()=>{conversation=item;cursor=0;firstId=0;pendingSend=null;await chat();}, item.id===conversation?.id?'selected':''); b.append(el('small','',item.last_message||'暂无消息')); list.append(b); });
   }
   async function chat() {
+    if(!conversation&&(!merchant||orderContext)) conversation=await call(orderContext?`/orders/${encodeURIComponent(orderContext)}/conversation`:`/shops/${encodeURIComponent(code)}/conversation`,{method:'POST'});
+    if(tab!=='chat'||!panel)return;
     cursor=0;firstId=0;main.replaceChildren();
     const layout=el('div','support-chat-layout');
     if(merchant) layout.append(el('aside','support-inbox'));
@@ -132,7 +143,7 @@
   }
   async function shipping() {
     await loadOrders();if(tab!=='shipping'||!panel)return;
-    const form=el('form','support-stack');form.addEventListener('submit',e=>e.preventDefault());const select=selectOrder(form);select.required=true;main.append(form);
+    const form=el('form','support-stack');form.addEventListener('submit',e=>e.preventDefault());const select=selectOrder(form,orderContext);select.required=true;main.append(form);
     const detail=el('div','support-shipment'); main.append(detail);
     const show=async()=>{
       detail.replaceChildren();if(!select.value)return;
@@ -153,12 +164,12 @@
       }
     };
     select.addEventListener('change',()=>show().catch(error));
-    if(orders.length){select.value=orders[0].order_no;await show();}else main.append(el('p','support-empty','暂无订单'));
+    if(orders.length){if(!select.value)select.value=orders[0].order_no;await show();}else main.append(el('p','support-empty','暂无订单'));
   }
   async function tickets() {
     await loadOrders();if(tab!=='tickets'||!panel)return;
     if(!merchant){
-      const form=el('form','support-stack');form.append(el('h3','','申请售后'));const order=selectOrder(form);order.required=true;
+      const form=el('form','support-stack');form.append(el('h3','','申请售后'));const order=selectOrder(form,orderContext);order.required=true;
       const kind=el('select');kind.name='kind';kind.setAttribute('aria-label','售后类型');Object.entries(kinds).forEach(([k,v])=>kind.append(new Option(v,k)));form.append(kind);
       input(form,'问题说明','reason',true,500);const submit=el('button','support-primary','提交申请');submit.type='submit';form.append(submit);
       form.addEventListener('submit',async e=>{e.preventDefault();submit.disabled=true;try{await call(`/orders/${order.value}/after-sale`,json('POST',Object.fromEntries(new FormData(form))));await paint();}catch(err){error(err);}finally{submit.disabled=false;}});main.append(form);
@@ -186,13 +197,16 @@
     });
     main.append(el('p','support-muted','处理记录不代表退款到账；资金退款暂未接入。'));
   }
+  document.addEventListener('store-support-open',event=>open(event.detail||{}));
   trigger.addEventListener('click',()=>panel?close():open());trigger.setAttribute('aria-expanded','false');
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&panel){close();trigger.focus();}});
   new MutationObserver(()=>{
-    trigger.hidden=merchant&&!sessionStorage.getItem(key);
-    if(panel&&sessionStorage.getItem(key)!==token)close();
+    placeTrigger();
+    if(merchant)trigger.hidden=!sessionStorage.getItem(key);
+    if(panel&&(sessionStorage.getItem(key)!==token||(!merchant&&document.querySelector('.store-nav')?.dataset.shopCode!==code)))close();
   }).observe(document.getElementById('app'),{childList:true});
-  trigger.hidden=merchant&&!sessionStorage.getItem(key);
+  placeTrigger();
+  if(merchant)trigger.hidden=!sessionStorage.getItem(key);
   setInterval(async()=>{
     const current=sessionStorage.getItem(key); if(!current||panel||document.hidden)return;
     try {

@@ -192,6 +192,7 @@ function renderStrip() {
 
   const nav = h("nav", "store-nav");
   nav.setAttribute("aria-label", "买家快捷入口");
+  nav.dataset.shopCode = code;
   const cart = h("a", "", "购物车");
   cart.href = "#/cart";
   const orders = h("a", "", "订单中心");
@@ -2232,7 +2233,7 @@ function renderChat() {
   const box = h("aside", "chat");
   const head = document.createElement("header");
   const title = h("div");
-  title.append(h("b", "", `${storeAssistantName(shop)} · 店内助手`), h("small", "", "商品 · 库存 · 订单 · 售后"));
+  title.append(h("b", "", `${storeAssistantName(shop)} · 店内助手`), h("small", "", "选品加购 · 我的订单 · 物流售后 · 联系商家"));
   const close = h("button", "close", "×");
   close.addEventListener("click", () => {
     chatOpen = false;
@@ -2262,7 +2263,7 @@ function renderChat() {
       link.append(image, h("span", "", `${product.name} · ${money(product.price_from)}起`));
       const item = h("div", "agent-product-item");
       item.style.cssText = "display:flex;align-items:center;gap:6px";
-      const purchase = h("button", "btn-ghost agent-product-buy", "🛒");
+      const purchase = h("button", "btn-ghost agent-product-buy", "🛒 选规格并加购");
       purchase.type = "button";
       purchase.setAttribute("aria-label", `选择规格并购买${product.name}`);
       purchase.title = "选择规格 · 加购或购买";
@@ -2277,7 +2278,14 @@ function renderChat() {
         } catch (error) { toast(error.message, "bad"); }
         finally { purchase.disabled = false; }
       });
-      item.append(link, purchase);
+      const confirmation = h("div", "agent-product-confirm");
+      confirmation.append(h("p", "", `要把「${product.name}」加入购物车吗？`));
+      const choices = h("div", "agent-product-options");
+      const dismiss = h("button", "agent-product-dismiss", "暂时不需要");
+      dismiss.type = "button";
+      dismiss.addEventListener("click", () => confirmation.remove());
+      choices.append(purchase, dismiss); confirmation.append(choices);
+      item.append(link, confirmation);
       cards.append(item);
     });
     log.append(cards);
@@ -2287,6 +2295,7 @@ function renderChat() {
     if (!line.me) renderAssistantMessage(bubble, line.text);
     log.append(bubble);
     appendCards(line.products);
+    if (!line.me) StoreAssistantActions.orderActions(log, line.text, {role:"customer", orders:()=>go("#/orders"), shopCode:code});
   });
   const tips = h("div", "tips");
   storefrontSettings(shop).quick_questions.forEach((text) => {
@@ -2333,6 +2342,7 @@ function renderChat() {
       const answer = `${data.answer}${knowledgeSourceText(data)}${data.mode === "fallback" ? "\n规则查询模式" : ""}${data.notices.length ? "\n" + data.notices.join("；") : ""}`;
       renderAssistantMessage(pending, answer);
       appendCards(data.products);
+      StoreAssistantActions.orderActions(log, answer, {role:"customer", orders:()=>go("#/orders"), shopCode:code});
       chatLines.push({ me: false, text: answer, products: data.products });
     } catch (error) {
       if (requestIdentity !== currentChatIdentity()) return;
@@ -2347,7 +2357,10 @@ function renderChat() {
     }
     log.scrollTop = log.scrollHeight;
   });
-  box.append(head, log, tips, form);
+  const shortcuts = StoreAssistantActions.toolbar({role:"customer", shopCode:code,
+    ask:text=>{ if (!chatBusy && !chatRestoring && !chatRestoreError) { input.value=text; form.requestSubmit(); } },
+    orders:()=>go("#/orders")});
+  box.append(head, shortcuts, log, tips, form);
   requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
   return box;
 }

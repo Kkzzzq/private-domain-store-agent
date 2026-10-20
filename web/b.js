@@ -478,13 +478,14 @@ function merchantAssistant() {
     panel.remove();
   });
   header.append(h("h2", "", `${storeAssistantName(shopInfo)} · 智能运营助手`), close);
-  panel.append(header, h("p", "muted", "商品 · 库存 · 订单 · 经营概览"));
+  panel.append(header, h("p", "muted", "商品配置 · 本店订单 · 库存经营 · 客户服务"));
   const log = h("div", "merchant-chat-log");
   const append = (data) => {
     const question = data.text.startsWith("你：");
     const content = h("div", question ? "merchant-question" : "merchant-answer", data.text);
     if (!question) renderAssistantMessage(content, data.text);
     log.append(content);
+    if (!question) StoreAssistantActions.orderActions(log, data.text, {role:"merchant", orders:()=>go("#/orders")});
     (data.proposals || []).forEach((proposal) => {
       const button = h("button", "btn-ghost", `预览商品配置：${proposal.name}`);
       button.type = "button";
@@ -557,7 +558,10 @@ function merchantAssistant() {
       if (visiblePanel && visiblePanel !== panel) visiblePanel.replaceWith(merchantAssistant());
     }
   });
-  panel.append(log, form);
+  const shortcuts = StoreAssistantActions.toolbar({role:"merchant",
+    ask:text=>{ if (!merchantChatBusy) { input.value=text; form.requestSubmit(); } },
+    orders:()=>go("#/orders")});
+  panel.append(shortcuts, log, form);
   return panel;
 }
 
