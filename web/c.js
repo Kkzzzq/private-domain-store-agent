@@ -176,6 +176,18 @@ function renderStrip() {
     const login = h("button", "strip-login", "亲，请登录");
     login.addEventListener("click", loginModal);
     left.append(login);
+  } else {
+    const logout = h("button", "strip-login", "退出登录");
+    logout.addEventListener("click", async () => {
+      logout.disabled = true;
+      try {
+        await StoreAuth.logout("token_c");
+        sessionId = ""; chatLines = []; chatIdentity = ""; chatRestored = false;
+        cartCount = 0; addressId = null;
+        render();
+      } catch (error) { toast(error.message, "bad"); logout.disabled = false; }
+    });
+    left.append(logout);
   }
 
   const nav = h("nav", "store-nav");
@@ -2345,6 +2357,12 @@ window.addEventListener("message", event => {
       event.data?.type !== "decoration-preview" || event.data.nonce !== decorationPreview) return;
   previewPayload = event.data.data;
   render();
+});
+window.addEventListener("store-auth-expired", event => {
+  if (event.detail.tokenKey !== "token_c") return;
+  sessionId = ""; chatLines = []; chatIdentity = ""; chatRestored = false;
+  cartCount = 0; addressId = null;
+  queueMicrotask(render);
 });
 window.addEventListener("hashchange", render);
 document.addEventListener("click", event => {

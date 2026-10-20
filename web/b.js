@@ -220,6 +220,7 @@ async function render() {
   document.querySelectorAll("body > .modal").forEach((node) => node.remove());
   root.replaceChildren(h("div", "panel admin-loading", "正在加载工作台…"));
   if (!loggedIn()) {
+    document.title = "账号登录 · 小店";
     root.replaceChildren(loginView());
     return;
   }
@@ -243,6 +244,7 @@ async function render() {
     }
   }
   if (shopInfo) {
+    document.title = `${storefrontSettings(shopInfo).merchant_title} · ${shopInfo.name}`;
     applyTheme(shopInfo.theme_color);
     applyStorefrontSettings(shopInfo);
     document.body.classList.toggle("tinted", shopInfo.strip_tint !== false);
@@ -290,13 +292,22 @@ function topBar() {
   return bar;
 }
 
-function leaveMerchantAccount(switching = false) {
+async function leaveMerchantAccount(switching = false) {
+  try { await StoreAuth.logout("token_b"); }
+  catch (error) { toast(error.message); return; }
   switchingAccount = switching;
   sessionStorage.removeItem("token_b");
   me = null; shopInfo = null; decorationWorkspace = null;
   merchantSession = ""; merchantMessages = []; merchantChatOpen = false;
   render();
 }
+
+window.addEventListener("store-auth-expired", event => {
+  if (event.detail.tokenKey !== "token_b") return;
+  me = null; shopInfo = null; decorationWorkspace = null;
+  merchantSession = ""; merchantMessages = []; merchantChatOpen = false;
+  queueMicrotask(render);
+});
 
 function accountMenu() {
   const menu = h("details", "account-menu");

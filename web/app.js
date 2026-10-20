@@ -29,6 +29,13 @@ function detailOf(data) {
   return "请求失败";
 }
 
+function expireAuth(response, tokenKey, token) {
+  if (response.status === 401 && token && sessionStorage.getItem(tokenKey) === token) {
+    sessionStorage.removeItem(tokenKey);
+    window.dispatchEvent(new CustomEvent("store-auth-expired", {detail: {tokenKey}}));
+  }
+}
+
 function createApi(tokenKey) {
   return async function api(path, options = {}) {
     const headers = { ...(options.headers || {}) };
@@ -36,6 +43,7 @@ function createApi(tokenKey) {
     if (token) headers.Authorization = `Bearer ${token}`;
     if (options.body) headers["Content-Type"] = "application/json";
     const response = await fetch(path, { ...options, headers });
+    expireAuth(response, tokenKey, token);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(detailOf(data));
     return data;
@@ -173,11 +181,13 @@ function renderAssistantMessage(element, text) {
 }
 
 async function streamChat(path, tokenKey, body, onProgress, onPreview = () => {}) {
+  const token = sessionStorage.getItem(tokenKey) || "";
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionStorage.getItem(tokenKey) || ""}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
+  expireAuth(response, tokenKey, token);
   if (!response.ok) throw new Error(detailOf(await response.json().catch(() => ({}))));
   if (!response.body) throw new Error("浏览器不支持流式响应，请更新浏览器");
   const reader = response.body.getReader();

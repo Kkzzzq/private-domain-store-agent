@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://127.0.0.1:6379/0"
     jwt_secret: str = "dev-secret-change-me-please-use-32b"
     jwt_expire_minutes: int = 60 * 24
+    auth_login_limit: int = Field(default=60, ge=1)
+    auth_register_limit: int = Field(default=20, ge=1)
+    demo_login_enabled: bool = True
+    demo_login_username: str = 'merchant'
+    demo_login_password: str = 'merchant123'
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:7b"
     ollama_reasoning: bool | None = None

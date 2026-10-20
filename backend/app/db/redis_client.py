@@ -36,7 +36,10 @@ class MemoryRedis:
     def increment(self, key, ttl):
         with self.lock:
             count = int(self.get(key) or 0) + 1
-            self.set(key, str(count), ex=ttl)
+            expiry = self.expires.get(key, time.monotonic() + ttl)
+            self.set(key, str(count), ex=ttl if count == 1 else None)
+            if count > 1:
+                self.expires[key] = expiry
             return count
 
     def delete(self, *keys: str) -> int:

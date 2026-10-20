@@ -6,13 +6,13 @@ window.StoreAuth = (() => {
   };
   function createForm(options = {}) {
     const root = el("section", "auth-card");
-    let mode = "login", role = options.role || "customer", username = "", busy = false, controller;
+    let mode = "login", role = options.role || "customer", username = options.username || "", busy = false, controller;
     root.dispose = () => controller?.abort();
     function paint() {
       root.replaceChildren();
       const eyebrow = el("p", "auth-eyebrow", "A LITTLE STORE, A LOVELY EVERYDAY");
       const title = el("h1", "auth-title", mode === "login" ? "欢迎回来" : "开启你的小店日常");
-      root.append(eyebrow, title, el("p", "auth-description", mode === "register" ? "创建你的账号，开启一段新的小店日常。" : role === "merchant" ? "登录商家账号，轻松打理每一份热爱。" : "登录买家账号，继续发现喜欢的好物。"));
+      root.append(eyebrow, title, el("p", "auth-description", mode === "register" ? "创建你的账号，开启一段新的小店日常。" : "同一个账号，自由进入买家店铺和商家工作台。"));
       const tabs = el("div", "auth-tabs");
       for (const [value, label] of [["login", "登录"], ["register", "注册"]]) {
         const tab = el("button", mode === value ? "active" : "", label); tab.type = "button";
@@ -22,18 +22,10 @@ window.StoreAuth = (() => {
       }
       root.append(tabs);
       const form = el("form", "auth-form");
-      if (!options.role) {
-        const choice = el("fieldset", "auth-roles"); choice.append(el("legend", "", "账号类型"));
-        for (const [value, label] of [["customer", "买家账号"], ["merchant", "商家账号"]]) {
-          const wrap = el("label"); const radio = el("input"); radio.type = "radio"; radio.name = "role"; radio.value = value; radio.checked = role === value;
-          radio.addEventListener("change", () => { username = form.elements.username.value; role = value; paint(); });
-          wrap.append(radio, document.createTextNode(label)); choice.append(wrap);
-        }
-        form.append(choice);
-      }
       const field = (label, name, type, placeholder, required = true) => {
         const wrap = el("label", "auth-field"); wrap.append(el("span", "", label));
         const input = el("input"); input.type = type; input.name = name; input.required = required; input.placeholder = placeholder;
+        if (name === "password" && mode === "login" && options.demo) input.value = options.password || "";
         input.maxLength = name === "username" || name === "nickname" ? 32 : 64;
         input.autocomplete = name === "username" ? "username" : name === "password" ? (mode === "login" ? "current-password" : "new-password") : "off";
         if (name === "username") { input.value = username; if (mode === "register") { input.pattern = "[A-Za-z0-9_]{3,32}"; input.title = "3至32位字母、数字或下划线"; } }
@@ -51,19 +43,20 @@ window.StoreAuth = (() => {
         event.preventDefault(); if (busy) return;
         error.textContent = "";
         if (mode === "register" && form.elements.password.value !== form.elements.confirm_password.value) { error.textContent = "两次输入的密码不一致"; return; }
+        if (mode === "register" && new TextEncoder().encode(form.elements.password.value).length > 72) { error.textContent = "密码最多72个UTF-8字节（中文通常每字3字节）"; return; }
         busy = true; controller = new AbortController();
         root.querySelectorAll("button,input").forEach(node => { node.disabled = true; });
         submit.textContent = mode === "login" ? "正在登录…" : "正在创建账号…";
         try {
           const body = {username: form.elements.username.value.trim(), password: form.elements.password.value};
           if (mode === "register") Object.assign(body, {role, nickname: form.elements.nickname.value.trim()});
-          const response = await fetch(`/api/v1/auth/${mode}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:controller.signal});
+          const response = await fetch(`/api/v1/auth/portal-${mode}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:controller.signal});
           const data = await response.json();
           if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "请检查账号、密码和填写格式");
-          if (data.user.role !== role) throw new Error(`请使用${role === "merchant" ? "商家" : "买家"}账号登录`);
+
           if (!root.isConnected) return;
-          sessionStorage.setItem(role === "merchant" ? "token_b" : "token_c", data.access_token);
-          sessionStorage.setItem("portal_role", role);
+          saveSession(data);
+          data.user.role = role;
           await options.onSuccess?.(data);
         } catch (err) { if (err.name !== "AbortError") error.textContent = err.message; }
         finally {
@@ -94,10 +87,36 @@ window.StoreAuth = (() => {
     for (const key of order) {
       const token = sessionStorage.getItem(key); if (!token) continue;
       const response = await fetch("/api/v1/auth/me", {headers:{Authorization:`Bearer ${token}`}});
+      if (sessionStorage.getItem(key) !== token) continue;
       if (response.ok) return response.json();
       if (response.status === 401) sessionStorage.removeItem(key);
     }
     return null;
   }
-  return {createForm, openDialog, currentUser};
+  function saveSession(data) {
+    sessionStorage.setItem("token_b", data.token_b);
+    sessionStorage.setItem("token_c", data.token_c);
+    sessionStorage.setItem("account_shared", "1");
+    sessionStorage.setItem("portal_role", "merchant");
+  }
+  async function logout(tokenKey) {
+    if (sessionStorage.getItem("account_shared") === "1") {
+      const saved = ["token_b", "token_c"].map(key => [key, sessionStorage.getItem(key)]);
+      for (const [, value] of saved) {
+        if (!value) continue;
+        const response = await fetch("/api/v1/auth/logout", {method:"POST", headers:{Authorization:`Bearer ${value}`}});
+        if (!response.ok && response.status !== 401) throw new Error("退出失败，请稍后重试");
+      }
+      for (const [key, value] of saved) if (sessionStorage.getItem(key) === value) sessionStorage.removeItem(key);
+      if (!sessionStorage.getItem("token_b") && !sessionStorage.getItem("token_c")) sessionStorage.removeItem("account_shared");
+      return;
+    }
+    const token = sessionStorage.getItem(tokenKey);
+    if (token) {
+      const response = await fetch("/api/v1/auth/logout", {method:"POST", headers:{Authorization:`Bearer ${token}`}});
+      if (!response.ok && response.status !== 401) throw new Error("退出失败，请稍后重试");
+    }
+    if (sessionStorage.getItem(tokenKey) === token) sessionStorage.removeItem(tokenKey);
+  }
+  return {createForm, openDialog, currentUser, logout, saveSession};
 })();

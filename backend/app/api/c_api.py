@@ -114,7 +114,7 @@ def read_product(
     db: Session = Depends(get_db),
 ):
     product = get_c_product(db, share_code, product_id, user)
-    if user is not None and user.role == "customer":
+    if user is not None and user.actor_role == "customer":
         record_view(user.id, product_id)
     return product
 
@@ -246,7 +246,7 @@ def chat(
     db: Session = Depends(get_db),
 ):
     shop = shop_by_code(db, share_code)
-    token = set_actor(db, Actor(user.id, user.role, user.username, shop.id))
+    token = set_actor(db, Actor(user.id, user.actor_role, user.username, shop.id))
     try:
         return assistant.chat(user_id=user.id, shop_id=shop.id, session_id=body.session_id, message=body.message.strip())
     finally:

@@ -125,7 +125,7 @@ def stream_chat(body: ChatIn, user: User = Depends(require_merchant), db: Sessio
 @router.post("/chat", response_model=ChatOut)
 def chat(body: ChatIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
     shop = merchant_shop(db, user)
-    token = set_actor(db, Actor(user.id, user.role, user.username, shop.id))
+    token = set_actor(db, Actor(user.id, user.actor_role, user.username, shop.id))
     try:
         return assistant.chat(user_id=user.id, shop_id=shop.id, session_id=body.session_id, message=body.message)
     finally:

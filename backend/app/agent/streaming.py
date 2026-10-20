@@ -16,7 +16,7 @@ _slots = BoundedSemaphore(8)
 
 
 def chat_stream(user, shop_id, body):
-    identity = (user.id, user.role, user.username)
+    identity = (user.id, user.actor_role, user.username)
 
     async def events():
         queue = asyncio.Queue()

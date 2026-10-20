@@ -130,7 +130,7 @@ def _bought_quantity(db: Session, user_id: int, product_id: int) -> int:
 
 
 def create_order(db: Session, user: User, share_code: str, body: OrderCreate) -> dict:
-    if user.role != "customer":
+    if user.actor_role != "customer":
         raise HTTPException(status_code=403, detail="请使用买家账号下单")
     # Serialize this buyer's check-and-create sequence, including different SKU requests.
     db.execute(select(User.id).where(User.id == user.id).with_for_update()).scalar_one()

@@ -18,12 +18,12 @@ def stamp(value):
 
 
 def event(user, text):
-    return dict(at=stamp(utcnow()), role=user.role, text=text)
+    return dict(at=stamp(utcnow()), role=user.actor_role, text=text)
 
 
 def owned_order(db, user, number, lock=False):
     query = select(Order).where(Order.order_no == number)
-    if user.role == 'customer':
+    if user.actor_role == 'customer':
         query = query.where(Order.user_id == user.id)
     else:
         query = query.where(Order.shop_id == merchant_shop(db, user).id)
@@ -37,18 +37,18 @@ def owned_order(db, user, number, lock=False):
 
 def owned_conversation(db, user, conversation_id):
     row = db.get(Conversation, conversation_id)
-    if not row or (user.role == 'customer' and row.customer_id != user.id) or (
-        user.role == 'merchant' and row.shop_id != merchant_shop(db, user).id):
+    if not row or (user.actor_role == 'customer' and row.customer_id != user.id) or (
+        user.actor_role == 'merchant' and row.shop_id != merchant_shop(db, user).id):
         raise HTTPException(404, '没有找到这个会话')
     return row
 
 
 def conversation_payload(db, user, row):
     last = db.scalar(select(Message).where(Message.conversation_id == row.id).order_by(Message.id.desc()).limit(1))
-    read = row.buyer_read if user.role == 'customer' else row.merchant_read
+    read = row.buyer_read if user.actor_role == 'customer' else row.merchant_read
     unread = db.scalar(select(func.count(Message.id)).where(Message.conversation_id == row.id,
-        Message.sender_id != user.id, Message.id > read))
-    name = db.get(Shop, row.shop_id).name if user.role == 'customer' else db.get(User, row.customer_id).nickname
+        Message.sender_role != user.actor_role, Message.id > read))
+    name = db.get(Shop, row.shop_id).name if user.actor_role == 'customer' else db.get(User, row.customer_id).nickname
     return dict(id=row.id, name=name, customer_username=db.get(User, row.customer_id).username,
         unread=unread, last_message=last.content[:100] if last else '', updated_at=stamp(row.updated_at))
 
@@ -81,7 +81,7 @@ def order_conversation(number: str, user=Depends(get_current_user), db: Session=
 @router.get('/conversations')
 def conversations(user=Depends(get_current_user), db: Session=Depends(get_db)):
     query = select(Conversation)
-    query = query.where(Conversation.customer_id == user.id) if user.role == 'customer' else query.where(Conversation.shop_id == merchant_shop(db, user).id)
+    query = query.where(Conversation.customer_id == user.id) if user.actor_role == 'customer' else query.where(Conversation.shop_id == merchant_shop(db, user).id)
     return [conversation_payload(db, user, row) for row in db.scalars(query.order_by(Conversation.updated_at.desc(), Conversation.id.desc())).all()]
 
 
@@ -123,10 +123,10 @@ def send(conversation_id: int, body: MessageIn, user=Depends(get_current_user), 
             raise HTTPException(400, '订单与当前会话不匹配')
     existing = db.scalar(select(Message).where(Message.conversation_id == conv.id, Message.client_id == body.client_id))
     if existing:
-        if existing.sender_id != user.id:
+        if existing.sender_id != user.id or existing.sender_role != user.actor_role:
             raise HTTPException(409, '消息标识冲突')
         return message_payload(existing)
-    row = Message(conversation_id=conv.id, sender_id=user.id, sender_role=user.role,
+    row = Message(conversation_id=conv.id, sender_id=user.id, sender_role=user.actor_role,
         content=body.content, order_no=body.order_no, client_id=body.client_id)
     db.add(row)
     conv.updated_at = utcnow()
@@ -135,7 +135,7 @@ def send(conversation_id: int, body: MessageIn, user=Depends(get_current_user), 
     except IntegrityError:
         db.rollback()
         existing = db.scalar(select(Message).where(Message.conversation_id == conv.id, Message.client_id == body.client_id))
-        if not existing or existing.sender_id != user.id:
+        if not existing or existing.sender_id != user.id or existing.sender_role != user.actor_role:
             raise HTTPException(409, '消息标识冲突')
         return message_payload(existing)
     return message_payload(row)
@@ -150,7 +150,7 @@ def mark_read(conversation_id: int, body: ReadIn, user=Depends(get_current_user)
     row = owned_conversation(db, user, conversation_id)
     if body.message_id and not db.scalar(select(Message.id).where(Message.id == body.message_id, Message.conversation_id == row.id)):
         raise HTTPException(400, '消息不属于该会话')
-    column = Conversation.buyer_read if user.role == 'customer' else Conversation.merchant_read
+    column = Conversation.buyer_read if user.actor_role == 'customer' else Conversation.merchant_read
     db.execute(update(Conversation).where(Conversation.id == row.id, column < body.message_id).values({column.key:body.message_id}))
     db.commit()
     return {'ok':True}
@@ -235,7 +235,7 @@ def ticket_payload(db, row):
 @router.get('/after-sales')
 def tickets(user=Depends(get_current_user), db: Session=Depends(get_db)):
     query = select(AfterSale).join(Order, Order.id == AfterSale.order_id)
-    query = query.where(Order.user_id == user.id) if user.role == 'customer' else query.where(Order.shop_id == merchant_shop(db, user).id)
+    query = query.where(Order.user_id == user.id) if user.actor_role == 'customer' else query.where(Order.shop_id == merchant_shop(db, user).id)
     return [ticket_payload(db, row) for row in db.scalars(query.order_by(AfterSale.id.desc())).all()]
 
 
@@ -265,7 +265,7 @@ def process(ticket_id: int, body: ProcessIn, user=Depends(get_current_user), db:
         'return_ship':('accepted','return_shipped')}
     required, target = transitions[body.action]
     allowed_role = 'customer' if body.action in ('withdraw','return_ship') else 'merchant'
-    if user.role != allowed_role:
+    if user.actor_role != allowed_role:
         raise HTTPException(403, '当前账号不能执行此操作')
     if row.status not in (required if isinstance(required, tuple) else (required,)):
         raise HTTPException(409, '售后状态已变更，请刷新后重试')

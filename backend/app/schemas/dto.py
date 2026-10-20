@@ -10,10 +10,17 @@ class RegisterIn(BaseModel):
     role: Literal["customer", "merchant"] = "customer"
     nickname: str = Field(default="", max_length=32)
 
+    @field_validator("password")
+    @classmethod
+    def password_byte_length(cls, value: str) -> str:
+        if len(value.encode()) > 72:
+            raise ValueError("密码最多72个UTF-8字节（中文通常每字3字节）")
+        return value
+
 
 class LoginIn(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=32)
+    password: str = Field(min_length=1, max_length=64)
 
 
 class UserOut(BaseModel):

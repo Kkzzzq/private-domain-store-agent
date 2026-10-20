@@ -71,6 +71,10 @@ class User(Base):
     shop: Mapped["Shop | None"] = relationship(back_populates="merchant", uselist=False)
     orders: Mapped[list["Order"]] = relationship(back_populates="buyer")
 
+    @property
+    def actor_role(self) -> str:
+        return getattr(self, '_actor_role', self.role)
+
 
 class AccountClosure(Base):
     __tablename__ = "account_closures"
