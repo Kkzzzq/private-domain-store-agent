@@ -95,6 +95,8 @@ def create_review(db: Session, user: User, body: ReviewIn) -> dict:
     )
     db.add(review)
     db.commit()
+    from app.services.catalog import invalidate_catalog_cache
+    invalidate_catalog_cache()
     db.refresh(review)
     return {
         "id": review.id,

@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
+from secrets import randbelow
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.tables import Order, OrderItem, Product, Sku, User, utcnow
@@ -86,9 +87,10 @@ def _expires_in(order: Order) -> int | None:
 
 
 def _next_order_no(db: Session) -> str:
-    prefix = "PS" + datetime.now().strftime("%Y%m%d")
-    count = db.query(Order).filter(Order.order_no.like(prefix + "%")).count() + 1
-    return f"{prefix}{count:04d}"
+    # Count-based numbers collide when two requests arrive before either commits.
+    # Keep the existing numeric format used by the order assistant and 32-char column.
+    return "PS" + datetime.now().strftime("%Y%m%d") + f"{randbelow(10 ** 22):022d}"
+
 
 
 def freight_for(goods_cents: int, shop=None) -> int:
@@ -118,26 +120,23 @@ def _reserve_stock(db: Session, sku_id: int, quantity: int) -> bool:
 
 
 def _bought_quantity(db: Session, user_id: int, product_id: int) -> int:
-    return int(
-        db.scalar(
-            select(func.coalesce(func.sum(OrderItem.quantity), 0))
-            .join(Order, Order.id == OrderItem.order_id)
-            .where(
-                Order.user_id == user_id,
-                OrderItem.product_id == product_id,
-                Order.status != "cancelled",
-            )
-        )
-        or 0
-    )
+    # A locking read sees current committed orders even under MySQL REPEATABLE READ.
+    quantities = db.scalars(select(OrderItem.quantity).join(Order, Order.id == OrderItem.order_id).where(
+        Order.user_id == user_id, OrderItem.product_id == product_id,
+        Order.status != "cancelled",
+    ).with_for_update()).all()
+    return sum(quantities)
+
 
 
 def create_order(db: Session, user: User, share_code: str, body: OrderCreate) -> dict:
     if user.role != "customer":
         raise HTTPException(status_code=403, detail="请使用买家账号下单")
+    # Serialize this buyer's check-and-create sequence, including different SKU requests.
+    db.execute(select(User.id).where(User.id == user.id).with_for_update()).scalar_one()
     shop = shop_by_code(db, share_code)
     chosen: list[tuple[Sku, int]] = []
-    limit_hit: dict[int, int] = {}
+    product_quantities: dict[int, int] = {}
     for sku_id, quantity in _order_lines(body):
         sku = load_sku_for_shop(db, shop.id, sku_id)
         if sku is None:
@@ -145,20 +144,16 @@ def create_order(db: Session, user: User, share_code: str, body: OrderCreate) ->
         reason = purchase_block(sku, quantity)
         if reason:
             raise HTTPException(status_code=400, detail=reason)
-        limit = sku.product.limit_per_user
-        if limit:
-            already = _bought_quantity(db, user.id, sku.product_id)
-            if already + quantity > limit:
-                limit_hit[sku.product_id] = limit
-                continue
+        product_quantities[sku.product_id] = product_quantities.get(sku.product_id, 0) + quantity
         chosen.append((sku, quantity))
-    if limit_hit:
-        name = next(
-            (sku.product.name for sku, _ in chosen if sku.product_id in limit_hit),
-            "部分商品",
-        )
-        limit = next(iter(limit_hit.values()))
-        raise HTTPException(status_code=400, detail=f"{name} 每人限购 {limit} 件，已经买满了")
+    checked = set()
+    for sku, _ in chosen:
+        if sku.product_id in checked:
+            continue
+        checked.add(sku.product_id)
+        limit = sku.product.limit_per_user
+        if limit and _bought_quantity(db, user.id, sku.product_id) + product_quantities[sku.product_id] > limit:
+            raise HTTPException(status_code=400, detail=f"{sku.product.name} 每人限购 {limit} 件，已经买满了")
     if not chosen:
         raise HTTPException(status_code=400, detail="没有可下单的商品")
     goods_cents = 0
@@ -238,9 +233,8 @@ def pay_order(db: Session, user: User, order_no: str) -> dict:
     order.status = "paid"
     order.expires_at = None
     for item in order.items:
-        product = db.get(Product, item.product_id)
-        if product is not None:
-            product.sales_count += item.quantity
+        db.execute(update(Product).where(Product.id == item.product_id)
+            .values(sales_count=Product.sales_count + item.quantity))
     db.commit()
     invalidate_catalog_cache()
     saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
@@ -249,9 +243,8 @@ def pay_order(db: Session, user: User, order_no: str) -> dict:
 
 def _restore_stock(db: Session, order: Order) -> None:
     for item in order.items:
-        sku = db.get(Sku, item.sku_id)
-        if sku is not None:
-            sku.stock += item.quantity
+        db.execute(update(Sku).where(Sku.id == item.sku_id)
+            .values(stock=Sku.stock + item.quantity))
 
 
 def ship_order(db: Session, user: User, order_no: str) -> dict:

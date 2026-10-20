@@ -31,7 +31,7 @@ def main():
         products = get("/api/v1/b/products", True)
         catalog = get(prefix + "/products")
         by_id = {item["id"]: item for item in products}
-        expected = {item["id"] for item in products if item["status"] == "on" and business["status"] == "open"}
+        expected = {item["id"] for item in products if item["status"] == "on" and business["status"] == "open" and any(sku["status"] == "on" for sku in item["skus"])}
         check("SPU上下架可见范围", expected == {item["id"] for item in catalog})
         mismatches = []
         for product in catalog:
@@ -48,6 +48,30 @@ def main():
                     if original.get(field) != sku.get(field):
                         mismatches.append(f"SKU{sku['id']}:{field}")
         check("SPU/SKU字段逐项对齐", not mismatches, "；".join(mismatches))
+        check("SKU排序与B端一致", all(
+            [sku["id"] for sku in product["skus"]] == [sku["id"] for sku in by_id[product["id"]]["skus"] if sku["status"] == "on"]
+            for product in catalog))
+        details = [get(prefix + f"/products/{product['id']}") for product in catalog]
+        check("商品列表与详情字段一致", all(all(detail[field] == product[field] for field in
+            ("name", "category", "price_from", "market_from", "skus", "tags", "rating_avg", "review_count"))
+            for detail, product in zip(details, catalog)))
+        collection = get(prefix + "/collections/all")
+        check("全部商品合集可见范围一致", {p["id"] for p in collection["products"]} == expected)
+        counts = {}
+        for product in catalog:
+            if product["category"]:
+                counts[product["category"]] = counts.get(product["category"], 0) + 1
+        check("合集分类数量来自在售商品", collection["category_counts"] == counts)
+        categories = get("/api/v1/b/categories", True)
+        check("全部合集分类顺序来自B端", collection["categories"] ==
+            [c["name"] for c in categories if counts.get(c["name"])] +
+            [c["name"] for c in categories if not counts.get(c["name"])] +
+            [name for name in counts if name not in {c["name"] for c in categories}])
+        for sort in ("price_asc", "price_desc", "sales"):
+            listing = get(prefix + "/products?sort=" + sort)
+            sorted_collection = get(prefix + "/collections/all?sort=" + sort)
+            check("列表与合集排序一致：" + sort,
+                [p["id"] for p in listing] == [p["id"] for p in sorted_collection["products"]])
         price_mismatches = []
         for product in catalog:
             first = min(product["skus"], key=lambda item: (item["price_yuan"], item["id"]), default=None)
@@ -62,6 +86,16 @@ def main():
         check("首页栏目与商品范围", all(section["id"] in sections and sections[section["id"]]["enabled"]
               and sections[section["id"]]["title"] == section["title"]
               and all(product["id"] in expected for product in section["products"]) for section in home["sections"]))
+        testimonials = get("/api/v1/b/testimonials", True)
+        check("首页反馈与B端已启用内容一致", home["testimonials"] == [t for t in testimonials if t["enabled"]])
+        orders = get("/api/v1/b/orders", True)
+        dashboard = get("/api/v1/b/dashboard", True)
+        check("经营概览订单数量一致", dashboard["pending_ship"] == sum(o["status"] == "paid" for o in orders)
+              and dashboard["pending_pay"] == sum(o["status"] == "pending" for o in orders))
+        check("经营概览成交额与订单实付一致", abs(dashboard["sales_yuan"] -
+              sum(o["total_yuan"] for o in orders if o["status"] in ("paid", "shipped", "completed"))) < .005)
+        check("未登录订单与后台受保护", client.get("/api/v1/c/orders").status_code == 401
+              and client.get("/api/v1/b/products").status_code == 401)
         coupons = {item["id"]: item for item in get("/api/v1/b/coupons", True)}
         public_coupons = get(prefix + "/coupons")
         check("优惠券条款对齐", all(item["id"] in coupons and all(item[field] == coupons[item["id"]][field]

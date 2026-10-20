@@ -133,7 +133,7 @@ def wipe_history(user: User = Depends(require_customer)):
 
 @router.get("/shops/{share_code}/products/{product_id}/reviews", response_model=list[ReviewOut])
 def read_reviews(share_code: str, product_id: int, db: Session = Depends(get_db)):
-    shop_by_code(db, share_code)
+    get_c_product(db, share_code, product_id)
     return list_reviews(db, product_id)
 
 

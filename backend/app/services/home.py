@@ -21,7 +21,7 @@ from app.services.catalog import (
 )
 from app.services.categories import shop_category_names
 from app.services.reviews import rating_map
-from app.services.shelf import listed_on_c
+from app.services.shelf import listed_on_c, visible_skus
 SECTION_LIMIT = 6
 
 
@@ -193,9 +193,9 @@ def collection_page(
         word = keyword.strip()
         rows = [product for product in rows if word in product.name or word in product.category]
     if sort == "price_asc":
-        rows.sort(key=lambda product: min((sku.price_cents for sku in product.skus), default=0))
+        rows.sort(key=lambda product: min((sku.price_cents for sku in visible_skus(product)), default=0))
     elif sort == "price_desc":
-        rows.sort(key=lambda product: min((sku.price_cents for sku in product.skus), default=0), reverse=True)
+        rows.sort(key=lambda product: min((sku.price_cents for sku in visible_skus(product)), default=0), reverse=True)
     elif sort == "sales":
         rows.sort(key=lambda product: product.sales_count, reverse=True)
 
