@@ -33,7 +33,15 @@ let addressId = null;
 let cartCount = 0;
 let cartPick = null;
 let renderGen = 0;
-let lastRoute = "";
+let homeVisibleCount = 8;
+const scrollHistory = StoreScrollHistory({
+  readState: () => ({keyword,category,sort,code,homeVisibleCount}),
+  restoreState: state => {
+    keyword=state.keyword||'';category=state.category||'';sort=state.sort||'default';
+    homeVisibleCount=Number(state.homeVisibleCount)||8;
+    if(state.code && state.code!==code){code=state.code;shop=null;cats=null;}
+  }
+});
 let pendingDeadlines = {};
 let tickTimer = null;
 
@@ -93,14 +101,11 @@ async function render() {
     document.body.classList.toggle("tinted", shop.strip_tint !== false);
     return;
   }
+  const navigation = scrollHistory.begin();
   const gen = ++renderGen;
   const root = document.querySelector("#app");
   // 进了别家店的商品，把整个页面的上下文切过去
   const current = route();
-  // 只要换了页面，就把滚动位置拉回顶部。否则从很长的首页点进详情页会停在底部。
-  const here = [current.name, current.shop, current.id].join("/");
-  const moved = here !== lastRoute;
-  lastRoute = here;
   if (current.name === "product" && current.shop && current.shop !== code) {
     code = current.shop;
     shop = null;
@@ -148,8 +153,8 @@ async function render() {
   // 顶部那层浅色过线的渐变画在 body 背景上，内容永远不会被它盖住
   document.body.classList.toggle("tinted", shop.strip_tint !== false);
   if (chatOpen && storefrontSettings(shop).assistant_enabled) root.append(renderChat());
-  // 换页才回顶，同页内的筛选、加购刷新不动滚动位置
-  if (moved) window.scrollTo({ top: 0, left: 0 });
+  await scrollHistory.finish(navigation, view.scrollReady);
+  if (gen !== renderGen) return;
   watchCountdowns();
 }
 
@@ -241,7 +246,9 @@ async function renderHome() {
   home.sections.forEach((section) => box.append(productRow(section)));
   // 评价墙放在全部商品上面，先让买家看到别人怎么说
   if (home.testimonials.length) box.append(reviewWall(home.testimonials));
-  box.append(allProductsBlock());
+  const allProducts = allProductsBlock();
+  box.append(allProducts);
+  box.scrollReady = allProducts.scrollReady;
   box.append(renderPromises(shop.promises));
   return box;
 }
@@ -620,12 +627,14 @@ function allProductsBlock() {
 
   let items = []; // 已经拉到的商品
   let hasMore = true; // 服务端还有没有下一批
-  let expanded = false; // 是否处于展开状态
+  const restoreCount = homeVisibleCount;
+  let expanded = restoreCount > PAGE; // 是否处于展开状态
   let busy = false;
 
   const paint = () => {
     const shown = expanded ? items : items.slice(0, PAGE);
     grid.replaceChildren(...shown.map(productCard));
+    if (!busy) homeVisibleCount = expanded ? Math.max(PAGE,items.length) : PAGE;
     // 商品本来就不到两行、也没得再展开时，按钮就没必要出现了
     if (!expanded && !hasMore && items.length <= PAGE) {
       foot.hidden = true;
@@ -647,6 +656,7 @@ function allProductsBlock() {
       items = items.concat(rows);
       if (rows.length < PAGE) hasMore = false;
     } catch (error) {
+      hasMore = false;
       toast(error.message, "bad");
     }
     busy = false;
@@ -667,7 +677,11 @@ function allProductsBlock() {
     paint();
   });
 
-  requestAnimationFrame(load);
+  sec.scrollReady = new Promise(resolve => requestAnimationFrame(async () => {
+    await load();
+    while (expanded && hasMore && items.length < restoreCount) await load();
+    resolve();
+  }));
   return sec;
 }
 
