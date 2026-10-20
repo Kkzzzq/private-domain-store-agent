@@ -48,22 +48,12 @@ def register(body: RegisterIn, request: Request, db: Session = Depends(get_db)):
     user = User(
         username=body.username,
         password_hash=hash_password(body.password),
-        role=body.role,
+        role="customer",
         nickname=body.nickname.strip() or body.username,
     )
     db.add(user)
     try:
         db.flush()
-        if user.role == "merchant":
-            db.add(
-                Shop(
-                    merchant_id=user.id,
-                    name=user.nickname,
-                    notice="",
-                    share_code=_share_code(db, user.username),
-                    status="open",
-                )
-            )
         db.commit()
     except IntegrityError as exc:
         db.rollback()

@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 from test_bc_link import find, login
 
 
@@ -60,6 +61,7 @@ def test_collection_404_for_unknown_or_foreign_section(client):
         "/api/v1/auth/register",
         json={"username": "otherc", "password": "other123", "role": "merchant", "nickname": "别家"},
     )
+    authorize_merchant(client, other)
     headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
     foreign = client.post(
         "/api/v1/b/sections",

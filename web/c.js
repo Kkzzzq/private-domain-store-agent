@@ -2383,4 +2383,6 @@ document.addEventListener("click", event => {
     if (!menu.contains(event.target)) menu.open = false;
   });
 });
-render();
+StoreAuth.ensureSession().then(data => {
+  render();
+}).catch(error => { document.getElementById('app').textContent=error.message; });

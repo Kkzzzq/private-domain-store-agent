@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.security import decode_access_token, token_is_revoked
 from app.db.session import SessionLocal
 from app.models.tables import User, AccountClosure
-from app.models.account import SharedAccount
+from app.models.account import SharedAccount, can_manage_store
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -35,12 +35,14 @@ def get_current_user(
     if user is None or db.get(AccountClosure, user_id):
         raise HTTPException(status_code=401, detail="登录已失效")
     if db.get(SharedAccount, user_id) and payload.get('role') in ('customer', 'merchant'):
-        user._actor_role = payload['role']
+        user._actor_role = 'customer' if payload['role'] == 'merchant' and not can_manage_store(db, user) else payload['role']
+    if user.actor_role == 'merchant' and not can_manage_store(db, user):
+        user._actor_role = 'customer'
     return user
 
 
-def require_merchant(user: User = Depends(get_current_user)) -> User:
-    if user.actor_role != "merchant":
+def require_merchant(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+    if user.actor_role != "merchant" or not can_manage_store(db, user):
         raise HTTPException(status_code=403, detail="只有商家可以管理商品")
     return user
 
@@ -67,5 +69,7 @@ def get_optional_user(
         return None
     user = db.get(User, user_id)
     if user and db.get(SharedAccount, user_id) and payload.get('role') in ('customer', 'merchant'):
-        user._actor_role = payload['role']
+        user._actor_role = 'customer' if payload['role'] == 'merchant' and not can_manage_store(db, user) else payload['role']
+    if user and user.actor_role == 'merchant' and not can_manage_store(db, user):
+        user._actor_role = 'customer'
     return user

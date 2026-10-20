@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 from test_bc_link import login
 
 
@@ -27,6 +28,7 @@ def test_settings_validation_and_shop_isolation(client):
         assert client.patch("/api/v1/b/shop", headers=headers, json={"storefront": config}).status_code == 422
     assert client.patch("/api/v1/b/shop", headers=login(client, "alice"), json={"storefront": {"background_color": "#123456"}}).status_code == 403
     client.post("/api/v1/auth/register", json={"username": "othermerchant", "password": "123456", "role": "merchant"})
+    authorize_merchant(client, username='othermerchant')
     other = client.patch("/api/v1/b/shop", headers=login(client, "othermerchant", "123456"), json={"storefront": {"background_color": "#112233"}})
     assert other.status_code == 200
     assert client.get("/api/v1/c/shops/nanzhi").json()["storefront"]["background_color"] != "#112233"

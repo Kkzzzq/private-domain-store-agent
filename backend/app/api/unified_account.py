@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.deps import get_current_user, get_db
 from app.core.security import create_access_token, decode_access_token, token_is_revoked
-from app.models.account import SharedAccount
+from app.models.account import SharedAccount, can_manage_store
 from app.models.tables import Shop, User
 from app.schemas.dto import LoginIn, RegisterIn
 from app.services.catalog import serialize_shop
@@ -24,7 +24,8 @@ def account_session(db, user, saved=None):
     if not db.get(SharedAccount, user.id):
         db.add(SharedAccount(user_id=user.id))
     shop = db.scalar(select(Shop).where(Shop.merchant_id == user.id).with_for_update())
-    if not shop:
+    allowed = can_manage_store(db, user)
+    if not shop and allowed:
         base = user.username.lower()
         code, suffix = base, 1
         while db.scalar(select(Shop.id).where(Shop.share_code == code)):
@@ -42,9 +43,12 @@ def account_session(db, user, saved=None):
             except Exception:
                 pass
         return create_access_token(user_id=user.id, username=user.username, role=role)
+    buyer_shop = shop if allowed else db.scalar(select(Shop).where(Shop.share_code == 'nanzhi'))
     return dict(user=dict(id=user.id, username=user.username, nickname=user.nickname, role=user.role),
-        token_b=view_token('merchant',saved.token_b if saved else ''),
-        token_c=view_token('customer',saved.token_c if saved else ''), shop=serialize_shop(shop))
+        can_manage_shop=allowed,
+        token_b=view_token('merchant',saved.token_b if saved else '') if allowed else '',
+        token_c=view_token('customer',saved.token_c if saved else ''), shop=serialize_shop(shop) if allowed and shop else None,
+        buyer_shop=serialize_shop(buyer_shop) if buyer_shop else None)
 
 
 @router.get('/demo-login')

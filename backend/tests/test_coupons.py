@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 from datetime import timedelta
 import pytest
 from sqlalchemy import select
@@ -99,6 +100,7 @@ def test_scope_authentication_and_quota(client):
     assert client.post(path,headers=login(client,"merchant")).status_code == 403
     assert client.get("/api/v1/b/coupons",headers=login(client)).status_code == 403
     other = client.post('/api/v1/auth/register',json={'username':'coupon_other','password':'other123','role':'merchant'}).json()
+    authorize_merchant(client, other)
     assert client.patch(f"/api/v1/b/coupons/{coupon['id']}",headers={'Authorization':'Bearer '+other['access_token']},json={"enabled":False}).status_code == 404
     assert client.post(path.replace("nanzhi","muguang"),headers=login(client)).status_code in (400,404)
     owned=claim(client,coupon)

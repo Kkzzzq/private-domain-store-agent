@@ -11,7 +11,7 @@
     if (!response.ok) throw Error('店铺入口暂时不可用，请刷新重试');
     const data=await response.json();
     StoreAuth.saveSession(data);
-    const shop=data.shop, code=shop.share_code, settings=shop.storefront||{};
+    const shop=data.shop||data.buyer_shop, code=shop.share_code, settings=shop.storefront||{};
     document.title=`${shop.name} · 欢迎来到小店`;
     const name=document.querySelector('.brand-name');name.firstChild.textContent=shop.name;
     name.querySelector('small').textContent='PRIVATE STORE';
@@ -25,7 +25,16 @@
     const buyer=document.querySelector('.entry-card');buyer.href=`/c.html?code=${encodeURIComponent(code)}`;
     buyer.querySelector('h2').textContent=`逛逛${shop.name}`;buyer.querySelector('.entry-code').textContent=`小店 · ${code}`;
     if(code!=='nanzhi')buyer.querySelector('.card-content > p').textContent='进入自己的店铺，查看商品与买家服务。';
-    document.querySelector('.merchant-card').href='/b.html';
+    const merchant=document.querySelector('.merchant-card');
+    if(data.can_manage_shop){merchant.href='/b.html';}
+    else {
+      merchant.removeAttribute('href');merchant.setAttribute('aria-disabled','true');merchant.tabIndex=-1;
+      merchant.classList.add('entry-disabled');
+      merchant.querySelector('h2').textContent='商家工作台';
+      merchant.querySelector('.card-content > p').textContent='当前账号尚未获得开店授权';
+      merchant.querySelector('.entry-cta').textContent='未获开店授权';
+      merchant.addEventListener('click',event=>event.preventDefault());
+    }
     document.querySelector('.portal-footer span').textContent=shop.name;
     const switcher=document.createElement('button');switcher.className='portal-account';switcher.type='button';switcher.textContent=`${data.user.nickname} · 切换账号`;
     switcher.addEventListener('click',async()=>{switcher.disabled=true;try{await StoreAuth.logout('token_b');location.href='/account-login.html?switch=1';}catch{switcher.textContent='退出失败，点击重试';switcher.disabled=false;}});

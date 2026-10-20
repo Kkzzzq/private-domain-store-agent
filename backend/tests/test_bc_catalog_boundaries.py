@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 from test_bc_link import login, find, sku_of
 
 
@@ -17,6 +18,7 @@ def test_reviews_cannot_be_read_through_another_shop(client):
     product = find(client.get('/api/v1/c/shops/nanzhi/products').json(), '手作餐盘')
     registered = client.post('/api/v1/auth/register', json={
         'username':'review_other_shop', 'password':'other123', 'role':'merchant'}).json()
+    authorize_merchant(client, registered)
     headers = {'Authorization':'Bearer ' + registered['access_token']}
     code = client.get('/api/v1/b/shop', headers=headers).json()['share_code']
     response = client.get(f"/api/v1/c/shops/{code}/products/{product['id']}/reviews")

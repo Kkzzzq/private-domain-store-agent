@@ -387,6 +387,7 @@ function loginView() {
   }
   const page = h("div", "auth-page");
   page.append(StoreAuth.createForm({role: "merchant", onSuccess: (data) => {
+    if (!data.can_manage_shop) { location.replace("/"); return; }
     me = data.user;
     switchingAccount = false;
     render();
@@ -2558,7 +2559,10 @@ function field(label, name, value, full = false, type = "input") {
 }
 
 window.addEventListener("hashchange", render);
-render();
+StoreAuth.ensureSession().then(data => {
+  if (data && !data.can_manage_shop) { location.replace('/'); return; }
+  render();
+}).catch(error => { document.getElementById('app').textContent=error.message; });
 
 
 async function couponsAdmin() {

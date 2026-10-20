@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 import pytest
 from sqlalchemy import select
 
@@ -59,6 +60,7 @@ def test_recommendations_and_visibility(client):
 
 def test_other_shop_merchant_cannot_read_orders(client):
     response = client.post("/api/v1/auth/register", json={"username": "foreign", "password": "foreign123", "role": "merchant"})
+    authorize_merchant(client, response)
     headers = {"Authorization": "Bearer " + response.json()["access_token"]}
     result = chat(client, headers, "订单 PS202601200001", merchant=True)
     assert "没有找到这个订单" in result.json()["answer"]

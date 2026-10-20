@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 from uuid import uuid4
 import pytest
 from test_bc_link import login
@@ -44,6 +45,7 @@ def test_support_isolated_by_user_shop_and_order(client):
         assert message(client,headers,conv).status_code==404
         assert client.post(f'/api/v1/support/conversations/{conv}/read',headers=headers,json={'message_id':0}).status_code==404
     other=client.post('/api/v1/auth/register',json={'username':'other_support','password':'test1234','role':'merchant'}).json()
+    authorize_merchant(client, other)
     foreign={'Authorization':'Bearer '+other['access_token']}
     assert message(client,foreign,conv).status_code==404
     assert client.get('/api/v1/support/conversations',headers=foreign).json()==[]

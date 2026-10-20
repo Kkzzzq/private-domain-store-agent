@@ -1,5 +1,18 @@
 /* Shared login / registration UI. No sample credentials or password storage. */
 window.StoreAuth = (() => {
+  // Shared across same-origin tabs; page-specific state stays in sessionStorage.
+  const sharedKey = 'store_account_session';
+  function restoreSession() {
+    try {
+      const raw = localStorage.getItem(sharedKey);
+      if (raw === 'null') for (const key of ['token_b','token_c','account_shared','portal_role']) sessionStorage.removeItem(key);
+      const saved = JSON.parse(raw || 'null');
+      if (saved) for (const key of ['token_b','token_c','account_shared','portal_role']) {
+        if (saved[key]) sessionStorage.setItem(key, saved[key]); else sessionStorage.removeItem(key);
+      }
+    } catch {}
+  }
+  restoreSession();
   const el = (tag, cls, text) => {
     const node = document.createElement(tag); if (cls) node.className = cls;
     if (text != null) node.textContent = text; return node;
@@ -11,8 +24,8 @@ window.StoreAuth = (() => {
     function paint() {
       root.replaceChildren();
       const eyebrow = el("p", "auth-eyebrow", "A LITTLE STORE, A LOVELY EVERYDAY");
-      const title = el("h1", "auth-title", mode === "login" ? "欢迎回来" : "开启你的小店日常");
-      root.append(eyebrow, title, el("p", "auth-description", mode === "register" ? "创建你的账号，开启一段新的小店日常。" : "同一个账号，自由进入买家店铺和商家工作台。"));
+      const title = el("h1", "auth-title", mode === "login" ? "欢迎回来" : "创建你的账号");
+      root.append(eyebrow, title, el("p", "auth-description", mode === "register" ? "创建你的账号，开启一段新的小店日常。" : "使用当前账号购物；获授权后可进入商家工作台。"));
       const tabs = el("div", "auth-tabs");
       for (const [value, label] of [["login", "登录"], ["register", "注册"]]) {
         const tab = el("button", mode === value ? "active" : "", label); tab.type = "button";
@@ -83,23 +96,26 @@ window.StoreAuth = (() => {
     document.body.append(dialog); dialog.showModal(); form.querySelector("input")?.focus(); return dialog;
   }
   async function currentUser() {
+    restoreSession();
     const order = sessionStorage.getItem("portal_role") === "merchant" ? ["token_b", "token_c"] : ["token_c", "token_b"];
     for (const key of order) {
       const token = sessionStorage.getItem(key); if (!token) continue;
       const response = await fetch("/api/v1/auth/me", {headers:{Authorization:`Bearer ${token}`}});
       if (sessionStorage.getItem(key) !== token) continue;
       if (response.ok) return response.json();
-      if (response.status === 401) sessionStorage.removeItem(key);
+      if (response.status === 401 || response.status === 403) sessionStorage.removeItem(key);
     }
     return null;
   }
   function saveSession(data) {
-    sessionStorage.setItem("token_b", data.token_b);
+    if (data.token_b) sessionStorage.setItem("token_b", data.token_b); else sessionStorage.removeItem("token_b");
     sessionStorage.setItem("token_c", data.token_c);
     sessionStorage.setItem("account_shared", "1");
-    sessionStorage.setItem("portal_role", "merchant");
+    sessionStorage.setItem("portal_role", data.token_b ? "merchant" : "customer");
+    try { localStorage.setItem(sharedKey, JSON.stringify(Object.fromEntries(['token_b','token_c','account_shared','portal_role'].map(key => [key,sessionStorage.getItem(key)])))); } catch {}
   }
   async function logout(tokenKey) {
+    restoreSession();
     if (sessionStorage.getItem("account_shared") === "1") {
       const saved = ["token_b", "token_c"].map(key => [key, sessionStorage.getItem(key)]);
       for (const [, value] of saved) {
@@ -109,6 +125,7 @@ window.StoreAuth = (() => {
       }
       for (const [key, value] of saved) if (sessionStorage.getItem(key) === value) sessionStorage.removeItem(key);
       if (!sessionStorage.getItem("token_b") && !sessionStorage.getItem("token_c")) sessionStorage.removeItem("account_shared");
+      try { localStorage.setItem(sharedKey, "null"); } catch {}
       return;
     }
     const token = sessionStorage.getItem(tokenKey);
@@ -118,5 +135,14 @@ window.StoreAuth = (() => {
     }
     if (sessionStorage.getItem(tokenKey) === token) sessionStorage.removeItem(tokenKey);
   }
-  return {createForm, openDialog, currentUser, logout, saveSession};
+  async function ensureSession() {
+    const user = await currentUser();
+    if (!user) return null;
+    const preferred = sessionStorage.getItem('portal_role') === 'merchant' ? ['token_b','token_c'] : ['token_c','token_b'];
+    const token = sessionStorage.getItem(preferred[0]) || sessionStorage.getItem(preferred[1]);
+    const response = await fetch('/api/v1/auth/portal-session', {method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({token_b:sessionStorage.getItem('token_b')||'',token_c:sessionStorage.getItem('token_c')||''})});
+    if (!response.ok) throw Error('登录状态恢复失败，请刷新重试');
+    const data = await response.json(); saveSession(data); return data;
+  }
+  return {createForm, openDialog, currentUser, logout, saveSession, ensureSession};
 })();

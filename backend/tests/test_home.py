@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 from test_bc_link import find, login
 
 
@@ -90,6 +91,7 @@ def test_banner_crud_is_scoped_to_the_shop(client):
         "/api/v1/auth/register",
         json={"username": "other2", "password": "other123", "role": "merchant", "nickname": "别家"},
     )
+    authorize_merchant(client, other)
     other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
     assert client.patch(f"/api/v1/b/banners/1", headers=other_headers, json={"title": "偷改"}).status_code == 404
 

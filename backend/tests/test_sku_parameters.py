@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 from test_bc_link import login
 
 
@@ -39,6 +40,7 @@ def test_new_sku_accepts_parameters(client):
 
 def test_other_merchant_cannot_set_parameters(client):
     other = client.post("/api/v1/auth/register", json={"username": "param_other", "password": "other123", "role": "merchant"}).json()
+    authorize_merchant(client, other)
     headers = {"Authorization": "Bearer " + other["access_token"]}
     sku = client.get("/api/v1/c/shops/nanzhi/products/1").json()["skus"][0]
     response = client.patch(f"/api/v1/b/skus/{sku['id']}", headers=headers, json={"parameters": [{"name": "x", "value": "y"}]})

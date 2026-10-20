@@ -44,17 +44,26 @@ def test_same_account_both_views_without_changing_identity_or_legacy_role(client
         assert db.get(User,buyer['id']).role=='merchant'
 
 
-def test_other_accounts_have_their_own_two_entries_and_private_shop(client):
+def test_other_accounts_cannot_open_store_without_authorization(client):
     data,b,c=unified(client,'alice','alice123')
-    assert data['shop']['share_code']!='nanzhi'
-    assert data['shop']['name']=='小满的小店'
-    assert client.get('/api/v1/b/shop',headers=b).json()['id']==data['shop']['id']
+    assert data['shop'] is None and not data['can_manage_shop'] and data['token_b']==''
+    assert data['buyer_shop']['share_code']=='nanzhi'
+    assert client.get('/api/v1/b/products',headers=c).status_code==403
+    from app.db.session import SessionLocal
+    from app.models.tables import Shop
+    from app.models.account import MerchantAccess
+    from sqlalchemy import select
+    with SessionLocal() as db:
+        assert db.scalar(select(Shop).where(Shop.merchant_id==data['user']['id'])) is None
+        db.add(MerchantAccess(user_id=data['user']['id']));db.commit()
+    allowed,b,c=unified(client,'alice','alice123')
+    assert allowed['can_manage_shop'] and allowed['shop']['share_code']=='alice'
     assert client.get('/api/v1/b/products',headers=b).json()==[]
-    assert client.get(f"/api/v1/c/shops/{data['shop']['share_code']}/products",headers=c).json()==[]
-    products=client.get('/api/v1/c/shops/nanzhi/products').json()
-    assert client.patch(f"/api/v1/b/products/{products[0]['id']}",headers=b,json={'name':'跨店修改'}).status_code==404
-    again=client.post('/api/v1/auth/portal-session',headers=b)
-    assert again.status_code==200 and again.json()['shop']['id']==data['shop']['id']
+    with SessionLocal() as db:
+        db.get(MerchantAccess,data['user']['id']).enabled=False;db.commit()
+    assert client.get('/api/v1/b/products',headers=b).status_code==403
+    denied,_,_=unified(client,'alice','alice123')
+    assert denied['shop'] is None and denied['token_b']==''
 
 
 def test_portal_refresh_reuses_valid_tokens_and_rejects_other_account_tokens(client):
@@ -73,7 +82,8 @@ def test_registration_is_shared_and_logout_revokes_each_view(client):
     response=client.post('/api/v1/auth/portal-register',json={'username':'shared_demo','password':'shared123','nickname':'新店主'})
     assert response.status_code==200,response.text
     data=response.json()
-    for side in ['b','c']:
+    assert data['shop'] is None and data['token_b']==''
+    for side in ['c']:
         headers={'Authorization':'Bearer '+data['token_'+side]}
         assert client.get('/api/v1/auth/me',headers=headers).status_code==200
         assert client.post('/api/v1/auth/logout',headers=headers).status_code==200
@@ -95,3 +105,12 @@ def test_own_store_chat_uses_view_for_unread_and_permissions(client):
 def test_legacy_role_endpoints_still_isolate_views(client):
     assert client.get('/api/v1/b/products',headers=login(client,'alice')).status_code==403
     assert client.get('/api/v1/c/shops/nanzhi/cart',headers=login(client,'merchant')).status_code==403
+
+
+def test_public_registration_cannot_self_authorize_merchant(client):
+    r=client.post('/api/v1/auth/register',json={'username':'no_escalation','password':'pass123','role':'merchant'})
+    assert r.status_code==200 and r.json()['user']['role']=='customer'
+    headers={'Authorization':'Bearer '+r.json()['access_token']}
+    assert client.get('/api/v1/b/products',headers=headers).status_code==403
+    session=client.post('/api/v1/auth/portal-session',headers=headers).json()
+    assert session['shop'] is None and not session['can_manage_shop']

@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 def login(client, username, password="ignored"):
     passwords = {"merchant": "merchant123", "alice": "alice123", "bob": "bob123"}
     response = client.post(
@@ -203,6 +204,7 @@ def test_c_order_lands_on_b_and_cannot_cross_user_or_shop(client):
         "/api/v1/auth/register",
         json={"username": "other", "password": "other123", "role": "merchant", "nickname": "别家"},
     )
+    authorize_merchant(client, other)
     other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
     other_shop = client.get("/api/v1/b/shop", headers=other_headers).json()
     created_product = client.post(

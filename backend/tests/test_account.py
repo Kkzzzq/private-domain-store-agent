@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 from test_bc_link import login
 
 
@@ -11,6 +12,7 @@ def test_profile_requires_identity_and_saves_nickname(client):
 
 def test_closing_account_checks_password_and_revokes_access(client):
     registered=client.post('/api/v1/auth/register',json={'username':'closing_shop','password':'close123','role':'merchant'}).json()
+    authorize_merchant(client, registered)
     headers={'Authorization':'Bearer '+registered['access_token']}
     body={'password':'wrong','confirmation':'注销账号'}
     assert client.post('/api/v1/auth/me/close',headers=headers,json=body).status_code==400

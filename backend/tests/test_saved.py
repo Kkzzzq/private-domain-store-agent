@@ -1,3 +1,4 @@
+from merchant_fixture import authorize_merchant
 """浏览记录是跨店铺的，下架商品保留但带标注。"""
 
 import time
@@ -11,6 +12,7 @@ def _open_second_shop(client) -> dict:
         "/api/v1/auth/register",
         json={"username": "othershop", "password": "other123", "role": "merchant", "nickname": "别家"},
     )
+    authorize_merchant(client, reg)
     headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
     shop = client.get("/api/v1/b/shop", headers=headers).json()
     product = client.post(
