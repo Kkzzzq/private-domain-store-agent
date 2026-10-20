@@ -1,0 +1,23 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const listeners={},docEvents={},saved=new Map();let height=4000, resize, timeout;
+const win={scrollX:0,scrollY:0,addEventListener:(n,f)=>listeners[n]=f,scrollTo:({top,left})=>{win.scrollY=Math.min(top,height);win.scrollX=left;listeners.scroll?.();}};
+const loc={pathname:'/c.html',search:'',href:'https://shop/c.html'};
+const history={state:null,replaceState:s=>history.state=s};
+const doc={documentElement:{},addEventListener:(n,f)=>docEvents[n]=f,removeEventListener:(n,f)=>{if(docEvents[n]===f)delete docEvents[n]},getElementById:()=>({})};
+const ctx={window:win,location:loc,history,document:doc,ResizeObserver:class{constructor(f){resize=f}observe(){}disconnect(){resize=null}},setTimeout:f=>{timeout=f;return 1},clearTimeout:()=>{timeout=null},requestAnimationFrame:f=>f(),sessionStorage:{getItem:k=>saved.get(k),setItem:(k,v)=>saved.set(k,v)},Date,Math};
+vm.runInNewContext(fs.readFileSync('web/scroll-history.js','utf8'),ctx);
+const nav=win.StoreScrollHistory({readState:()=>({}),restoreState:()=>{}});
+(async()=>{
+ await nav.finish(nav.begin());const home=history.state;
+ listeners.wheel({type:'wheel'});win.scrollY=2500;listeners.scroll();
+ loc.href+='#/product/1';history.state=null;win.scrollY=0;await nav.finish(nav.begin());const product=history.state;
+ loc.href='https://shop/c.html';history.state=home;height=200;await nav.finish(nav.begin());assert.equal(win.scrollY,200);
+ height=4000;resize();assert.equal(win.scrollY,2500,'late layout must recover the original target, not clamped 200');
+ win.scrollY=0;listeners.scroll();docEvents.load();assert.equal(win.scrollY,2500,'browser scroll reset must not poison target');
+ listeners.wheel({type:'wheel'});win.scrollY=900;listeners.scroll();assert.equal(resize,null,'user gesture disconnects restoration observer');
+ const rerender=nav.begin();height=100;win.scrollY=100;await nav.finish(rerender);height=4000;resize();assert.equal(win.scrollY,900,'same entry rerender also restores');
+ listeners.pagehide();win.scrollY=0;listeners.pageshow({persisted:true});await Promise.resolve();await Promise.resolve();assert.equal(win.scrollY,900,'BFCache return retains snapshot');
+ loc.href='https://shop/c.html#/product/1';history.state=product;const stale=nav.begin();
+ loc.href='https://shop/c.html';history.state=home;await nav.finish(nav.begin());await nav.finish(stale);assert.equal(win.scrollY,900,'stale completion must not scroll newer page');
+ console.log('Scroll layout: native reset, no-hash entry, delayed height, same-page redraw, user override and BFCache passed');
+})().catch(e=>{console.error(e);process.exitCode=1});
