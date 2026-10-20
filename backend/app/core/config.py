@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import re
 from typing import Literal
 from pydantic import Field
 
@@ -75,6 +77,10 @@ class Settings(BaseSettings):
 
     @property
     def web_dir(self) -> Path:
+        if re.fullmatch(r"[a-f0-9]{32}", os.environ.get("QA_CHILD_RUN", "")):
+            isolated = Path(os.environ["QA_CHILD_WORKSPACE"]) / "web"
+            if isolated.is_dir():
+                return isolated
         sibling = self.backend_root.parent / "web"
         if sibling.exists():
             return sibling

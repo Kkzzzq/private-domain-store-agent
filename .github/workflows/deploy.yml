@@ -36,5 +36,5 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
-          git archive --format=tar HEAD backend/app backend/knowledge backend/requirements-server.txt web |
+          git archive --format=tar HEAD backend/app backend/knowledge backend/tests backend/scripts backend/requirements.txt backend/requirements-e2e.txt backend/requirements-server.txt deploy/private-store-quality.service deploy/setup-quality.sh web |
             ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -i ~/.ssh/deploy_key root@123.57.164.154 "deploy $GITHUB_SHA"

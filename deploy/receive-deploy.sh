@@ -19,17 +19,34 @@ test -f "$stage/web/index.html"
 test -f "$stage/backend/requirements-server.txt"
 /opt/private-store/venv/bin/python -m compileall -q "$stage/backend/app"
 mkdir -p "$backup"
+quality_enabled=0
+if test -f "$stage/deploy/setup-quality.sh"; then
+    # Dependency installation can take minutes: keep the storefront online while preparing it.
+    bash "$stage/deploy/setup-quality.sh" "$stage" > "$backup/quality-prepare.log" 2>&1
+    quality_enabled=1
+fi
 cp -a "$app/backend/.env" "$backup/backend.env"
-tar --exclude='web/covers/uploads' -czf "$backup/code.tar.gz" -C "$app" backend/app backend/knowledge web
+sources=(backend/app backend/knowledge web)
+for directory in tests scripts; do
+    test ! -d "$app/backend/$directory" || sources+=("backend/$directory")
+done
+tar --exclude='web/covers/uploads' -czf "$backup/code.tar.gz" -C "$app" "${sources[@]}"
 cp -a "$app/venv" "$backup/venv"
+systemctl stop private-store-quality 2>/dev/null || true
 systemctl stop private-store
 rollback() {
     echo 'Deployment failed; restoring previous code and dependencies' >&2
     systemctl stop private-store || true
+    systemctl stop private-store-quality 2>/dev/null || true
     mkdir -p "$stage/rollback"
     tar -xzf "$backup/code.tar.gz" -C "$stage/rollback"
     rsync -a --delete "$stage/rollback/backend/app/" "$app/backend/app/"
     rsync -a --delete "$stage/rollback/backend/knowledge/" "$app/backend/knowledge/"
+    for directory in tests scripts; do
+        if test -d "$stage/rollback/backend/$directory"; then
+            rsync -a --delete "$stage/rollback/backend/$directory/" "$app/backend/$directory/"
+        fi
+    done
     rsync -a --delete --exclude='covers/uploads/' "$stage/rollback/web/" "$app/web/"
     rsync -a --delete "$backup/venv/" "$app/venv/"
     chown -R storeapp:storeapp "$app/backend/app" "$app/backend/knowledge" "$app/web"
@@ -39,6 +56,13 @@ trap 'rollback' ERR
 "$app/venv/bin/python" /usr/local/sbin/private-store-backup-db "$backup"
 rsync -a --delete "$stage/backend/app/" "$app/backend/app/"
 rsync -a --delete "$stage/backend/knowledge/" "$app/backend/knowledge/"
+if test "$quality_enabled" = 1; then
+    for directory in tests scripts; do
+        mkdir -p "$app/backend/$directory"
+        rsync -a --delete "$stage/backend/$directory/" "$app/backend/$directory/"
+        chown -R storeapp:storeapp "$app/backend/$directory"
+    done
+fi
 rsync -a --delete --exclude='covers/uploads/' "$stage/web/" "$app/web/"
 "$app/venv/bin/pip" install -r "$stage/backend/requirements-server.txt" > "$backup/pip.log" 2>&1
 chown -R storeapp:storeapp "$app/backend/app" "$app/backend/knowledge" "$app/web"
@@ -49,6 +73,10 @@ for attempt in $(seq 1 30); do
     sleep 2
 done
 test "$healthy" = 1
+if test "$quality_enabled" = 1; then
+    systemctl enable --now private-store-quality
+    systemctl is-active --quiet private-store-quality
+fi
 printf '%s\n' "$revision" > "$app/deployed-commit"
 trap - ERR
 echo "Deployed $revision; backup: $backup"

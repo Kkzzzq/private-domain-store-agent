@@ -1,0 +1,27 @@
+[Unit]
+Description=Private store isolated quality executor
+After=network.target private-store.service redis-server.service
+
+[Service]
+User=storeapp
+Group=storeapp
+WorkingDirectory=/opt/private-store/backend
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/private-store/qa-browsers
+ExecStart=/opt/private-store/qa-venv/bin/python -m app.quality.worker
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/private-store/backend/data
+UMask=0077
+CPUQuota=80%
+MemoryHigh=800M
+MemoryMax=1100M
+TasksMax=256
+TimeoutStopSec=110
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

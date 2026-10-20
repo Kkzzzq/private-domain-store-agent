@@ -96,9 +96,14 @@ def require_execution(db, user_id, kind):
 
 def fingerprint():
     digest = sha256()
+    documentation_sources = {
+        "app/quality/case_docs.py", "app/quality/case_docs_assistant_a.py",
+        "app/quality/case_docs_assistant_b.py", "app/quality/case_docs_functional.py",
+        "app/quality/case_docs_browser.py", "app/quality/case_docs_op.py",
+    }
     for directory in (settings.backend_root / "app", settings.backend_root / "tests"):
         for source in sorted(directory.rglob("*.py")):
-            if source.name.startswith(("op_", "test_op")) or source.name in ("operations.py", "operations_cli.py", "platform_audit.py"):
+            if source.relative_to(settings.backend_root).as_posix() in documentation_sources:
                 continue
             digest.update(source.relative_to(settings.backend_root).as_posix().encode())
             digest.update(source.read_bytes())
@@ -116,6 +121,11 @@ def new_plan(db, user_id, body):
     payload.update(catalog_version=CATALOG_VERSION, target_revision=fingerprint(),
                    fixture_version="seed-isolated-v1", environment=next(row for row in environments() if row["id"] == body.environment_id))
     payload["case_snapshots"] = snapshots
+    from app.quality.case_docs import doc_for
+    payload["case_documents"] = {row["id"]: (
+        {"steps": [f"第{i + 1}轮输入：{turn['message']}" for i, turn in enumerate(row["definition"]["turns"])],
+         "expected": ["每轮硬断言均成立，真实模型与本轮工具审计成功"], "risk": "writes"}
+        if row.get("definition") else doc_for(row["id"])) for row in snapshots}
     plan = QualityPlan(id=uuid4().hex, user_id=user_id, payload=payload,
                        status="planning" if body.planner == "model" else "draft", digest=content_digest(payload))
     db.add(plan)
@@ -197,10 +207,12 @@ def plan_out(plan):
 
 
 def run_out(db, run):
+    from datetime import timedelta
+    from app.quality.case_docs import doc_for
     results = db.scalars(select(QualityResult).where(QualityResult.run_id == run.id).order_by(QualityResult.id)).all()
     plan = db.get(QualityPlan, run.plan_id)
-    return {"id": run.id, "plan_id": run.plan_id, "kind": run.kind, "mode": run.mode, "status": run.status,
+    return {"id": run.id, "name": (run.created_at + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M 测试报告"), "plan_id": run.plan_id, "kind": run.kind, "mode": run.mode, "status": run.status,
             "cancel_requested": run.cancel_requested, "created_at": run.created_at,
             "started_at": run.started_at, "finished_at": run.finished_at, "summary": run.summary,
             "target": {key: plan.payload.get(key) for key in ("target_revision", "environment_id", "fixture_version", "catalog_version", "case_snapshots")},
-            "results": [{"id": row.case_id, "kind": row.kind, "status": row.status, "evidence": row.evidence} for row in results]}
+            "results": [{"id": row.case_id, "kind": row.kind, "status": row.status, "doc": plan.payload.get("case_documents", {}).get(row.case_id) or doc_for(row.case_id), "evidence": row.evidence} for row in results]}

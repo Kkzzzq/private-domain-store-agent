@@ -85,6 +85,8 @@ def execute_definition(definition, evidence):
     from fastapi.testclient import TestClient
     from app.core.config import settings
     from app.main import app
+    from app.db.session import SessionLocal
+    from app.models.tables import AgentToolLog, User
     settings.agent_mode = "auto"
     settings.agent_require_llm = True
     specification = CaseIn.model_validate(definition)
@@ -94,8 +96,12 @@ def execute_definition(definition, evidence):
         response = client.post("/api/v1/auth/login", json={"username": username, "password": username + "123"})
         evidence.check("自定义场景合成身份登录", response.status_code == 200)
         headers = {"Authorization": "Bearer " + response.json()["access_token"]}
+        with SessionLocal() as db:
+            user_id = db.scalar(select(User.id).where(User.username == username))
         session = None
         for turn in specification.turns:
+            with SessionLocal() as db:
+                audit_start = db.scalar(select(func.max(AgentToolLog.id))) or 0
             path = "/api/v1/b/chat" if specification.role == "merchant" else "/api/v1/c/shops/nanzhi/chat"
             response = client.post(path, headers=headers, json={"message": turn.message, "session_id": session})
             if response.status_code == 503:
@@ -104,8 +110,17 @@ def execute_definition(definition, evidence):
             output = response.json();session = output["session_id"]
             transcript.append({"input": turn.message, "output": output})
             evidence.check("真实模型而非规则回退", output["mode"] == "llm")
+            with SessionLocal() as db:
+                audit = [{"id": row.id, "tool": row.tool, "ok": row.ok, "flag": row.flag}
+                         for row in db.scalars(select(AgentToolLog).where(
+                             AgentToolLog.id > audit_start, AgentToolLog.user_id == user_id,
+                             AgentToolLog.session_id == session).order_by(AgentToolLog.id))]
+            transcript[-1]["tool_audit"] = audit
             for tool in turn.required_tools:
-                evidence.check("必需工具：" + tool, any(row["tool"] == tool and not row["result"].startswith(("参数", "工具执行失败", "不支持", "业务操作被拒绝")) for row in output["tools"]))
+                evidence.check("必需工具：" + tool,
+                               any(row["tool"] == tool for row in output["tools"])
+                               and any(row["tool"] == tool and row["ok"] for row in audit),
+                               "本轮真实工具审计成功", audit)
             for word in turn.expected_contains:
                 evidence.check("回答应包含：" + word, word in output["answer"])
             for word in turn.forbidden_contains:

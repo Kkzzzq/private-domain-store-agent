@@ -25,11 +25,18 @@ def safe(value, depth=0):
 def configure_environment():
     if not re.fullmatch(r"[a-f0-9]{32}", os.environ.get("QA_CHILD_RUN", "")):
         raise RuntimeError("缺少隔离执行标记")
+    from pathlib import Path
+    import shutil
+    # 上传与页面资源也要隔离，不能让测试图片写进业务站点的 uploads。
+    source_web = Path(__file__).resolve().parents[3] / "web"
+    target_web = Path(os.environ["QA_CHILD_WORKSPACE"]) / "web"
+    shutil.copytree(source_web, target_web, dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("uploads", "node_modules", ".git"))
     os.environ.update(DATABASE_URL="sqlite://", REDIS_URL="memory", STRICT_DEPENDENCIES="false",
                       AGENT_MODE="fallback", AGENT_REQUIRE_LLM="false", RAG_REQUIRE_VECTORS="false",
                       JWT_SECRET=os.urandom(32).hex(), CHROMA_PATH=os.environ["QA_CHILD_WORKSPACE"] + "/chroma",
                       CLOUD_FALLBACK_MODELS="", CLOUD_TIMEOUT_SECONDS="20", AGENT_MAX_STEPS="4",
-                      RECOMMENDATION_MAX_STEPS="4", AUTH_LOGIN_LIMIT="120", AUTH_REGISTER_LIMIT="50")
+                      RECOMMENDATION_MAX_STEPS="6", AUTH_LOGIN_LIMIT="120", AUTH_REGISTER_LIMIT="50")
     if os.environ.get("QA_NATIVE_DATABASE_URL"):
         from sqlalchemy.engine import make_url
         url = make_url(os.environ["QA_NATIVE_DATABASE_URL"])
@@ -75,6 +82,7 @@ class ModelBudget:
         self.tokens = 0
         self.models = []
         self.estimated = False
+        self.exhausted = False
 
     def install(self):
         from app.agent.model import cloud_http
@@ -88,6 +96,7 @@ class ModelBudget:
             body = kwargs.get("json", {})
             reserve = len(json.dumps(body, ensure_ascii=False).encode()) + int(body.get("max_tokens", 2048))
             if self.calls >= self.max_calls or self.tokens + reserve > self.max_tokens:
+                self.exhausted = True
                 raise RuntimeError("质量任务模型预算已耗尽")
             self.calls += 1
             self.tokens += reserve
@@ -118,5 +127,6 @@ class ModelBudget:
         return restore
 
     def output(self):
-        return {"calls": self.calls, "tokens": self.tokens, "estimated": self.estimated, "models": self.models,
+        return {"calls": self.calls, "tokens": self.tokens, "max_calls": self.max_calls, "max_tokens": self.max_tokens,
+                "exhausted": self.exhausted, "estimated": self.estimated, "models": self.models,
                 "scope": "本子进程云端聊天与Embedding请求；缺usage时保留UTF8字节+输出上限保守预留"}

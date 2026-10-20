@@ -21,8 +21,9 @@ window.OPQuality = (() => {
     const valid=()=>root.isConnected&&sessionStorage.getItem("token_op")===identity;
     if(shotsOwner!==identity){releaseShots();shotsOwner=identity;}
     const AGENT_TABS=["testing-overview","testing-business","testing-evaluator","testing-functional"];
-    const BATCH_LIMIT=20;
-    const RUN_BUDGET={max_calls:20,max_tokens:30000,timeout_seconds:600};
+    const BATCH_LIMIT=10;
+    const batchLimit=group=>group.kind==="assistant"?1:BATCH_LIMIT;
+    const RUN_BUDGET={max_calls:20,max_tokens:60000,timeout_seconds:600};
     const RUN_ENVIRONMENT="isolated-local";
     const AGENT_ROUTE={business:"testing-business",evaluator:"testing-evaluator",functional:"testing-functional"};
     const AGENT_TITLE={business:"业务Agent",evaluator:"评测Agent",functional:"功能测试Agent"};
@@ -32,7 +33,7 @@ window.OPQuality = (() => {
     const MODEL_FIELD={provider:"供应商标识",cloud_style:"云端协议",cloud_model:"云端模型",ollama_model:"本地模型",role:"被测角色",model:"模型",note:"说明",kind:"类型"};
     const CAPABILITY_LABEL={"qa.view":"查看测试中心","qa.assistant.run":"运行助手评测","qa.functional.run":"运行功能测试","qa.approve":"审批计划与历史清理"};
     const artifactLocks=new Map();
-    let data, agents, selectedRun, selectedCase, selectedPlan, pending=false, caseState="active", caseType="all", caseQuery="", checked=new Set(), expanded=new Set(), comparison, flash, receipts=[], failures=[], timer;
+    let data, agents, selectedRun, selectedCase, selectedPlan, pending=false, caseState="active", caseType="all", caseQuery="", checked=new Set(), expanded=new Set(), comparison, flash, receipts=[], failures=[], reportDate="", refreshVersion=0, timer;
     const api=async(path,body,method="POST")=>{if(!valid())throw Error("账号或页面已变化");return options.api(path,body?{method,body:JSON.stringify(body)}:{});};
     const error=message=>{if(valid()){const notice=el("p","qa-error",message);root.prepend(notice);}};
     const failScreen=(message,detail)=>{
@@ -46,7 +47,8 @@ window.OPQuality = (() => {
     };
     const can=cap=>data?.capabilities.capabilities.includes(cap);
     const canRun=kind=>kind==="joint"?can("qa.assistant.run")&&can("qa.functional.run"):can(`qa.${kind}.run`);
-    const clock=value=>{if(!value)return "—";const text=String(value);const iso=/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)?text:text+"Z";const time=new Date(iso);return isNaN(time.getTime())?String(value):time.toLocaleString("zh-CN",{hour12:false});};
+    const reportName=run=>run.name||clock(run.created_at).slice(0,16)+" 测试报告";
+    const clock=value=>{if(!value)return "—";const text=String(value);const iso=/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)?text:text+"Z";const time=new Date(iso);return isNaN(time.getTime())?String(value):time.toLocaleString("zh-CN",{hour12:false,timeZone:"Asia/Shanghai"});};
     const go=tab=>{location.hash="#/testing/"+tab.slice("testing-".length);};
     const agentOf=id=>(agents||[]).find(row=>row.id===id);
     const actions=(...nodes)=>{const box=el("div","qa-actions");for(const node of nodes)box.append(node);return box;};
@@ -85,11 +87,12 @@ window.OPQuality = (() => {
     }
     const canRunRow=row=>!runBlock(row);
     async function refresh(){
+      const revision=++refreshVersion;
       try{
-        const wanted=["/capabilities","/cases","/plans","/runs"];
+        const wanted=["/capabilities","/cases","/plans",reportDate?"/runs?report_date="+encodeURIComponent(reportDate):"/runs"];
         if(AGENT_TABS.includes(options.tab))wanted.push("/agents");
         const [capabilities,cases,plans,runs,agentsPayload]=await Promise.all(wanted.map(path=>api(path)));
-        if(!valid())return;
+        if(!valid()||revision!==refreshVersion)return;
         data={capabilities,cases,plans,runs};
         agents=agentsPayload?.agents;
         paint();poll();
@@ -127,7 +130,7 @@ window.OPQuality = (() => {
     }
     function renderOverview(){
       root.append(heading("Agent总览","三类 Agent 的职责、实时统计与入口；接入用例数与通过数量分开统计，本页只展示单次运行结果，不计算全量完成率。"));
-      root.append(el("p","qa-notice",`报告与截图保留 ${data.capabilities.retention?.days||"—"} 天后自动删除；计划与活动任务保留。手动清理入口在「测试用例运行与报告」页。`));
+      root.append(el("p","qa-notice",`报告与截图保留 ${data.capabilities.retention?.days||"—"} 天后自动删除；计划与活动任务保留。手动清理入口在「测试用例报告」页。`));
       if(!agents)root.append(el("p","qa-muted","正在读取三类 Agent 说明…"));
       const grid=el("div","qa-agent-grid");
       for(const row of agents||[]){
@@ -193,7 +196,7 @@ window.OPQuality = (() => {
       card.append(el("h3","","本次运行回执"),el("p","qa-muted","批准与启动已在同一次点击内完成；报告与截图保留后会自动清理。"));
       for(const item of receipts){const line=el("p");line.append(document.createTextNode(`${TYPE_LABEL[item.kind]||label(item.kind)} · ${label(item.mode)} · ${item.count} 条用例 · 计划 `),mono(item.plan),document.createTextNode(" · 运行 "),mono(item.run));card.append(line);}
       for(const item of failures)card.append(el("p","qa-error",`${TYPE_LABEL[item.kind]||label(item.kind)}（${item.ids.join("、")}）未启动：${item.error}`));
-      card.append(actions(button("去运行与报告查看",()=>go("testing-runs"),true),button("清除回执",()=>{receipts=[];failures=[];paint();})));
+      card.append(actions(button("查看测试用例报告",()=>go("testing-runs"),true),button("清除回执",()=>{receipts=[];failures=[];paint();})));
       root.append(card);
     }
     function renderPlans(kind){
@@ -217,9 +220,10 @@ window.OPQuality = (() => {
       controls.append(button("收起",()=>{selectedPlan=null;paint();}));section.append(controls);root.append(section);
     }
     function renderRunsPage(){
-      root.append(heading("测试用例运行与报告","每条运行的用例数、通过/失败/阻塞计数与代码版本；失败必标注原因，UI 用例可直接查看截图。"));
+      root.append(heading("测试用例报告","每条运行的用例数、通过/失败/阻塞计数与代码版本；失败必标注原因，UI 用例可直接查看截图。"));
       root.append(el("p","qa-notice",data.capabilities.retention?.notice||`运行报告与截图保留 ${data.capabilities.retention?.days||"—"} 天后自动删除；计划与活动任务保留。`));
       const controls=el("div","qa-actions");controls.append(button("刷新",refresh));
+      const date=el("input");date.type="date";date.value=reportDate;date.setAttribute("aria-label","报告日期（北京时间）");date.onchange=()=>{reportDate=date.value;selectedRun=null;selectedCase=null;refresh();};controls.append(el("label","","报告日期（北京时间）"),date,button("最近报告",()=>{reportDate="";selectedRun=null;refresh();}));
       if(data.runs.length>=2)controls.append(button("版本报告对比",compareDialog));
       if(can('qa.approve'))controls.append(button("历史保留与清理",retentionDialog));
       root.append(controls);
@@ -231,14 +235,15 @@ window.OPQuality = (() => {
       if(selectedRun)renderRun(data.runs.find(run=>run.id===selectedRun));
     }
     function renderRunsSection(kind){
-      const section=el("section","qa-card");section.append(el("h3","","最近运行 · 两类结论分别计算"));
-      const rows=kind==="all"?data.runs:data.runs.filter(run=>run.kind===kind);
-      if(!rows.length)section.append(el("p","qa-muted",kind==="all"?"尚未运行测试，不展示虚构通过率。需启动独立quality worker处理队列。":"该类型还没有运行记录；全部报告在「测试用例运行与报告」页。"));
-      for(const run of rows.slice(0,15)){
+      const section=el("section","qa-card");section.append(el("h3","","最近测试用例报告（最多 100 份）"));
+      let rows=kind==="all"?data.runs:data.runs.filter(run=>run.kind===kind);
+      if(kind==="all"&&options.tab==="testing-runs")rows=rows.filter(run=>["completed","failed","blocked","cancelled"].includes(run.status));
+      if(!rows.length)section.append(el("p","qa-muted",kind==="all"?"尚未运行测试，不展示虚构通过率。需启动独立quality worker处理队列。":"该类型还没有运行记录；全部报告在「测试用例报告」页。"));
+      for(const run of rows.slice(0,100)){
         const counts=runCounts(run);
         const broken=run.status==="failed"||counts.failed>0, halted=run.status==="blocked"||counts.blocked>0, stopped=run.status==="cancelled";
         const row=el("div",broken||halted||stopped?"qa-case-row qa-run-failed":"qa-case-row");
-        row.append(button(`${run.id.slice(0,8)} · ${label(run.kind)}`,()=>{selectedRun=run.id;selectedCase=null;paint();}),badge(run.status),
+        row.append(button(`${reportName(run)} · ${label(run.kind)}`,()=>{selectedRun=run.id;selectedCase=null;paint();root.querySelector(".qa-run-detail")?.scrollIntoView({behavior:"smooth",block:"start"});}),badge(run.status),
           el("span","qa-muted",`${label(run.mode)} · 用例 ${run.results.length} 条`),
           el("span",broken||halted?"qa-error":"qa-pass",`通过 ${counts.passed} / 失败 ${counts.failed} / 阻塞 ${counts.blocked}`),
           el("span","qa-muted",`开始 ${clock(run.started_at||run.created_at)} · 结束 ${clock(run.finished_at)}`),
@@ -249,18 +254,25 @@ window.OPQuality = (() => {
     }
     function renderRun(run){
       if(!run)return;
-      const section=el("section","qa-run-detail");const head=heading(`运行 ${run.id.slice(0,8)}`,`${label(run.kind)} · ${label(run.status)} · ${run.summary.decision?label(run.summary.decision):"尚未形成结论"}`);
+      const section=el("section","qa-run-detail");const head=heading(reportName(run),`${label(run.kind)} · ${label(run.status)} · ${run.summary.decision?label(run.summary.decision):"尚未形成结论"}`);
       const controls=el("div","qa-actions");
       if(["queued","running"].includes(run.status)){const cancel=button(run.cancel_requested?"等待取消确认":"取消运行",()=>action(()=>api(`/runs/${run.id}/cancel`,{})));cancel.disabled=!canRun(run.kind);controls.append(cancel);}
       const rerun=button("新建重跑",()=>action(async()=>{const next=await api(`/runs/${run.id}/rerun`,{});selectedRun=next.id;}));rerun.disabled=!canRun(run.kind);controls.append(rerun);
       controls.append(button("导出脱敏JSON",()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(run,null,2)],{type:"application/json"}));const link=el("a");link.href=url;link.download=`quality-${run.id}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}));head.append(controls);section.append(head);
+      section.append(el("p","qa-muted",`测试环境：${run.target?.environment_id||"未记录"} · 报告编号 ${run.id}`));
       const counts=runCounts(run);
       if(["failed","blocked","cancelled"].includes(run.status)||counts.failed||counts.blocked)section.append(el("p","qa-error",`失败原因：${runReason(run)}`));
       else if(run.summary.error)section.append(el("p","qa-error",`失败原因：${run.summary.error}`));
       const layout=el("div","qa-evidence-grid");const cases=el("div","qa-evidence-column");cases.append(el("h3","","用例 / 真实状态"));
-      for(const row of run.results){const snapshot=run.target?.case_snapshots?.find(entry=>entry.id===row.id);const item=button(`${row.id} ${snapshot?.title||data.cases.find(entry=>entry.id===row.id)?.title||""}`,()=>{selectedCase=row.id;paint();});item.classList.toggle("selected",(selectedCase||run.results[0]?.id)===row.id);item.append(badge(row.status));cases.append(item);if(["failed","blocked","cancelled"].includes(row.status)&&row.evidence?.error)cases.append(el("p","qa-error",`${row.id}：${row.evidence.error}`));}
+      for(const row of run.results){const snapshot=run.target?.case_snapshots?.find(entry=>entry.id===row.id);const item=button(`${row.id} ${snapshot?.title||data.cases.find(entry=>entry.id===row.id)?.title||""}`,()=>{selectedCase=row.id;paint();});item.classList.toggle("selected",(selectedCase||run.results[0]?.id)===row.id);item.classList.add("qa-result-"+row.status);item.append(badge(row.status));cases.append(item);if(["failed","blocked","cancelled"].includes(row.status)&&row.evidence?.error)cases.append(el("p","qa-error",`${row.id}：${row.evidence.error}`));}
       const row=run.results.find(entry=>entry.id===(selectedCase||run.results[0]?.id));const evidence=row?.evidence||{};
       const middle=el("div","qa-evidence-column"),right=el("div","qa-evidence-column");middle.append(el("h3","",row?.kind==="assistant"?"测试对话与工具轨迹":"API步骤与状态证据"));right.append(el("h3","","可信事实与固定断言"));
+      const snapshot=run.target?.case_snapshots?.find(entry=>entry.id===row?.id);
+      const doc=row?.doc||data.cases.find(entry=>entry.id===row?.id)?.doc||{};
+      middle.prepend(el("h3","",snapshot?.title||data.cases.find(entry=>entry.id===row?.id)?.title||row?.id||"等待用例"));
+      middle.append(el("h4","","测试步骤（中文）"),steps(doc.steps||[]),el("h4","","预期结果"),list(doc.expected||[]),el("h4","","实际结果"));
+      middle.append(el("p",row?.status==="passed"?"qa-pass":["failed","blocked","cancelled"].includes(row?.status)?"qa-error":"qa-muted",row?.status==="passed"?"实际执行通过；下方展示真实请求、响应和断言结果。":row?.status==="failed"?"实际执行失败："+(evidence.error||"请查看失败断言"):row?.status==="blocked"?"执行阻塞："+(evidence.error||"缺少执行证据"):"当前状态："+label(row?.status||"queued")));
+      if(evidence.suite?.reports)for(const result of evidence.suite.reports)middle.append(el("p","qa-muted",`${result.node||row.id} · ${result.stage||"执行"}：${result.outcome==="passed"?"通过":result.outcome==="failed"?"失败":result.outcome}`));
       if(evidence.error)middle.append(el("p","qa-error",evidence.error));
       const artifacts=evidence.artifacts||[];
       if(artifacts.length){middle.append(el("h4","","UI 用例截图（点击放大）"));const box=el("div","qa-shots");for(const artifact of artifacts)box.append(shotThumb(run.id,artifact));middle.append(box);}
@@ -274,7 +286,7 @@ window.OPQuality = (() => {
       }
       if(!requests.length)middle.append(el("p","qa-muted",["queued","running"].includes(row?.status)?"等待隔离子进程返回证据；不会预填通过。":"此步骤没有API请求证据，查看阻塞原因或固定测试断言。"));
       if(evidence.facts)right.append(pre(evidence.facts));
-      for(const check of evidence.assertions||[]){const item=el("div",check.passed?"qa-assert qa-pass":"qa-assert qa-error");item.append(el("strong","",`${check.passed?"通过":"失败"} · ${check.name}`));if(check.expected!=null||check.actual!=null)item.append(pre({expected:check.expected,actual:check.actual}));right.append(item);}
+      for(const check of evidence.assertions||[]){const item=el("div",check.passed?"qa-assert qa-pass":"qa-assert qa-error");item.append(el("strong","",`${check.passed?"通过":"失败"} · ${check.name}`));if(check.expected!=null||check.actual!=null)item.append(el("h5","","预期结果"),pre(check.expected??"断言条件成立"),el("h5","","实际结果"),pre(check.actual??(check.passed?"条件成立":"条件不成立")));right.append(item);}
       if(!evidence.assertions?.length)right.append(el("p","qa-muted","尚无有效断言结果，不算通过。"));
       if(evidence.budget)right.append(el("h4","","模型预算 / 实际来源"),pre(evidence.budget));
       right.append(el("p","qa-muted",`隔离清理：${evidence.cleanup_ok===true?"已确认":evidence.cleanup_ok===false?"未确认":"尚未执行"}`));
@@ -370,11 +382,11 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
     }
     function confirmRunAll(){
       const rows=data.cases.filter(canRunRow),groups=runGroups(rows);
-      const planned=groups.reduce((total,group)=>total+Math.ceil(group.ids.length/BATCH_LIMIT),0);
+      const planned=groups.reduce((total,group)=>total+Math.ceil(group.ids.length/batchLimit(group)),0);
       const dialog=el("dialog","qa-dialog"),form=el("div","qa-form");
-      form.append(el("h2","","一键运行全部已接入用例"),el("p","qa-muted",`共 ${rows.length} 条已接入用例，按类型与模式拆成 ${planned} 个计划，每个计划最多 ${BATCH_LIMIT} 条；助手与功能用例不会混在同一计划里。`));
-      form.append(table(["用例类型","模式","用例数","计划数"],groups.map(group=>[TYPE_LABEL[group.kind]||label(group.kind),label(group.mode),String(group.ids.length),String(Math.ceil(group.ids.length/BATCH_LIMIT))])));
-      form.append(el("p","","点击下方按钮即完成「批准并启动」（本次点击即批准并启动）；预算 max_calls=20 / max_tokens=30000 / timeout=600s，环境 "+RUN_ENVIRONMENT+"。"));
+      form.append(el("h2","","一键运行全部已接入用例"),el("p","qa-muted",`共 ${rows.length} 条已接入用例，按类型与模式拆成 ${planned} 个计划，功能每个计划最多 ${BATCH_LIMIT} 条，助手每条独立计划与预算；助手与功能用例不会混在同一计划里。`));
+      form.append(table(["用例类型","模式","用例数","计划数"],groups.map(group=>[TYPE_LABEL[group.kind]||label(group.kind),label(group.mode),String(group.ids.length),String(Math.ceil(group.ids.length/batchLimit(group)))])));
+      form.append(el("p","","点击下方按钮即完成「批准并启动」（本次点击即批准并启动）；预算 max_calls=20 / max_tokens=60000 / timeout=600s，环境 "+RUN_ENVIRONMENT+"。"));
       const message=el("p","qa-error");
       form.append(message,actions(button("取消",()=>dialog.close()),button("确认并运行全部",()=>{dialog.close();runCases(rows);},true)));
       dialog.append(form);dialog.addEventListener("close",()=>dialog.remove(),{once:true});root.append(dialog);dialog.showModal();
@@ -382,8 +394,8 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
     async function startRows(rows){
       const started=[],failed=[];
       for(const group of runGroups(rows)){
-        for(let index=0;index<group.ids.length;index+=BATCH_LIMIT){
-          const batch=group.ids.slice(index,index+BATCH_LIMIT);
+        for(let index=0;index<group.ids.length;index+=batchLimit(group)){
+          const batch=group.ids.slice(index,index+batchLimit(group));
           try{
             const goal=`${TYPE_LABEL[group.kind]||group.kind}用例 ${batch[0]}${batch.length>1?` 等 ${batch.length} 条`:""} · ${label(group.mode)}`;
             const plan=await api("/plans",{goal,kind:group.kind,mode:group.mode,planner:"fixed",environment_id:RUN_ENVIRONMENT,case_ids:batch,...RUN_BUDGET});
@@ -423,7 +435,7 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       for(const row of data.cases.filter(entry=>entry.state==="active"&&(kind==="joint"||entry.kind===kind))){const wrap=el("label");const check=el("input");check.type="checkbox";check.value=row.id;check.checked=counters[row.kind]++<2;wrap.append(check,document.createTextNode(`${row.id} ${row.title}`));choices.append(wrap);}form.append(choices);
       const updateModes=()=>{for(const check of choices.querySelectorAll('input')){const row=data.cases.find(item=>item.id===check.value);check.disabled=row.kind==='assistant'&&!row.modes.includes(mode.value);if(check.disabled)check.checked=false;check.parentElement.title=check.disabled?'此用例需要真实模型模式':'';}};
       mode.onchange=updateModes;updateModes();
-      const budget=el("input");budget.type="number";budget.min="2000";budget.max="60000";budget.value="30000";form.append(el("label","","共享模型Token预算（含规划、重试与被测助手）"),budget);
+      const budget=el("input");budget.type="number";budget.min="2000";budget.max="60000";budget.value="60000";form.append(el("label","","共享模型Token预算（含规划、重试与被测助手）"),budget);
       const consent=el("label","qa-consent"),check=el("input");check.type="checkbox";check.required=true;consent.append(check,document.createTextNode("确认只在已登记合成环境运行；真实模式/AI规划会消耗配置的模型额度"));form.append(consent);
       const message=el("p","qa-error");const submit=el("button","qa-primary","生成待审批计划");submit.type="submit";
       const labels=Array.from(form.querySelectorAll('label')).filter(node=>!node.querySelector('input'));

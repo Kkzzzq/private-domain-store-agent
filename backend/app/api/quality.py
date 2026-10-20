@@ -1,4 +1,5 @@
 from uuid import uuid4
+from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -44,7 +45,7 @@ CUSTOM_CASE_DOC = {
     "expected": ["每轮声明的硬断言全部通过", "真实模型模式必须 mode=llm，规则回退不算通过"],
     "code_file": "backend/app/quality/case_versions.py",
     "code_node": "execute_definition(definition, evidence)",
-    "risk": "read-only",
+    "risk": "writes",
 }
 
 
@@ -121,8 +122,13 @@ def create_run(body: RunIn, user=Depends(quality_user), db=Depends(get_db)):
 
 
 @router.get("/runs")
-def list_runs(user=Depends(quality_user), db=Depends(get_db)):
-    return [service.run_out(db, row) for row in db.scalars(select(QualityRun).order_by(QualityRun.created_at.desc()).limit(30))]
+def list_runs(report_date: date | None = Query(default=None), user=Depends(quality_user), db=Depends(get_db)):
+    query = select(QualityRun)
+    if report_date:
+        # 数据库存 UTC；日期查询固定按北京时间，避免浏览器所在时区改变结果。
+        start = datetime.combine(report_date, time.min) - timedelta(hours=8)
+        query = query.where(QualityRun.created_at >= start, QualityRun.created_at < start + timedelta(days=1))
+    return [service.run_out(db, row) for row in db.scalars(query.order_by(QualityRun.created_at.desc()).limit(100))]
 
 
 @router.get("/runs/{run_id}")

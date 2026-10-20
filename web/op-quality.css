@@ -27,3 +27,7 @@
 .qa-run-failed{background:#fbeee6;border-left:3px solid #c0674f;padding-left:10px;border-radius:6px}
 .qa-receipt{border-color:#bcccaf}
 @media(max-width:700px){.qa-agent-grid,.qa-stat{grid-template-columns:1fr}.qa-shot{max-width:100%}.qa-search input[type=search]{min-width:0;width:100%}.qa-table th,.qa-table td{padding:6px}}
+
+.qa-evidence-column button.qa-result-passed{border-left:4px solid #25845b;background:#eef9f2}.qa-evidence-column button.qa-result-failed,.qa-evidence-column button.qa-result-blocked{border-left:4px solid #cb4040;background:#fff0f0}
+
+.qa-completed{color:#25845b;background:#e5f4ea}.qa-run-detail{scroll-margin-top:24px}.qa-evidence-column h4{margin:20px 0 8px}

@@ -50,6 +50,10 @@ FUNCTIONAL_TESTS = {
     "F29": "test_agent_actions.py::test_proposal_preview_confirm_idempotent_and_not_visible_to_buyer",
     "F30": "test_agent_actions.py::test_confirmation_failure_rolls_back_product_and_claim",
 }
+
+FUNCTIONAL_TITLES += ['OP全部商家路由与越权保护', 'OP商品规格价格图片同步三端', 'OP店铺分类标签内容优惠券同步', 'OP装修预览发布与版本冲突', 'OP封店实时影响买家和商家', 'OP停用恢复重置密码撤销会话', 'OP物流售后与买家状态同步', 'OP评价隐藏恢复保留原文', 'OP买家详情权限与资源保护', 'OP规格禁售不可商家解除', 'OP上传校验和规格排序落盘', 'OP取消订单库存仅回补一次', 'OP创建账号及显式管理授权']
+FUNCTIONAL_TESTS.update({'F31': 'test_op_complete.py::test_all_existing_routes_have_op_scope', 'F32': 'test_op_complete.py::test_full_product_sku_images_tags_and_scope', 'F33': 'test_op_complete.py::test_settings_categories_tags_content_and_coupons', 'F34': 'test_op_complete.py::test_decoration_revision_preview_save_and_sort', 'F35': 'test_op_complete.py::test_platform_freeze_blocks_cached_products_cart_and_merchant_reopen', 'F36': 'test_op_complete.py::test_account_disable_enable_reset_revokes_old_sessions', 'F37': 'test_op_complete.py::test_shipping_and_after_sales_share_existing_state_machine', 'F38': 'test_op_complete.py::test_review_moderation_updates_c_rating_without_editing_original', 'F39': 'test_op_complete.py::test_customer_details_are_explicit_and_op_only', 'F40': 'test_op_complete.py::test_sku_governance_is_platform_only', 'F41': 'test_op_complete.py::test_upload_validation_and_sku_sorting', 'F42': 'test_op_complete.py::test_platform_cancel_restores_stock_once', 'F43': 'test_op_complete.py::test_create_account_and_explicit_operator_grant'})
+
 ASSISTANT_CASES = {"A01", "A02", "A04", "A07", "A08", "A13", "A14", "A29", "A30", "A38", "A39"}
 ASSISTANT_CASES |= ADDITIONAL_CASES
 ASSISTANT_CASES |= RAG_CASES | {"A20"}

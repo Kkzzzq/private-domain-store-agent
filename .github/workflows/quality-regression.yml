@@ -36,7 +36,7 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - run: python -m pytest tests/test_quality.py tests/test_quality_business.py tests/test_quality_native.py tests/test_quality_reporting.py tests/test_quality_case_versions.py tests/test_embedding_failover.py -q
       - run: python scripts/check_quality.py --cases A01 A02 A03 A04 A07 A08 A09 A12 A13 A14 A29 A30 A38 A39 F01 F08 F29 --report data/acceptance/ci-quality-fixed.json
-      - run: python scripts/check_quality.py --cases E01 E02 E03 E04 --report data/acceptance/ci-quality-browser.json
+      - run: python scripts/check_quality.py --cases E01 E02 E03 E04 E05 --report data/acceptance/ci-quality-browser.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

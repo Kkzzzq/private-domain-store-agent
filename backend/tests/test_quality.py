@@ -125,7 +125,7 @@ def test_registered_cases_match_existing_fixed_tests_and_redact():
         filename, function = node.split("::")
         module = ast.parse((root / filename).read_text(encoding="utf-8"))
         assert function in {item.name for item in module.body if isinstance(item, ast.FunctionDef)}
-    assert len(cases()) == 74 and sum(row["state"] == "active" for row in cases()) == 74
+    assert len(cases()) == 88 and sum(row["state"] == "active" for row in cases()) == 88
     redacted = safe({"access_token": "private", "password": "password", "phone": "13911112222"})
     assert set(redacted.values()) == {"[已脱敏]"}
     assert safe({"budget": {"tokens": 120, "calls": 2}})["budget"]["tokens"] == 120

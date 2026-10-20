@@ -82,12 +82,16 @@ def execute(spec):
     except Exception as exc:
         output.update(status="blocked", error=safe(type(exc).__name__ + ": " + str(exc)))
     finally:
+        if getattr(evidence, "artifacts", None):
+            output["artifacts"] = evidence.artifacts
         logger.removeHandler(handler)
         output["diagnostics"] = warnings
         restore()
         if restore_model:
             restore_model()
     output.update(duration_ms=round((perf_counter() - started) * 1000), budget=budget.output())
+    if budget.exhausted:
+        output.update(status="blocked", error="模型预算不足：下一次请求的保守预留超过剩余预算，已在发送前停止；请增加预算后新建运行。")
     return safe(output)
 
 

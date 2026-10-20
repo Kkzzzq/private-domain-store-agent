@@ -10,6 +10,31 @@ from app.models.tables import utcnow
 from test_quality import operator, plan
 
 
+def test_report_date_uses_beijing_midnight_and_snapshot_documents(client):
+    from datetime import datetime
+    from app.quality.case_docs import CASE_DOCS
+    headers, user_id = operator(client)
+    ids = [recorded_run(client, headers, user_id) for _ in range(3)]
+    with SessionLocal() as db:
+        for key, moment in zip(ids, [datetime(2026, 10, 20, 15, 59), datetime(2026, 10, 20, 16, 0), datetime(2026, 10, 21, 16, 0)]):
+            db.get(QualityRun, key).created_at = moment
+        db.commit()
+    response = client.get('/api/v1/op/qa/runs', headers=headers, params={'report_date': '2026-10-21'})
+    assert response.status_code == 200
+    assert [r['id'] for r in response.json()] == [ids[1]]
+    report = response.json()[0]
+    assert report['name'] == '2026-10-21 00:00 测试报告'
+    original = report['results'][0]['doc']['steps']
+    old = CASE_DOCS['A02']['steps']
+    try:
+        CASE_DOCS['A02']['steps'] = ['后续改版文案']
+        fetched = client.get('/api/v1/op/qa/runs/' + ids[1], headers=headers).json()
+        assert fetched['results'][0]['doc']['steps'] == original
+    finally:
+        CASE_DOCS['A02']['steps'] = old
+    assert client.get('/api/v1/op/qa/runs', headers=headers, params={'report_date': 'bad-date'}).status_code == 422
+
+
 def recorded_run(client, headers, user_id, status="passed", age=0, environment="isolated-local"):
     planned = plan(client, headers)
     run_id = uuid4().hex

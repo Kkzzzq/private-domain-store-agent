@@ -9,7 +9,7 @@ from importlib import import_module
 from app.quality.catalog import case_by_id
 
 
-SOURCES = ("case_docs_assistant_a", "case_docs_assistant_b", "case_docs_functional", "case_docs_browser")
+SOURCES = ("case_docs_assistant_a", "case_docs_assistant_b", "case_docs_functional", "case_docs_browser", "case_docs_op")
 
 ADAPTER_FILES = {
     "isolated_assistant_api": "backend/app/quality/case_runner.py::execute",
