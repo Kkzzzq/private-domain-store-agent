@@ -237,7 +237,11 @@ def plan_one(plan_id, session_factory=SessionLocal, executor=subprocess_job):
         queue.release("planning", token)
 
 
+_last_retention = 0.0
+
+
 def tick():
+    global _last_retention
     with SessionLocal() as db:
         for plan in db.scalars(select(QualityPlan).where(QualityPlan.status == "planning_running", QualityPlan.started_at < utcnow() - timedelta(seconds=110))):
             plan.status = "blocked"
@@ -251,6 +255,15 @@ def tick():
                 result.status = "blocked"
                 result.evidence = {"error": "worker中断，执行结果不确定"}
         db.commit()
+        # 报告保留策略：每小时最多自动清理一次（默认删 7 天前的已结束运行及其孤立截图）。
+        if time.monotonic() - _last_retention > 3600:
+            _last_retention = time.monotonic()
+            from app.quality.reporting import retention_auto
+            from app.core.logging import logger
+            try:
+                retention_auto(db)
+            except Exception:
+                logger.exception("自动清理历史报告失败，保留数据待下轮重试")
         waiting_plan = db.scalar(select(QualityPlan.id).where(QualityPlan.status == "planning").order_by(QualityPlan.created_at))
         waiting_run = db.scalar(select(QualityRun.id).where(QualityRun.status == "queued").order_by(QualityRun.created_at))
     plan_id = queue.pop("planning") or waiting_plan

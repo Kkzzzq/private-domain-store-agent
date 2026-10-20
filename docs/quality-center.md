@@ -4,7 +4,9 @@
 
 这是持续分批实现，不是全部规划能力交付。2026-10-20第三批已接入全部30条功能API场景、原生MySQL/Redis隔离档、浏览器E2E，以及用例版本审批、报告对比与历史保留清理；40条助手真实模型全量验收、MCP对外开放与自动发布仍未交付。
 
-- OP独立“Agent 与测试中心”：三个Agent总览、业务Agent评测、业务功能测试、测试用例与能力、运行与报告；兼容 `op.html#/testing/assistant` 等深链接。
+- OP独立「Agent 与测试中心」六页，顺序固定：**Agent总览、业务Agent、评测Agent、功能测试Agent、测试用例管理、测试用例运行与报告**；兼容 `op.html#/testing/assistant`、`#/agent-testing` 等旧深链接（重定向到「评测Agent」）。
+- Agent总览用 `GET /op/qa/agents` 展示三类 Agent 的角色、入口、模型、工具、护栏、用法与修改入口，并附实时统计；业务Agent / 评测Agent / 功能测试Agent 三页各自展开这些关键信息，测试流程放在说明卡下方。
+- 测试用例管理展示全部 74 条用例（A01–A40 助手、F01–F30 功能、E01–E04 浏览器）的执行步骤、预期结果与对应代码文件/入口，并支持单条、勾选批量与一键全部真实运行；超过 20 条自动拆批，助手与功能用例不混在一个计划里。
 - 助手Agent和功能Agent分别规划、选工具、执行与汇总；可建联合运行，功能回归先执行，助手使用另一个独立合成数据副本。
 - 40条助手规划现已登记执行适配，复杂场景仅允许live模式，不能用规则替代。全部真实模型验收仍进行中，不能将已登记视为40/40通过；30条功能API规划已接入并通过隔离回归。平台自身质量回归另行统计。
 - 固定计划不调用规划模型；AI规划通过真实 `read_test_capabilities → propose_test_plan` Function Calling 选受限用例，必须人工批准。
@@ -18,6 +20,7 @@
 - 用例版本：自定义助手用例（`C`+11位）先存为候选，审核启用后才能进计划；已启用版本不可就地修改，编辑只能新建版本（同一 `family_id` 递增 `version`），批准绑定 `revision_digest`。计划与运行冻结生成时的用例快照，用例撤销或版本变化后旧批准不能启动，历史报告不被新版本改写。
 - 报告对比：`GET /api/v1/op/qa/compare`（前端「版本报告对比」）只在环境、fixture版本、执行模式一致且两侧运行都已结束时判定回归；用例新增/删除单列标 `not_selected`，不并入通过率；同一用例但版本摘要不同不判回归；两侧分组结论分开，不合成单一通过率。
 - 历史保留与清理：先 `POST /retention/preview` 生成清理范围与摘要，再 `POST /retention/apply` 带摘要执行，范围漂移返回409。默认每次最多处理200条最早的超期终态运行，预览响应给出 `total/truncated/remaining`，可重复预览+清理直至收敛；只删除已结束运行及其不再被引用的截图，计划与活动任务保留。需要 `qa.approve`。
+- 报告保留策略为 **7 天**：worker 每小时自动清理一次超期的已结束运行及其孤立截图（保留策略写在 `reporting.RETENTION_DAYS`，`/capabilities` 与 `/agents` 都会把天数返回给前端展示）；计划与活动任务永不自动删除，手动预览清理仍可用。
 - 浏览器E2E适配器（E01—E04）走真实页面与真实API：规格加购用券结算、商家SKU排序同步买家、OP测试入口与买家权限隔离、OP规划审批运行重跑对比。证据请求记录耗时与来源（`via=real_browser`）。
 
 ## 权限与启动
@@ -87,7 +90,7 @@ MemoryRedis仅单worker开发模式，不支持跨进程分布式锁；多worker
 
 ```powershell
 .venv/Scripts/python.exe -m pytest tests/test_quality.py -q
-.venv/Scripts/python.exe -m pytest tests/test_quality.py tests/test_quality_case_versions.py tests/test_quality_reporting.py tests/test_quality_version_retention_audit.py -q
+.venv/Scripts/python.exe -m pytest tests/test_quality.py tests/test_quality_case_versions.py tests/test_quality_reporting.py tests/test_quality_version_retention_audit.py tests/test_quality_agents_docs.py -q
 .venv/Scripts/python.exe -m scripts.check_quality
 .venv/Scripts/python.exe -m scripts.check_quality --cases E01 E02 E03 E04 --report data/acceptance/quality-browser.json
 .venv/Scripts/python.exe -m scripts.check_quality --live --cases A02 --report data/acceptance/quality-live.json

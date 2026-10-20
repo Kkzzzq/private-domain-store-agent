@@ -11,6 +11,7 @@ from app.models.quality import QualityPlan, QualityRun, QualityCaseVersion
 from app.quality.case_versions import CaseIn
 from app.quality import service
 from app.quality.catalog import CATALOG_VERSION, environments, cases
+from app.quality.case_docs import CASE_DOCS, doc_for
 
 router = APIRouter(prefix="/op/qa", tags=["OP quality"])
 
@@ -29,16 +30,57 @@ def get_record(db, model, record_id):
 
 @router.get("/capabilities")
 def capabilities(user=Depends(quality_user), db=Depends(get_db)):
+    from app.quality.reporting import RETENTION_DAYS
     return {"capabilities": sorted(service.capabilities(db, user.id)), "environments": environments(),
             "catalog_version": CATALOG_VERSION, "case_counts": {kind: sum(row["kind"] == kind and row["state"] == "active" for row in cases()) for kind in ("assistant", "functional")},
             "limits": {"max_cases": 20, "max_calls": 50, "max_tokens": 60000},
+            "retention": {"days": RETENTION_DAYS, "auto": True,
+                          "notice": f"运行报告与截图保留 {RETENTION_DAYS} 天后自动删除；计划与活动任务保留。"},
             "limitations": ["所有执行档仅合成数据，不对真实店铺写测试", "接入数量与运行通过数量分开", "浏览器适配需requirements-e2e及浏览器运行时，缺依赖记阻塞"]}
+
+
+CUSTOM_CASE_DOC = {
+    "steps": ["按用例定义逐轮发送用户输入", "记录每轮的工具调用、回答原文与业务助手原始响应"],
+    "expected": ["每轮声明的硬断言全部通过", "真实模型模式必须 mode=llm，规则回退不算通过"],
+    "code_file": "backend/app/quality/case_versions.py",
+    "code_node": "execute_definition(definition, evidence)",
+    "risk": "read-only",
+}
+
+
+@router.get("/agents")
+def list_agents(user=Depends(quality_user), db=Depends(get_db)):
+    """三类 Agent 的关键信息 + 与本平台运行数据结合的实时统计。"""
+    from app.quality.agents import descriptors
+    rows = cases()
+    runs = db.scalars(select(QualityRun).order_by(QualityRun.created_at.desc()).limit(200)).all()
+    out = []
+    for agent in descriptors():
+        active = [row for row in rows if row["kind"] == agent["kind"] and row["state"] == "active"]
+        kind_runs = [run for run in runs if run.kind == agent["kind"]]
+        latest = kind_runs[0] if kind_runs else None
+        entry = dict(agent)
+        entry["stats"] = {"active_cases": len(active),
+                          "documented_cases": sum(1 for row in active if row["id"] in CASE_DOCS),
+                          "runs": len(kind_runs),
+                          "last_run": None if latest is None else {
+                              "id": latest.id, "status": latest.status, "mode": latest.mode,
+                              "created_at": latest.created_at.isoformat(),
+                              "decision": (latest.summary or {}).get("decision")}}
+        out.append(entry)
+    from app.quality.reporting import RETENTION_DAYS
+    return {"agents": out, "retention_days": RETENTION_DAYS}
 
 
 @router.get("/cases")
 def list_cases(user=Depends(quality_user), db=Depends(get_db)):
     from app.quality.case_versions import all_cases
-    return all_cases(db)
+    rows = []
+    for row in all_cases(db):
+        entry = dict(row)
+        entry["doc"] = CUSTOM_CASE_DOC if row.get("adapter") == "declarative_assistant" else doc_for(row["id"])
+        rows.append(entry)
+    return rows
 
 
 @router.post("/plans", status_code=201)
@@ -118,7 +160,7 @@ def artifact(run_id: str, artifact_id: str, user=Depends(quality_user), db=Depen
 
 
 class RetentionIn(BaseModel):
-    days: int = Field(default=30, ge=7, le=3650)
+    days: int = Field(default=7, ge=7, le=3650)
 
 
 class RetentionApplyIn(RetentionIn):

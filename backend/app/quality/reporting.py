@@ -14,6 +14,9 @@ from app.quality.service import run_out
 
 TERMINAL = {"completed", "failed", "blocked", "cancelled"}
 RETENTION_LIMIT = 200
+# 报告保留策略：已结束的运行及其不再被引用的截图，保留 7 天后自动删除。
+# 计划与活动任务永不自动删除（历史结论可复核，代码指纹仍能解释旧报告）。
+RETENTION_DAYS = 7
 
 
 def compare(db, baseline, candidate):
@@ -91,3 +94,17 @@ def retention_apply(db, days, digest):
         except Exception:
             failed.append("截图清理失败")
     return {"deleted_runs": len(ids), "artifact_cleanup_errors": failed, "plans_preserved": True}
+
+
+def retention_auto(db, days=None):
+    """按保留策略自动清理超期报告（默认 7 天）。
+
+    只删已结束的运行与不再被引用的截图；计划、活动任务与仍被引用的截图保留。
+    由 worker 定时调用，也可在运维脚本里直接调。
+    """
+    days = RETENTION_DAYS if days is None else days
+    preview = retention_preview(db, days)
+    if not preview["count"]:
+        return {"days": days, "deleted_runs": 0, "artifact_cleanup_errors": [], "plans_preserved": True}
+    done = retention_apply(db, days, preview["digest"])
+    return {"days": days, **done}
