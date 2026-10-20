@@ -177,24 +177,6 @@ function renderStrip() {
   }
   brand.append(h("span", "strip-name", shop.name));
   left.append(brand);
-  if (!loggedIn()) {
-    const login = h("button", "strip-login", "亲，请登录");
-    login.addEventListener("click", loginModal);
-    left.append(login);
-  } else {
-    const logout = h("button", "strip-login", "退出登录");
-    logout.addEventListener("click", async () => {
-      logout.disabled = true;
-      try {
-        await StoreAuth.logout("token_c");
-        sessionId = ""; chatLines = []; chatIdentity = ""; chatRestored = false;
-        cartCount = 0; addressId = null;
-        render();
-      } catch (error) { toast(error.message, "bad"); logout.disabled = false; }
-    });
-    left.append(logout);
-  }
-
   const nav = h("nav", "store-nav");
   nav.setAttribute("aria-label", "买家快捷入口");
   nav.dataset.shopCode = code;
