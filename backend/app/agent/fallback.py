@@ -42,6 +42,8 @@ def fallback_reply(message: str) -> tuple[str, list[dict]]:
     if any(word in message for word in ("帮我发货", "帮我退款", "修改价格", "调整库存", "帮我上架", "帮我下架", "修改库存")):
         return "助手提供查询服务。请前往商品或订单页面完成修改、发货或售后操作。", []
     intent = classify(message)
+    if intent == "product_write":
+        return "当前使用规则查询，无法可靠生成商品配置。请切换智能模式后提供商品名称、规格、售价与库存，或前往商品管理新建草稿。不会自动创建或上架。", []
     if intent in ("overview", "low_inventory", "recommend"):
         args = {}
         name = {"overview": "merchant_overview", "low_inventory": "low_inventory", "recommend": "recommend_products"}[intent]

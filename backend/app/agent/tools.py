@@ -1,3 +1,4 @@
+from app.agent.product_actions import PrepareProductArgs, prepare_product_draft
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -131,6 +132,7 @@ def recommend_products(reason="hot", product_id=None, budget_yuan=None, limit=3,
 
 
 SPECS = {
+    "prepare_product_draft": PrepareProductArgs,
     "get_store_catalog": CatalogArgs,
     "clarify_recommendation": ClarifyRecommendationArgs,
     "recommend_products": RecommendArgs,
@@ -143,6 +145,7 @@ SPECS = {
 }
 
 IMPL = {
+    "prepare_product_draft": prepare_product_draft,
     "get_store_catalog": store_catalog,
     "clarify_recommendation": clarify_recommendation,
     "recommend_products": recommend_products,
@@ -155,6 +158,7 @@ IMPL = {
 }
 
 DESCRIPTIONS = {
+    "prepare_product_draft": "商家生成商品配置提案，或复制本店现有商品为新草稿；仅准备待确认提案，不创建商品、不改原商品、不上架。名称规格售价库存必须来自用户或本店模板，缺失先追问。生成后请用户点击预览确认。",
     "get_store_catalog": "推荐前首先了解本店商品：分类、价格范围、可售商品说明及SKU库存，支持分页。不能用其他店铺或常识代替。",
     "clarify_recommendation": "概览后若关键条件确实缺失，用本工具声明需追问的1至2个字段，再向用户提问而非给具体推荐；已在本轮或历史提供的信息不要重复询问。",
     "recommend_products": "了解商品后按用户需求筛选本店有货商品。提供需求摘要、分类、必含词、排除词、预算、数量；hot/viewed/related/budget分别为热销/浏览/相似/预算模式。预算为数量件小计不含运费。",
@@ -168,13 +172,14 @@ DESCRIPTIONS = {
 
 
 def allowed_tools(role):
-    return set(SPECS) if role == "merchant" else set(SPECS) - {"merchant_overview", "low_inventory"}
+    return set(SPECS) if role == "merchant" else set(SPECS) - {"merchant_overview", "low_inventory", "prepare_product_draft"}
 
 
 def langchain_tools(intent="unclear"):
     from langchain_core.tools import StructuredTool
 
     routes = {
+        "product_write": {"prepare_product_draft", "get_store_catalog"},
         "order": {"query_orders"},
         "policy": {"search_knowledge"},
         "inventory": {"search_products", "check_inventory"},

@@ -55,7 +55,7 @@ def run_tool_loop(history: list[dict], summary: str, user_text: str, llm=None, m
     from app.models.tables import Shop
     from app.services.assistant_identity import assistant_name
     shop = current()[0].get(Shop, actor.shop_id)
-    messages = [SystemMessage(content=SYSTEM_PROMPT + f"\n配置的首选模型：{model_name}，额度不足时可能切换候选模型。当前身份：{actor.role}。商家可查本店全部订单和经营概览，买家只能查本人订单。工具仅支持查询，写操作请引导至业务页面。")]
+    messages = [SystemMessage(content=SYSTEM_PROMPT + f"\n配置的首选模型：{model_name}，额度不足时可能切换候选模型。当前身份：{actor.role}。商家可查本店全部订单和经营概览，买家只能查本人订单。工具支持查询；商家可生成商品配置提案，必须引导用户在页面预览确认后才保存草稿，其他写操作请引导至业务页面。")]
     if classify(user_text) == "policy":
         messages[0].content += "\n本轮是政策或养护查询。必须先调用 search_knowledge，question 参数填写当前用户问题；在收到知识工具结果前不要直接回答。"
     if shop:

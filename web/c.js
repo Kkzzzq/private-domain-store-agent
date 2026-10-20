@@ -778,6 +778,10 @@ function productCard(product, { shopCode = code, extra = false } = {}) {
     shopCode 是商品所属的店铺，浏览记录里跨店加购要靠它。 */
 function quickBuy(product, shopCode = code) {
   if (!requireLogin()) return;
+  const purchaseIdentity = sessionStorage.getItem("token_c");
+  const purchaseShop = code;
+  const stillCurrent = () => purchaseIdentity === sessionStorage.getItem("token_c") && purchaseShop === code;
+  let submitting = false;
   const mask = h("div", "modal quick-mask");
   const panel = h("div", "panel quick-panel");
   const productRegion = h("div", "quick-product-region");
@@ -836,7 +840,7 @@ function quickBuy(product, shopCode = code) {
   const plus = h("button", "", "+");
   const clamp = () => {
     const cap = Math.min(20, product.limit_per_user || 20, current ? Math.max(1, current.stock) : 20);
-    const value = Math.max(1, Math.min(cap, Number(qtyInput.value) || 1));
+    const value = Math.max(1, Math.min(cap, Math.trunc(Number(qtyInput.value)) || 1));
     qtyInput.value = String(value);
     return value;
   };
@@ -861,6 +865,7 @@ function quickBuy(product, shopCode = code) {
       stockNote.textContent = "";
       return;
     }
+    add.disabled = buy.disabled = submitting || !current.purchasable;
     image.src = cover(current.image_url || product.image_url);
     image.alt = `${product.name} · ${current.spec}`;
     priceText.textContent = Number(current.price_yuan).toFixed(2);
@@ -878,22 +883,27 @@ function quickBuy(product, shopCode = code) {
   add.disabled = disabled;
   buy.disabled = disabled;
   add.addEventListener("click", async () => {
-    if (!current) return;
+    if (!current || !current.purchasable || submitting) return;
+    if (!stillCurrent()) { mask.remove(); toast("账号或店铺已切换，请重新选择商品", "bad"); return; }
+    submitting = true;
+    add.disabled = buy.disabled = true;
     try {
       const cart = await api(`/api/v1/c/shops/${shopCode}/cart`, {
         method: "POST",
         body: JSON.stringify({ sku_id: current.id, quantity: clamp() }),
       });
+      if (!stillCurrent()) { mask.remove(); return; }
       cartCount = cart.items.reduce((sum, item) => sum + item.quantity, 0);
       mask.remove();
       toast("已加入购物车", "ok");
       render();
     } catch (error) {
       toast(error.message, "bad");
-    }
+    } finally { submitting = false; paint(); }
   });
   buy.addEventListener("click", () => {
-    if (!current) return;
+    if (!current || !current.purchasable || submitting) return;
+    if (!stillCurrent()) { mask.remove(); toast("账号或店铺已切换，请重新选择商品", "bad"); return; }
     sessionStorage.setItem(
       "buy_now",
       JSON.stringify({
@@ -2238,7 +2248,25 @@ function renderChat() {
       image.src = cover(product.image_url);
       image.alt = product.name;
       link.append(image, h("span", "", `${product.name} · ${money(product.price_from)}起`));
-      cards.append(link);
+      const item = h("div", "agent-product-item");
+      item.style.cssText = "display:flex;align-items:center;gap:6px";
+      const purchase = h("button", "btn-ghost agent-product-buy", "🛒");
+      purchase.type = "button";
+      purchase.setAttribute("aria-label", `选择规格并购买${product.name}`);
+      purchase.title = "选择规格 · 加购或购买";
+      purchase.addEventListener("click", async () => {
+        if (!requireLogin()) return;
+        const identity = sessionStorage.getItem("token_c"), shopCode = code;
+        purchase.disabled = true;
+        try {
+          const latest = await api(`/api/v1/c/shops/${shopCode}/products/${product.id}`);
+          if (identity !== sessionStorage.getItem("token_c") || code !== shopCode) return;
+          quickBuy(latest, shopCode);
+        } catch (error) { toast(error.message, "bad"); }
+        finally { purchase.disabled = false; }
+      });
+      item.append(link, purchase);
+      cards.append(item);
     });
     log.append(cards);
   };

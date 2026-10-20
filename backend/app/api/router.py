@@ -12,6 +12,8 @@ router.include_router(auth_router)
 router.include_router(b_router)
 router.include_router(c_router)
 router.include_router(support_router)
+from app.api.agent_actions import router as agent_actions_router
+router.include_router(agent_actions_router)
 
 
 @router.get("/health")

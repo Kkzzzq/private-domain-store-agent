@@ -474,6 +474,12 @@ function merchantAssistant() {
     const content = h("div", question ? "merchant-question" : "merchant-answer", data.text);
     if (!question) renderAssistantMessage(content, data.text);
     log.append(content);
+    (data.proposals || []).forEach((proposal) => {
+      const button = h("button", "btn-ghost", `预览商品配置：${proposal.name}`);
+      button.type = "button";
+      button.addEventListener("click", () => previewAgentProduct(proposal.proposal_id, button));
+      log.append(button);
+    });
     (data.products || []).forEach((product) => {
       const link = h("a", "btn-ghost", `${product.name} · ${money(product.price_from)}起`);
       link.href = `#/products/${product.id}`;
@@ -485,7 +491,7 @@ function merchantAssistant() {
   if (!merchantMessages.length) log.append(welcome);
   const form = document.createElement("form");
   const input = document.createElement("input");
-  input.placeholder = "例如：经营概览 / 库存预警 / 本店订单";
+  input.placeholder = "例如：配置商品 / 经营概览 / 库存预警";
   input.maxLength = 1000;
   input.required = true;
   const send = h("button", "btn", "发送");
@@ -518,6 +524,14 @@ function merchantAssistant() {
         });
       merchantSession = data.session_id;
       const reply = { text: `${data.answer}${knowledgeSourceText(data)}\n${data.mode === "fallback" ? "规则查询 · " : ""}${data.notices.join("；")}`, products: data.products };
+      reply.proposals = [];
+      for (const trace of data.tools || []) {
+        if (trace.tool !== "prepare_product_draft") continue;
+        try {
+          const proposal = JSON.parse(trace.result);
+          if (proposal.type === "product_draft_proposal" && /^[a-f0-9]{32}$/.test(proposal.proposal_id)) reply.proposals.push(proposal);
+        } catch (_) { /* Tool validation feedback is ordinary text. */ }
+      }
       merchantMessages.push(reply);
       append(reply);
       input.value = "";
@@ -2599,4 +2613,60 @@ async function couponsAdmin() {
   });
   list.append(noMatch);
   box.append(list); return box;
+}
+
+async function previewAgentProduct(proposalId, trigger) {
+  const identity = sessionStorage.getItem("token_b");
+  const current = () => identity && identity === sessionStorage.getItem("token_b");
+  trigger.disabled = true;
+  try {
+    const proposal = await api(`/api/v1/b/agent/product-proposals/${proposalId}`);
+    if (!current()) return;
+    const dialog = document.createElement("dialog");
+    dialog.className = "panel";
+    dialog.style.cssText = "max-width:620px;width:calc(100% - 32px);max-height:85vh;overflow:auto;padding:24px;border:1px solid #ddd;border-radius:16px";
+    dialog.append(h("h2", "", "确认商品配置"));
+    const details = h("div");
+    details.style.whiteSpace = "pre-wrap";
+    const p = proposal.payload;
+    details.textContent = `名称：${p.name}\n分类：${p.category}\n简介：${p.description || "未填写"}\n图片：${p.image_url || "未填写，可保存后补充"}\n限购：${p.limit_per_user || "不限"}\n\n` + p.skus.map((sku, index) => `${index + 1}. ${sku.spec} · ¥${sku.price_yuan} · 库存${sku.stock}\n原价：${sku.market_price_yuan || "未设置"} · 图片：${sku.image_url || "未填写"}\n${(sku.parameters || []).map(x => `${x.name}：${x.value}`).join("；")}`).join("\n\n");
+    dialog.append(details, h("p", "muted", "确认后仅保存新草稿，不修改原商品、不自动上架；如需调整请保存后进入商品编辑。"));
+    const status = h("p", "muted", `提案状态：${proposal.status} · 有效期至${new Date(proposal.expires_at).toLocaleString()}`);
+    const actions = h("div", "form-actions");
+    const close = h("button", "btn-ghost", "关闭预览");
+    const cancel = h("button", "btn-ghost", "撤销提案");
+    const confirm = h("button", "btn", "确认保存商品草稿");
+    [close, cancel, confirm].forEach(x => x.type = "button");
+    let busy = false;
+    const openSaved = (id) => {
+      confirm.remove(); cancel.remove();
+      const link = h("a", "btn", "编辑草稿并准备上架");
+      link.href = `#/products/${id}`;
+      link.addEventListener("click", () => dialog.close());
+      actions.append(link);
+      status.textContent = "已保存商品草稿；可继续编辑规格、图片并检查上架条件。";
+    };
+    const mutate = async (action) => {
+      if (busy) return;
+      if (!current()) { dialog.close(); return; }
+      busy = true; confirm.disabled = cancel.disabled = close.disabled = true;
+      try {
+        const result = await api(`/api/v1/b/agent/product-proposals/${proposalId}/${action}`, {method:"POST"});
+        if (!current()) { dialog.close(); return; }
+        if (result.product_id) openSaved(result.product_id);
+        else { status.textContent = "提案已撤销，未创建商品"; confirm.remove(); cancel.remove(); }
+      } catch (error) { status.textContent = error.message; }
+      finally { busy = false; close.disabled = false; confirm.disabled = cancel.disabled = false; }
+    };
+    confirm.addEventListener("click", () => mutate("confirm"));
+    cancel.addEventListener("click", () => mutate("cancel"));
+    close.addEventListener("click", () => dialog.close());
+    dialog.addEventListener("cancel", event => { if (busy) event.preventDefault(); });
+    dialog.addEventListener("close", () => dialog.remove());
+    actions.append(close, cancel, confirm); dialog.append(status, actions);
+    if (proposal.status === "completed") openSaved(proposal.product_id);
+    else if (proposal.status !== "pending" || Date.parse(proposal.expires_at) <= Date.now()) { confirm.remove(); cancel.remove(); }
+    document.body.append(dialog); dialog.showModal();
+  } catch (error) { toast(error.message, "bad"); }
+  finally { trigger.disabled = false; }
 }

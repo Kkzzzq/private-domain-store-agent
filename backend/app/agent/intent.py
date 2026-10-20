@@ -2,6 +2,8 @@ import re
 
 
 def classify(message):
+    if any(word in message for word in ("配置商品", "生成商品", "创建商品", "新建商品", "复制商品", "商品草稿", "配置一个", "配置一款", "上新", "帮我卖", "新增商品")):
+        return "product_write"
     if any(word in message for word in ("推荐", "挑选", "帮我选", "怎么选", "选哪个", "送礼", "送朋友", "礼物", "送给", "便宜一点", "换一个", "不要这个", "更便宜")) or re.search(r"(?:换|改|不要|只要).*(?:色|材质|款)", message):
         return "recommend"
     if any(word in message for word in ("退款", "退货", "售后", "运费", "政策", "养护", "清洗", "规则", "包邮", "定制品", "保修")):
