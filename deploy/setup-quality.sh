@@ -16,6 +16,9 @@ if [[ ! -f "$app/qa-venv/source-requirements.sha256" ]] || [[ $(cat "$app/qa-ven
     chown -R storeapp:storeapp "$app/qa-browsers"
     printf '%s\n' "$signature" > "$app/qa-venv/source-requirements.sha256"
 fi
+# The deploy receiver uses umask 077; the service group still needs read/execute access.
+chown -R root:storeapp "$app/qa-venv"
+chmod -R g+rX "$app/qa-venv"
 install -m 644 "$stage/deploy/private-store-quality.service" /etc/systemd/system/private-store-quality.service
 systemctl daemon-reload
 # The receiver starts the worker only after the matching code is installed and healthy.
