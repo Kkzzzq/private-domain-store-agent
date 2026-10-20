@@ -1,0 +1,12 @@
+#!/bin/sh
+# Push completed commits only; never stage files or create commits here.
+branch=$(git symbolic-ref --quiet --short HEAD) || exit 0
+remote=$(git config --get "branch.$branch.remote") || exit 0
+merge=$(git config --get "branch.$branch.merge") || exit 0
+case "$remote" in ''|.) exit 0 ;; esac
+case "$merge" in refs/heads/*) ;; *) exit 0 ;; esac
+printf '\nAuto-push: %s -> %s/%s\n' "$branch" "$remote" "${merge#refs/heads/}"
+if ! git push "$remote" "HEAD:$merge"; then
+  printf '\nAuto-push failed. Your commit is saved locally; resolve the reported error and retry git push.\n' >&2
+fi
+exit 0

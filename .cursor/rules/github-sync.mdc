@@ -1,0 +1,10 @@
+---
+description: Sync completed and checked tasks to the existing GitHub upstream
+alwaysApply: true
+---
+
+Follow the automatic GitHub sync instructions in the repository root AGENTS.md.
+After a completed task passes its relevant checks, review and commit only that task's paths.
+The installed post-commit hook pushes the current branch to its existing upstream.
+Do not commit secrets, unfinished work or another task's changes; never force push.
+Report push failures and verify deployment separately from push success.
