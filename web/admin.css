@@ -242,3 +242,20 @@
   .modal .admin-editor-panel { max-height: calc(100dvh - 24px); padding-inline: 16px; }
   .admin-list-heading h2 { font-size: 16px; }
 }
+.admin-top .logo .admin-brand-image { width: 32px; height: 32px; border-radius: 8px; object-fit: contain; background: #ffffff10; }
+.account-menu { position: relative; }
+.account-trigger { display: flex; align-items: center; gap: 7px; list-style: none; cursor: pointer; padding: 6px 9px; border-radius: 6px; color: #f0f3f3; }
+.account-trigger::-webkit-details-marker { display: none; }
+.account-trigger:hover, .account-menu[open] .account-trigger { background: #ffffff0c; }
+.account-chevron { width: 6px; height: 6px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: translateY(-2px) rotate(45deg); opacity: .6; }
+.account-menu-panel { position: absolute; right: 0; top: calc(100% + 9px); width: 200px; background: #fffcf7; color: #39332d; border: 1px solid #e8e1d7; border-radius: 10px; box-shadow: 0 10px 28px #151a1d1c; padding: 8px; z-index: 150; }
+.account-menu-panel strong, .account-menu-panel small { display: block; padding: 4px 10px; }
+.account-menu-panel small { color: #968575; font-size: 11px; padding-bottom: 9px; margin-bottom: 4px; border-bottom: 1px solid #eee6dc; }
+.admin-top .account-menu-panel button { display: block; width: 100%; text-align: left; margin: 0; padding: 8px 10px; border: 0; border-radius: 5px; background: transparent; color: #655b50; font: inherit; cursor: pointer; }
+.admin-top .account-menu-panel button:hover { background: #f4ede3; }
+.admin-top .account-menu-panel .account-danger { color: #b44936; }
+.account-trigger:focus-visible { outline: 1px solid #ffffff80; outline-offset: 2px; }
+.modal .account-panel { width: min(440px, 100%); }
+.account-actions { justify-content: flex-end; }
+.account-error { color: #b44936; font-size: 13px; }
+.account-close-note { padding: 12px; background: #b4493608; border-radius: 6px; color: #916352; font-size: 13px; }

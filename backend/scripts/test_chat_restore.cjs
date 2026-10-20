@@ -7,7 +7,7 @@ const functions = source.slice(source.indexOf('function currentChatIdentity()'),
 function setup(api) {
   const context = vm.createContext({code: 'nanzhi', token: 'account-a', sessionStorage: {getItem() {return context.token;}},
     chatRestoring: false, chatRestored: false, chatRestoreError: '', sessionId: '', chatLines: [],
-    renders: 0, render() {context.renders++;}, api});
+    renders: 0, render() {throw Error("Chat must not redraw the page");}, updateChatView() {context.renders++;}, api});
   vm.runInContext(functions, context);
   return context;
 }
@@ -16,6 +16,7 @@ function setup(api) {
   const first = setup(async () => saved);
   await first.restoreChat(first.currentChatIdentity());
   assert.equal(first.sessionId, 'saved-session');
+  assert.equal(first.renders, 1);
   assert.equal(first.chatLines.length, 2);
   assert.equal(first.chatLines[0].me, true);
   assert.equal(first.chatLines[1].products[0].id, 1);
@@ -40,3 +41,24 @@ function setup(api) {
   assert.equal(failed.chatRestoreError, '');
   console.log('Chat restore: saved messages, refreshed state, account switch, failure/retry passed.');
 })().catch(error => {console.error(error); process.exitCode = 1;});
+const localUpdate = source.slice(source.indexOf('function updateChatView('), source.indexOf('function renderChatToggle()'));
+{
+  let box = {draft: 'unsent', hidden: false, remove() {box = null;}};
+  let fab = {remove() {fab = null;}};
+  const page = {querySelector(selector) {return selector === '.chat' ? box : fab;}, append(node) {if (node.kind === 'fab') fab = node; else box = node;}};
+  const state = vm.createContext({document: {getElementById: () => page}, shop: {}, chatOpen: false,
+    storefrontSettings: () => ({assistant_enabled: true}),
+    renderChatToggle: () => ({kind:'fab', remove() {fab = null;}}),
+    renderChat: () => ({hidden:false, remove() {box = null;}})});
+  vm.runInContext(localUpdate, state);
+  const original = box;
+  state.updateChatView();
+  assert.equal(box, original);
+  assert.equal(box.hidden, true);
+  state.chatOpen = true;
+  state.updateChatView();
+  assert.equal(box, original);
+  assert.equal(box.draft, 'unsent');
+  assert.equal(box.hidden, false);
+  console.log('Chat toggle preserves the existing DOM and unsent draft.');
+}

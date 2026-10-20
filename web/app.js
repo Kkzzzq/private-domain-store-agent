@@ -46,6 +46,10 @@ function storefrontSettings(shop) {
   return {
     background_color: "#faf7f2", surface_color: "#fffcf7", text_color: "#38332e", muted_color: "#756b62",
     product_image_ratio: "4/5", rail_columns: "3.5", hero_enabled: true, promises_enabled: true, assistant_enabled: true,
+    merchant_title: "商家工作台",
+    brand_slogan: "器物有温度，日常有心意",
+    portal_title: "让喜欢的好物，走进日常。",
+    portal_description: "逛逛小店，发现一件心仪之物。也让每一份用心经营，都有条不紊。",
     product_subtitle: "店主直发 · 小批量手作", footer_about: "私域独立店铺 · 分享码进店",
     footer_service: "有问题点右下角问店内助手", dispatch_text: "付款后48小时内发货",
     return_text: "7天无理由退货，定制品和已使用商品除外", free_shipping_yuan: 99, base_freight_yuan: 8,

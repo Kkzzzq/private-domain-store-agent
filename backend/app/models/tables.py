@@ -72,6 +72,12 @@ class User(Base):
     orders: Mapped[list["Order"]] = relationship(back_populates="buyer")
 
 
+class AccountClosure(Base):
+    __tablename__ = "account_closures"
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    closed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Shop(Base):
     """商家拥有一家店铺。C 端只通过分享码进入这家店。"""
 

@@ -20,6 +20,10 @@ class StorefrontSettings(BaseModel):
     hero_enabled: bool = True
     promises_enabled: bool = True
     assistant_enabled: bool = True
+    merchant_title: str = Field(default="商家工作台", min_length=1, max_length=32)
+    brand_slogan: str = Field(default="器物有温度，日常有心意", max_length=60)
+    portal_title: str = Field(default="让喜欢的好物，走进日常。", max_length=60)
+    portal_description: str = Field(default="逛逛小店，发现一件心仪之物。也让每一份用心经营，都有条不紊。", max_length=200)
     product_subtitle: str = Field(default="店主直发 · 小批量手作", max_length=100)
     footer_about: str = Field(default="私域独立店铺 · 分享码进店", max_length=200)
     footer_service: str = Field(default="有问题点右下角问店内助手", max_length=200)

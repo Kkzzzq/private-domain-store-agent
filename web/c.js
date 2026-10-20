@@ -730,7 +730,6 @@ function productCard(product, { shopCode = code, extra = false } = {}) {
 
   const thumb = h("a", "thumb");
   thumb.href = available ? href : "javascript:void(0)";
-  thumb.title = `${product.name} · ¥${Number(product.price_from || 0).toFixed(2)}`;
   if (!available) {
     // 下架或禁售的商品没有详情页，点了给个说明
     thumb.addEventListener("click", (event) => {
@@ -2111,55 +2110,9 @@ function requireLogin() {
   return false;
 }
 
-/* ---------------- 登录弹层（Web Awesome dialog） ---------------- */
+/* ---------------- 登录与注册 ---------------- */
 function loginModal() {
-  const dialog = document.createElement("wa-dialog");
-  dialog.setAttribute("label", "买家登录");
-  dialog.setAttribute("light-dismiss", "");
-  dialog.style.setProperty("--width", "380px");
-
-  const form = h("div", "stack");
-  form.append(h("p", "muted", "请使用买家账号登录，或注册新账号"));
-  const fields = h("div", "stack");
-  fields.append(labeled("账号", "username", "alice"), labeled("密码", "password", "alice123"));
-  const error = h("p", "muted", "");
-  const submit = h("button", "btn-buy", "登录");
-  submit.type = "button";
-  const close = h("button", "btn-ghost", "取消");
-  close.type = "button";
-  close.addEventListener("click", () => (dialog.open = false));
-  const row = h("div", "row");
-  row.append(submit, close);
-  form.append(fields, error, row);
-
-  const read = (name) => {
-    const node = fields.querySelector(`input[name="${name}"]`);
-    return node ? node.value.trim() : "";
-  };
-  const doLogin = async () => {
-    try {
-      const data = await api("/api/v1/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ username: read("username"), password: read("password") }),
-      });
-      if (data.user.role !== "customer") throw new Error("请使用买家账号登录");
-      sessionStorage.setItem("token_c", data.access_token);
-      dialog.open = false;
-      toast(`欢迎回来，${data.user.nickname}`, "ok");
-      render();
-    } catch (err) {
-      error.textContent = err.message;
-    }
-  };
-  submit.addEventListener("click", doLogin);
-  fields.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") doLogin();
-  });
-
-  dialog.append(form);
-  dialog.addEventListener("wa-after-hide", () => dialog.remove());
-  document.body.append(dialog);
-  dialog.open = true;
+  return StoreAuth.openDialog({role: "customer", onSuccess: () => render()});
 }
 
 function renderFooter() {
@@ -2182,6 +2135,18 @@ function renderFooter() {
   return footer;
 }
 
+// Keep the catalog and in-flight chat DOM intact when toggling the assistant.
+function updateChatView(refresh = false) {
+  const root = document.getElementById("app");
+  root.querySelector(".chat-fab")?.remove();
+  if (!storefrontSettings(shop).assistant_enabled) { root.querySelector(".chat")?.remove(); return; }
+  root.append(renderChatToggle());
+  let box = root.querySelector(".chat");
+  if (refresh && box) { box.remove(); box = null; }
+  if (!box && chatOpen) { box = renderChat(); root.append(box); }
+  if (box) box.hidden = !chatOpen;
+}
+
 function renderChatToggle() {
   const button = h("button", "chat-fab", chatOpen ? "×" : "");
   if (!chatOpen) {
@@ -2194,10 +2159,12 @@ function renderChatToggle() {
     button.append(icon);
   }
   button.setAttribute("aria-label", chatOpen ? "关闭店内助手" : "打开店内助手");
+  button.type = "button";
+  button.setAttribute("aria-expanded", String(chatOpen));
   button.title = "店内助手";
   button.addEventListener("click", () => {
     chatOpen = !chatOpen;
-    render();
+    updateChatView();
   });
   return button;
 }
@@ -2223,7 +2190,7 @@ async function restoreChat(identity) {
   } finally {
     if (identity === currentChatIdentity()) {
       chatRestoring = false;
-      render();
+      updateChatView(true);
     }
   }
 }
@@ -2247,7 +2214,7 @@ function renderChat() {
   const close = h("button", "close", "×");
   close.addEventListener("click", () => {
     chatOpen = false;
-    render();
+    updateChatView();
   });
   head.append(title, close);
   const log = h("div", "log");
@@ -2255,7 +2222,7 @@ function renderChat() {
   if (chatRestoreError) {
     const retry = h("button", "", chatRestoreError);
     retry.type = "button";
-    retry.addEventListener("click", () => { chatRestoreError = ""; render(); });
+    retry.addEventListener("click", () => { chatRestoreError = ""; updateChatView(true); });
     log.append(retry);
   }
   if (!chatLines.length) {

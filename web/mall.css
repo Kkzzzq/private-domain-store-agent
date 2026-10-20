@@ -1196,3 +1196,9 @@ wa-dialog .field input:focus { border-color: var(--primary); }
 .agent-product { display: flex; align-items: center; gap: 10px; padding: 8px; background: white; color: inherit; text-decoration: none; border: 1px solid #ddd; border-radius: 8px; }
 .agent-product img { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; }
 .chat header .chat-reset { background: transparent; color: white; border: 1px solid #ffffff80; border-radius: 6px; padding: 5px 8px; cursor: pointer; }
+
+/* A softer search treatment for the storefront home. */
+body.storefront .all-search { border: 1px solid #e7d9cf; background: #fffdf9; }
+body.storefront .all-search button { background: #f0e4da; color: #805b48; }
+body.storefront .all-search button:hover { background: #e9d8ca; }
+.chat[hidden] { display: none; }

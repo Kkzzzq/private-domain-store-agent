@@ -1,0 +1,30 @@
+.auth-card { box-sizing: border-box; width: 100%; padding: 34px; color: #38332e; background: #fffcf7; font: 14px/1.6 "Microsoft YaHei", "PingFang SC", sans-serif; }
+.auth-eyebrow { color: #ad947d; font: 9px/1.6 Arial,sans-serif; letter-spacing: 1.8px; margin: 0 0 12px; }
+.auth-title { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; margin: 0 0 8px; font-size: 27px; line-height: 1.4; letter-spacing: 1px; font-weight: 600; }
+.auth-description { color: #9a8d80; font-size: 12px; margin: 0 0 24px; }
+.auth-tabs { display: flex; gap: 22px; border-bottom: 1px solid #eae2d8; margin-bottom: 22px; }
+.auth-tabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; padding: 0 2px 10px; color: #a59b90; font: inherit; cursor: pointer; }
+.auth-tabs button.active { color: #b85138; border-bottom-color: #b85138; font-weight: 600; }
+.auth-form { display: grid; gap: 15px; margin: 0; }
+.auth-field { display: grid; gap: 6px; font-size: 12px; color: #72675b; }
+.auth-field input { box-sizing: border-box; width: 100%; min-width: 0; height: 44px; border: 1px solid #e5ddd2; border-radius: 7px; padding: 0 12px; background: #fffefa; color: #38332e; font: 14px "Microsoft YaHei",sans-serif; outline: none; }
+.auth-field input::placeholder { color: #b5aa9e; font-size: 12px; }
+.auth-field input:focus { border-color: #c78b73; box-shadow: 0 0 0 3px #c78b7310; }
+.auth-roles { display: flex; gap: 18px; padding: 0; border: 0; margin: 0 0 2px; font-size: 12px; color: #8c7b6a; }
+.auth-roles legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.auth-roles label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.auth-roles input { accent-color: #b85138; width: auto; }
+.auth-submit { width: 100%; border: 0; border-radius: 7px; padding: 12px 16px; background: #bd573e; color: #fff; font: 14px "Microsoft YaHei",sans-serif; cursor: pointer; transition: background .15s; }
+.auth-submit:hover { background: #a94a33; }
+.auth-submit:disabled { opacity: .6; cursor: progress; }
+.auth-error { margin: 0; color: #b64b3a; font-size: 12px; }
+.auth-error:empty { display: none; }
+.auth-footnote { font-size: 11px; color: #aa9b8c; margin: 18px 0 0; text-align: center; }
+.auth-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid #eee5d9; border-radius: 15px; background: #fffcf7; box-shadow: 0 20px 90px #2d201a26; overflow-y: auto; }
+.auth-dialog::backdrop { background: #30271e3d; backdrop-filter: blur(3px); }
+.auth-close { position: absolute; top: 12px; right: 13px; border: 0; background: transparent; color: #9e8c7b; width: 28px; height: 28px; font: 22px/1 sans-serif; cursor: pointer; }
+.auth-pending { overflow: hidden; background: #f8f5ef; }
+.auth-pending .portal-shell { visibility: hidden; }
+.auth-page { display: grid; place-items: center; min-height: calc(100dvh - 80px); padding: 28px 16px; background: radial-gradient(ellipse at 30% 15%, #eadbcd65, transparent 60%), #f8f5ef; }
+.auth-page .auth-card { max-width: 440px; border: 1px solid #ebe1d5; border-radius: 15px; box-shadow: 0 12px 60px #39271708; }
+@media (max-width: 480px) { .auth-card { padding: 30px 24px; } .auth-title { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 24px; } }

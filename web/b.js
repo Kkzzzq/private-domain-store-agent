@@ -28,6 +28,7 @@ async function api(path, options = {}) {
 }
 let me = null;
 let shopInfo = null;
+let switchingAccount = false;
 let renderVersion = 0;
 const productFilters = { keyword: "", status: "", category: "", stock: "", sort: "default", page: 1 };
 const expandedProducts = new Set();
@@ -274,51 +275,112 @@ async function render() {
 function topBar() {
   const bar = h("header", "admin-top");
   const logo = h("div", "logo");
-  logo.append(h("span", "", "南"), document.createTextNode(shopInfo ? shopInfo.name : "商家后台"));
-  bar.append(logo, h("span", "env", "商家工作台"));
+  const mark = shopInfo?.logo_url ? document.createElement("img") : h("span", "", shopInfo?.name?.slice(0, 1) || "店");
+  if (shopInfo?.logo_url) { mark.src = shopInfo.logo_url; mark.alt = shopInfo.name; mark.className = "admin-brand-image"; }
+  logo.append(mark, document.createTextNode(shopInfo ? shopInfo.name : "商家后台"));
+  bar.append(logo, h("span", "env", storefrontSettings(shopInfo).merchant_title));
   bar.append(h("div", "spacer"));
   const user = h("div", "user");
   const preview = h("a", "link", "查看买家端 ↗");
   preview.href = shopInfo ? `/${shopInfo.share_path.replace(/^\//, "")}` : "/c.html?code=nanzhi";
   preview.target = "_blank";
   preview.style.color = "#ff8f1f";
-  user.append(h("span", "", me ? `${me.nickname}` : ""), preview);
+  user.append(accountMenu(), preview);
   bar.append(user);
   return bar;
 }
+
+function leaveMerchantAccount(switching = false) {
+  switchingAccount = switching;
+  sessionStorage.removeItem("token_b");
+  me = null; shopInfo = null; decorationWorkspace = null;
+  merchantSession = ""; merchantMessages = []; merchantChatOpen = false;
+  render();
+}
+
+function accountMenu() {
+  const menu = h("details", "account-menu");
+  const trigger = h("summary", "account-trigger", me?.nickname || me?.username || "我的账号");
+  trigger.setAttribute("aria-label", "账号菜单");
+  trigger.append(h("span", "account-chevron"));
+  const list = h("div", "account-menu-panel");
+  list.append(h("strong", "", me?.nickname || me?.username), h("small", "", `账号：${me?.username || ""}`));
+  [["用户信息", () => accountDialog(false)], ["切换账号", () => leaveMerchantAccount(true)], ["退出登录", leaveMerchantAccount], ["注销账号", () => accountDialog(true)]].forEach(([label, action]) => {
+    const button = h("button", label === "注销账号" ? "account-danger" : "", label);
+    button.type = "button";
+    button.setAttribute("aria-label", label);
+    button.addEventListener("click", () => { menu.open = false; action(); });
+    list.append(button);
+  });
+  menu.append(trigger, list);
+  return menu;
+}
+
+function accountDialog(closing) {
+  const mask = h("div", "modal account-mask");
+  const form = h("form", "panel stack account-panel");
+  form.setAttribute("role", "dialog"); form.setAttribute("aria-modal", "true");
+  form.setAttribute("aria-label", closing ? "注销账号" : "用户信息");
+  form.append(h("h2", "panel-title", closing ? "注销账号" : "用户信息"));
+  form.append(h("p", "muted", `登录账号：${me.username} · 商家账号`));
+  if (closing) {
+    form.append(h("p", "account-close-note", "注销后将无法登录，店铺会关闭。交易记录会保留；请先处理完所有未完成订单。此操作不可自行撤销。"));
+    form.append(field("当前密码", "password", "", false, "password"), field("请输入“注销账号”确认", "confirmation", ""));
+    form.querySelector('[name="password"]').autocomplete = "current-password";
+  } else {
+    form.append(field("昵称", "nickname", me.nickname));
+    form.querySelector('[name="nickname"]').maxLength = 32;
+    form.append(h("p", "muted", `所属店铺：${shopInfo?.name || "—"}。店铺名称与 Logo 可在“店铺设置”修改。`));
+  }
+  const error = h("p", "account-error"); error.setAttribute("role", "alert");
+  const actions = h("div", "row account-actions");
+  const cancel = h("button", "btn-ghost", "取消"); cancel.type = "button";
+  const submit = h("button", closing ? "btn danger-fill" : "btn", closing ? "确认注销" : "保存信息"); submit.type = "submit";
+  let busy = false;
+  const close = () => { if (!busy) { mask.remove(); document.removeEventListener("keydown", onKey); } };
+  const onKey = event => { if (event.key === "Escape") close(); };
+  document.addEventListener("keydown", onKey);
+  cancel.addEventListener("click", close);
+  mask.addEventListener("click", event => { if (event.target === mask) close(); });
+  form.addEventListener("submit", async event => {
+    event.preventDefault(); if (busy) return;
+    error.textContent = "";
+    if (closing && (val(form, "confirmation") !== "注销账号" || !val(form, "password"))) { error.textContent = "请填写密码，并输入“注销账号”确认"; return; }
+    if (closing && !(await confirmAction("确认注销当前账号？", "店铺将关闭，当前账号无法再次登录。请确认这是你要注销的账号。", "确认注销"))) return;
+    busy = true; submit.disabled = true; cancel.disabled = true;
+    try {
+      if (closing) {
+        await api("/api/v1/auth/me/close", {method:"POST", body:JSON.stringify({password:form.elements.namedItem("password").value, confirmation:val(form,"confirmation")})});
+        busy = false; close(); leaveMerchantAccount();
+      } else {
+        me = await api("/api/v1/auth/me", {method:"PATCH", body:JSON.stringify({nickname:val(form,"nickname")})});
+        busy = false; close(); render();
+      }
+    } catch (err) { error.textContent = err.message; }
+    finally { busy = false; submit.disabled = false; cancel.disabled = false; }
+  });
+  actions.append(cancel, submit); form.append(error, actions); mask.append(form); document.body.append(mask);
+  form.querySelector("input")?.focus();
+}
+
+document.addEventListener("click", event => {
+  document.querySelectorAll(".account-menu[open]").forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") document.querySelectorAll(".account-menu[open]").forEach(menu => { menu.open = false; menu.querySelector("summary").focus(); });
+});
 
 function loginView() {
   if (location.pathname !== "/login") {
     history.replaceState(null, "", `/login${location.search}${location.hash}`);
   }
-  const panel = h("form", "panel stack");
-  panel.style.maxWidth = "380px";
-  panel.style.margin = "80px auto";
-  panel.append(h("h2", "", "商家工作台"));
-  panel.append(h("p", "muted", "请使用商家账号登录"));
-  panel.append(field("账号", "username", "merchant"), field("密码", "password", "merchant123", false, "password"));
-  const error = h("p", "muted", "");
-  const submit = h("button", "btn", "进入后台");
-  submit.type = "submit";
-  submit.style.width = "100%";
-  panel.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    try {
-      const data = await api("/api/v1/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ username: val(panel, "username"), password: val(panel, "password") }),
-      });
-      if (data.user.role !== "merchant") throw new Error("请使用商家账号");
-      sessionStorage.setItem("token_b", data.access_token);
-      me = data.user;
-      toast(`欢迎回来，${data.user.nickname}`, "ok");
-      render();
-    } catch (err) {
-      error.textContent = err.message;
-    }
-  });
-  panel.append(error, submit);
-  return panel;
+  const page = h("div", "auth-page");
+  page.append(StoreAuth.createForm({role: "merchant", onSuccess: (data) => {
+    me = data.user;
+    switchingAccount = false;
+    render();
+  }}));
+  return page;
 }
 
 function sidebar() {
@@ -715,6 +777,10 @@ async function appearanceAdmin() {
     ["hero_enabled", "首页轮播", [["true", "展示"], ["false", "隐藏"]]],
     ["promises_enabled", "首页及详情保障条", [["true", "展示"], ["false", "隐藏"]]],
     ["assistant_enabled", "C端助手入口", [["true", "展示"], ["false", "隐藏"]]],
+    ["merchant_title", "后台顶栏说明文字", "text"],
+    ["brand_slogan", "入口页品牌短语", "text"],
+    ["portal_title", "入口页主标题", "text"],
+    ["portal_description", "入口页介绍文字", "text"],
     ["product_subtitle", "商品标题下说明", "text"], ["footer_about", "页脚店铺简介", "text"],
     ["footer_service", "页脚联系说明", "text"], ["dispatch_text", "发货说明", "text"],
     ["return_text", "退换货说明", "text"], ["free_shipping_yuan", "包邮门槛（元，0表示全店包邮）", "number"],
@@ -2363,7 +2429,7 @@ async function shopForm() {
     field("店铺名称", "name", shop.name),
     field("专属 AI 昵称（最多10字，无空格）", "assistant_name", storeAssistantName(shop)),
     statusField(shop.status),
-    field("店铺 Logo 地址", "logo_url", shop.logo_url),
+    imageField("店铺 Logo", "logo_url", shop.logo_url),
     field("主题色", "theme_color", shop.theme_color, false, "color"),
     field("店铺公告", "notice", shop.notice, true, "textarea")
   );

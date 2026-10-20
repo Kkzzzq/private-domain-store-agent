@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.db.session import SessionLocal
-from app.models.tables import User
+from app.models.tables import User, AccountClosure
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -29,7 +29,7 @@ def get_current_user(
     except Exception as exc:
         raise HTTPException(status_code=401, detail="登录已失效") from exc
     user = db.get(User, user_id)
-    if user is None:
+    if user is None or db.get(AccountClosure, user_id):
         raise HTTPException(status_code=401, detail="登录已失效")
     return user
 
@@ -55,6 +55,7 @@ def get_optional_user(
         return None
     try:
         payload = decode_access_token(creds.credentials)
-        return db.get(User, int(payload["sub"]))
+        user_id = int(payload["sub"])
+        return None if db.get(AccountClosure, user_id) else db.get(User, user_id)
     except Exception:
         return None
