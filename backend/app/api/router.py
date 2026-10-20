@@ -4,12 +4,14 @@ from fastapi.responses import JSONResponse
 from app.api.auth import router as auth_router
 from app.api.b_api import router as b_router
 from app.api.c_api import router as c_router
+from app.api.support import router as support_router
 from app.core.config import settings
 
 router = APIRouter()
 router.include_router(auth_router)
 router.include_router(b_router)
 router.include_router(c_router)
+router.include_router(support_router)
 
 
 @router.get("/health")
