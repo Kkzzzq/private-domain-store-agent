@@ -129,7 +129,7 @@ def orders(q: str = '', shop_id: int | None = None, status: str = '', days: int 
         query = query.where(Order.shop_id == shop_id)
     if q.strip():
         term = q.strip()
-        buyer_ids = select(User.id).where(User.username.contains(term, autoescape=True))
+        buyer_ids = select(User.id).where(User.username == term)
         shipment_ids = select(Shipment.order_id).where(Shipment.tracking_number.contains(term, autoescape=True))
         query = query.where(or_(Order.order_no.contains(term, autoescape=True), Order.user_id.in_(buyer_ids), Order.id.in_(shipment_ids)))
     else:
