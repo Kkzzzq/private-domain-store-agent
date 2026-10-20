@@ -1,3 +1,4 @@
+from app.services.governance import shop_open, shop_blocked
 """买家的浏览历史。
 
 历史放 Redis，不落库：只保留最近 7 天看过的商品，不分店铺，
@@ -73,7 +74,7 @@ def shelf_label(product: Product) -> str:
         return "已禁售"
     if product.status == "off":
         return "已下架"
-    if product.shop is not None and product.shop.status != "open":
+    if product.shop is not None and not shop_open(product.shop):
         return "店铺停业"
     return "在售"
 

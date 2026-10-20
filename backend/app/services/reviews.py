@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.tables import Order, OrderItem, Product, Review, User
 from app.schemas.dto import ReviewIn
+from app.models.governance import ReviewRestriction
 
 
 def rating_map(db: Session, product_ids: list[int]) -> dict[int, tuple[float, int]]:
@@ -12,7 +13,7 @@ def rating_map(db: Session, product_ids: list[int]) -> dict[int, tuple[float, in
         return {}
     rows = db.execute(
         select(Review.product_id, func.avg(Review.rating), func.count(Review.id))
-        .where(Review.product_id.in_(product_ids))
+        .where(Review.product_id.in_(product_ids), ~Review.id.in_(select(ReviewRestriction.review_id).where(ReviewRestriction.hidden.is_(True))))
         .group_by(Review.product_id)
     ).all()
     return {pid: (round(float(avg), 1), int(count)) for pid, avg, count in rows}
@@ -22,7 +23,7 @@ def list_reviews(db: Session, product_id: int, limit: int = 20) -> list[dict]:
     rows = db.scalars(
         select(Review)
         .options(joinedload(Review.user))
-        .where(Review.product_id == product_id)
+        .where(Review.product_id == product_id, ~Review.id.in_(select(ReviewRestriction.review_id).where(ReviewRestriction.hidden.is_(True))))
         .order_by(Review.id.desc())
         .limit(limit)
     ).unique().all()

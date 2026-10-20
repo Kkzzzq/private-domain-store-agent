@@ -11,6 +11,7 @@ from app.schemas.dto import ProductIn, ProductUpdate, ShopUpdate, SkuIn, SkuUpda
 from app.services.reviews import rating_map
 from app.services.shelf import assert_merchant_editable, listed_on_c, next_status, ordered_skus, visible_skus
 from app.services.tags import sync_product_tags, tags_of
+from app.services.governance import shop_open, shop_blocked
 
 
 def yuan(cents: int) -> float:
@@ -50,7 +51,9 @@ def serialize_shop(shop: Shop) -> dict:
         "logo_url": shop.logo_url,
         "theme_color": shop.theme_color,
         "share_code": shop.share_code,
-        "status": shop.status,
+        "status": "open" if shop_open(shop) else "closed",
+        "business_status": shop.status,
+        "platform_blocked": shop_blocked(shop),
         "share_path": f"/c.html?code={shop.share_code}",
         "hero_height": shop.hero_height or 640,
         "strip_tint": bool(shop.strip_tint),
@@ -199,6 +202,8 @@ def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
             ensure_ascii=False,
         )
     if body.status is not None:
+        if body.status == "open" and shop_blocked(shop) and not getattr(user, "_op_operator_id", None):
+            raise HTTPException(403, "店铺被平台限制营业，商家不能自行解除")
         shop.status = body.status
     if previous_storefront is not None and shop.promises:
         previous_promises = _configured_promises(previous_storefront)
@@ -244,7 +249,7 @@ def list_c_products(
     limit: int | None = None,
 ) -> list[dict]:
     shop = shop_by_code(db, share_code)
-    if shop.status != "open":
+    if not shop_open(shop):
         return []
     cache_key = f"cache:c-products:{shop.id}:{category or '-'}:{keyword or '-'}:{sort or 'default'}"
     cached = get_redis().get_json(cache_key)
@@ -528,6 +533,6 @@ def search_on_sale(db: Session, shop_id: int, keyword: str, limit: int = 5) -> s
 
 def describe_inventory(db: Session, shop_id: int, sku_id: int) -> str:
     sku = load_sku_for_shop(db, shop_id, sku_id)
-    if sku is None or sku.status != "on" or sku.product.status != "on" or sku.product.shop.status != "open":
+    if sku is None or sku.status != "on" or sku.product.status != "on" or not shop_open(sku.product.shop):
         return "没有找到可售的 SKU。"
     return f"{sku.product.name} / {sku.spec} 库存 {sku.stock}，单价 ¥{yuan(sku.price_cents):.2f}"

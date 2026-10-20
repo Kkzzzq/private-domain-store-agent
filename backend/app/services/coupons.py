@@ -1,3 +1,4 @@
+from app.services.governance import shop_blocked
 """Shop-wide fixed-amount coupons; all money and eligibility are server-owned."""
 from datetime import datetime, timezone
 from fastapi import HTTPException
@@ -97,6 +98,8 @@ def toggle(db, user, coupon_id, body):
 
 def list_c(db, code, user=None):
     shop = shop_by_code(db, code)
+    if shop_blocked(shop):
+        return []
     rows = db.scalars(select(Coupon).where(Coupon.shop_id == shop.id).order_by(Coupon.id.desc())).all()
     result = [payload(db, c, user.id if user else None) for c in rows]
     return [c for c in result if c["active"] or c["user_coupon_id"]]
@@ -104,6 +107,8 @@ def list_c(db, code, user=None):
 
 def claim(db, user, code, coupon_id):
     shop = shop_by_code(db, code)
+    if shop_blocked(shop):
+        raise HTTPException(403, "店铺被平台限制营业，暂不能领券")
     now = utcnow()
     # Conditional update serializes issuance and cannot oversell the quota.
     result = db.execute(update(Coupon).where(Coupon.id == coupon_id, Coupon.shop_id == shop.id,

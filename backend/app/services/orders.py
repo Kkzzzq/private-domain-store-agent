@@ -12,7 +12,8 @@ FREE_SHIPPING_CENTS = 9900
 BASE_FREIGHT_CENTS = 800
 ORDER_TTL_MINUTES = 30
 from app.services.catalog import invalidate_catalog_cache, load_sku_for_shop, merchant_shop, shop_by_code, yuan
-from app.services.shelf import purchase_block
+from app.services.shelf import purchase_block, listed_on_c
+from app.services.governance import shop_blocked
 from app.services import coupons
 from app.models.tables import CouponOrder
 
@@ -54,7 +55,7 @@ def serialize_order(order: Order, *, audience: str) -> dict:
                 "price_yuan": yuan(item.price_cents),
                 "quantity": item.quantity,
                 "image_url": (item.sku.image_url if item.sku else "") or (item.product.image_url if item.product else "") or "",
-                "available": bool(item.product and item.product.status == "on" and order.shop and order.shop.status == "open"),
+                "available": bool(item.product and listed_on_c(item.product)),
             }
             for item in order.items
         ],
@@ -222,6 +223,8 @@ def pay_order(db: Session, user: User, order_no: str) -> dict:
     order = db.scalars(_orders().where(Order.order_no == order_no, Order.user_id == user.id)).unique().one_or_none()
     if order is None:
         raise HTTPException(status_code=404, detail="没有找到这个订单")
+    if shop_blocked(order.shop):
+        raise HTTPException(403, "店铺被平台限制营业，暂不能支付")
     if order.status != "pending":
         raise HTTPException(status_code=400, detail="这个订单不需要支付")
     changed = db.execute(update(Order).where(Order.id == order.id, Order.status == "pending",

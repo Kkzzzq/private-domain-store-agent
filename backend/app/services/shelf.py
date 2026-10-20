@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import object_session
 
 from app.models.tables import Product, Sku
+from app.services.governance import shop_open
 
 # 当前状态 + 动作 -> 新状态。禁售不能直接上架，必须先解禁回到下架。
 _TRANSITIONS = {
@@ -29,13 +30,13 @@ def next_status(current: str, action: str) -> str:
 
 
 def listed_on_c(product: Product) -> bool:
-    if product.shop.status != "open" or product.status != "on":
+    if not shop_open(product.shop) or product.status != "on":
         return False
     return any(sku.status == "on" for sku in product.skus)
 
 
 def visible_skus(product: Product) -> list[Sku]:
-    if product.shop.status != "open" or product.status != "on":
+    if not shop_open(product.shop) or product.status != "on":
         return []
     return [sku for sku in ordered_skus(product) if sku.status == "on"]
 
@@ -57,7 +58,7 @@ def assert_merchant_editable(product: Product, sku: Sku | None = None) -> None:
 def purchase_block(sku: Sku, quantity: int) -> str | None:
     """返回不能买的原因。C 端看不到的规格，不说明是下架还是禁售。"""
     product = sku.product
-    if product.shop.status != "open":
+    if not shop_open(product.shop):
         return "店铺未营业"
     if product.status != "on" or sku.status != "on":
         return "没有找到这个商品"

@@ -27,6 +27,7 @@ def init_db() -> None:
             Base.metadata.create_all(bind=engine)
             _ensure_sqlite_columns()
             _ensure_sku_sort_order()
+            _ensure_governance_columns()
             return
         except OperationalError as exc:
             last_error = exc
@@ -42,6 +43,19 @@ def _ensure_sku_sort_order() -> None:
             connection.exec_driver_sql("ALTER TABLE skus ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
     except OperationalError:
         if "sort_order" not in {column["name"] for column in inspect(engine).get_columns("skus")}:
+            raise
+
+
+def _ensure_governance_columns() -> None:
+    if 'platform_account_restrictions' not in inspect(engine).get_table_names():
+        return
+    if 'revoke_before_us' in {c['name'] for c in inspect(engine).get_columns('platform_account_restrictions')}:
+        return
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql('ALTER TABLE platform_account_restrictions ADD COLUMN revoke_before_us BIGINT NOT NULL DEFAULT 0')
+    except OperationalError:
+        if 'revoke_before_us' not in {c['name'] for c in inspect(engine).get_columns('platform_account_restrictions')}:
             raise
 
 

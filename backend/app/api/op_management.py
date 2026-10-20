@@ -11,6 +11,7 @@ from app.models.operations import Operator
 from app.models.platform_audit import PlatformAudit
 from app.models.support import Shipment, AfterSale
 from app.services.catalog import invalidate_catalog_cache
+from app.models.governance import AccountRestriction, ShopRestriction
 
 router = APIRouter(prefix='/platform', dependencies=[Depends(require_operator)])
 
@@ -21,9 +22,10 @@ def audit(db, actor, kind, target_id, action, reason):
 
 def account_out(db, row):
     shop = db.scalar(select(Shop).where(Shop.merchant_id == row.id))
+    restriction = db.get(AccountRestriction, row.id)
     return dict(id=row.id, username=row.username, nickname=row.nickname,
                 merchant_enabled=can_manage_store(db, row), operator=bool(db.get(Operator, row.id)),
-                closed=bool(db.get(AccountClosure, row.id)), shop_id=shop.id if shop else None,
+                closed=bool(db.get(AccountClosure, row.id)), disabled=bool(restriction and restriction.disabled), shop_id=shop.id if shop else None,
                 shop_name=shop.name if shop else '未开店', created_at=row.created_at)
 
 
@@ -79,8 +81,9 @@ def shops(q: str = '', page: int = Query(1, ge=1), size: int = Query(20, ge=1, l
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     rows = []
     for shop in db.scalars(query.order_by(Shop.id.desc()).offset((page-1)*size).limit(size)):
+        restriction = db.get(ShopRestriction, shop.id)
         owner = db.get(User, shop.merchant_id)
-        rows.append(dict(id=shop.id, name=shop.name, status=shop.status, share_code=shop.share_code,
+        rows.append(dict(id=shop.id, name=shop.name, status=shop.status, platform_blocked=bool(restriction and restriction.blocked), share_code=shop.share_code,
                          owner=owner.username if owner else '—', owner_id=shop.merchant_id,
                          products=db.scalar(select(func.count()).select_from(Product).where(Product.shop_id == shop.id)),
                          orders=db.scalar(select(func.count()).select_from(Order).where(Order.shop_id == shop.id))))
@@ -99,7 +102,7 @@ def shop_detail(shop_id: int, db: Session = Depends(get_db)):
 
 class ShopUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=64)
-    notice: str = Field(default='', max_length=2000)
+    notice: str = Field(default='', max_length=500)
     status: str = Field(pattern='^(open|closed)$')
     reason: str = Field(min_length=2, max_length=200)
 

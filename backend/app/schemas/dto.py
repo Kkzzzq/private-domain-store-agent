@@ -62,6 +62,8 @@ class ShopUpdate(BaseModel):
 
 
 class ShopOut(BaseModel):
+    platform_blocked: bool = False
+    business_status: str = ""
     storefront: StorefrontSettings = Field(default_factory=StorefrontSettings)
     assistant_name: str = "小店"
     id: int

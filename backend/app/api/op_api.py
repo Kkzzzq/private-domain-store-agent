@@ -116,3 +116,7 @@ def moderate(product_id: int, body: ModerateIn, user: User = Depends(require_ope
 
 from app.api.op_management import router as management_router
 router.include_router(management_router)
+from app.api.op_workspace import router as workspace_router
+router.include_router(workspace_router)
+from app.api.op_governance import router as governance_router
+router.include_router(governance_router)

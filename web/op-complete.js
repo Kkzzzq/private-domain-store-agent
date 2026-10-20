@@ -1,0 +1,39 @@
+(() => {
+  const e=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let generation=0, currentShop='', currentPage=1, lastTab='';
+  function modal(title,body,wide=false){const d=document.createElement('dialog');d.className='op-detail'+(wide?' complete-workspace':'');d.innerHTML=`<div class="detail-head"><div><span>PLATFORM OPERATIONS</span><h2>${e(title)}</h2></div><button aria-label="关闭" class="detail-close">×</button></div><div class="detail-body">${body}</div>`;document.body.append(d);d.querySelector('button').onclick=()=>d.close();d.onclose=()=>d.remove();d.showModal();return d;}
+  function workspace(shopId,route='dashboard',name='店铺'){
+    const url='/op-shop.html?shop_id='+Number(shopId)+'#/'+route;
+    modal(name+' · 完整维护',`<div class="workspace-note"><span>店铺设置 / 装修 / 商品规格 / 图片 / 标签 / 分类 / 优惠券 / 订单 / 客服与售后</span><a href="${e(url)}" target="_blank" rel="noopener">新窗口打开 ↗</a></div><iframe title="店铺完整维护" src="${e(url)}"></iframe>`,true);
+  }
+  async function control(kind,id,action,api){
+    if(action==='reset_password')return new Promise(resolve=>{
+      const d=modal('重置账号密码',`<form class="management-edit"><label>新密码<input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="64" required></label><label>操作原因<input name="reason" minlength="2" maxlength="200" required></label><p class="notice">保存后该账号现有登录全部失效，需使用新密码重新登录。</p><p class="edit-error" role="alert"></p><button type="submit" class="primary">确认重置</button></form>`);let done=false;
+      d.addEventListener('close',()=>{if(!done)resolve(false);});
+      d.querySelector('form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('[type=submit]');button.disabled=true;try{const values=Object.fromEntries(new FormData(form));await api('/op/governance/accounts/'+id,{method:'POST',body:JSON.stringify({...values,action})});done=true;d.close();resolve(true);}catch(err){form.querySelector('.edit-error').textContent=err.message;}finally{button.disabled=false;}};
+    });
+    const names={freeze:'平台封店',unfreeze:'解除封店',disable:'禁用账号',enable:'恢复账号',reset_password:'重置密码',hide:'隐藏评价',show:'恢复评价',ban:'禁售规格',unban:'解除规格禁售'};
+    const reason=prompt('请填写'+names[action]+'原因（2—200字）');if(reason===null)return false;
+    if(reason.trim().length<2||reason.length>200)throw Error('请填写2—200字的原因');
+    const body={action,reason};
+    await api('/op/governance/'+kind+'/'+id,{method:'POST',body:JSON.stringify(body)});return true;
+  }
+  async function customer(id,name,api){
+    const d=modal('买家资料 · '+name,`<div class="customer-tabs">${Object.entries({addresses:'收货地址',cart:'购物车',coupons:'已领优惠券',history:'浏览记录',reviews:'购买评价'}).map(([k,v])=>`<button data-kind="${k}">${v}</button>`).join('')}</div><div class="customer-records"></div><p class="notice">查看现有买家资料，不代买家加购、领券、付款或评价。</p>`);
+    let kind='addresses',page=1,seq=0;
+    async function draw(){const run=++seq;const root=d.querySelector('.customer-records');root.innerHTML='<p>正在读取…</p>';try{const data=await api(kind==='reviews'?`/op/governance/reviews?user_id=${id}&page=${page}`:`/op/governance/customers/${id}/${kind}?page=${page}`);if(!d.isConnected||run!==seq)return;const cols={addresses:[['receiver','收货人'],['phone','电话'],['region','地区'],['detail','详细地址'],['is_default','默认地址']],cart:[['product','商品'],['spec','规格'],['quantity','数量'],['price_cents','当前单价'],['stock','当前库存']],coupons:[['name','优惠券'],['shop_id','店铺ID'],['status','状态'],['amount_cents','优惠金额'],['threshold_cents','门槛']],history:[['name','商品'],['shop_id','店铺ID'],['status','当前状态']],reviews:[['product','商品'],['rating','评分'],['content','评价'],['hidden','平台隐藏']]}[kind];root.innerHTML=`<div class="table-wrap"><table><thead><tr>${cols.map(c=>`<th>${c[1]}</th>`).join('')}</tr></thead><tbody>${data.items.map(r=>`<tr>${cols.map(([k])=>`<td>${typeof r[k]==='boolean'?(r[k]?'是':'否'):k.endsWith('_cents')?'¥'+(r[k]/100).toFixed(2):k==='status'?e({available:'未使用',reserved:'已锁定',used:'已核销',on:'在售',off:'下架',banned:'禁售',draft:'草稿'}[r[k]]||r[k]):e(r[k])}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="8">暂无记录</td></tr>`}</tbody></table></div><div class="pager"><button data-prev ${page===1?'disabled':''}>上一页</button><span>${page} / ${Math.max(1,Math.ceil(data.total/20))}</span><button data-next ${page*20>=data.total?'disabled':''}>下一页</button></div>`;root.querySelector('[data-prev]').onclick=()=>{page--;draw();};root.querySelector('[data-next]').onclick=()=>{page++;draw();};d.querySelectorAll('[data-kind]').forEach(b=>b.classList.toggle('primary',b.dataset.kind===kind));}catch(err){if(d.isConnected)root.innerHTML=`<p class="error">${e(err.message)}</p>`;}}
+    d.querySelectorAll('[data-kind]').forEach(b=>b.onclick=()=>{kind=b.dataset.kind;page=1;draw();});draw();
+  }
+  async function mount(root,{tab,api}){
+    const run=++generation;if(lastTab!==tab){currentPage=1;lastTab=tab;}
+    root.innerHTML='<p>正在读取…</p>';const reload=()=>mount(root,{tab,api});
+    try{const shops=await api('/op/platform/shops?size=100');if(run!==generation||!root.isConnected)return;
+      const path=tab==='reviews'?'/op/governance/reviews':'/op/governance/workspace-actions';
+      const data=await api(path+'?page='+currentPage+(currentShop?'&shop_id='+currentShop:''));if(run!==generation||!root.isConnected)return;
+      const reviews=tab==='reviews';
+      root.innerHTML=`<div class="list-heading"><div><h2>${reviews?'买家真实评价管理':'完整维护操作记录'}</h2><span>${reviews?'仅隐藏或恢复展示，保留买家原文与评分':'记录真实运营人、目标店铺、修改原因及执行结果'}</span></div></div><form class="toolbar"><select aria-label="店铺选择" name="shop"><option value="">${reviews?'请先选择小店':'全部小店'}</option>${shops.items.map(s=>`<option value="${s.id}" ${currentShop===String(s.id)?'selected':''}>${e(s.name)}</option>`).join('')}</select><button class="primary">查询</button></form><div class="table-wrap"><table><thead><tr>${(reviews?['商品','买家ID','评分','评价原文','展示状态','操作']:['运营ID','店铺ID','操作','资源','原因','结果','时间']).map(v=>`<th>${v}</th>`).join('')}</tr></thead><tbody>${data.items.map(r=>reviews?`<tr><td>${e(r.product)}</td><td>${r.user_id}</td><td>${r.rating}</td><td class="reason">${e(r.content)}</td><td>${r.hidden?'已隐藏':'展示中'}</td><td><button data-review="${r.id}" data-action="${r.hidden?'show':'hide'}">${r.hidden?'恢复展示':'隐藏展示'}</button></td></tr>`:`<tr><td>${r.operator_id}</td><td>${r.shop_id}</td><td>${e(r.method)}</td><td class="reason">${e(r.resource)}</td><td class="reason">${e(r.reason)}</td><td>${e({pending:'结果待确认',succeeded:'成功',failed:'失败'}[r.status]||r.status)}</td><td>${e(new Date(r.created_at+'Z').toLocaleString())}</td></tr>`).join('')||`<tr><td colspan="7" class="empty-cell">${data.needs_filter?'选择小店后查看评价':'暂无记录'}</td></tr>`}</tbody></table></div><div class="pager"><button data-prev ${currentPage===1?'disabled':''}>上一页</button><span>${currentPage} / ${Math.max(1,Math.ceil(data.total/20))}</span><button data-next ${currentPage*20>=data.total?'disabled':''}>下一页</button></div>`;
+      root.querySelector('form').onsubmit=event=>{event.preventDefault();currentShop=root.querySelector('[name=shop]').value;currentPage=1;reload();};root.querySelector('[data-prev]').onclick=()=>{currentPage--;reload();};root.querySelector('[data-next]').onclick=()=>{currentPage++;reload();};root.querySelectorAll('[data-review]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{if(await control('reviews',b.dataset.review,b.dataset.action,api))reload();}catch(err){alert(err.message);}finally{b.disabled=false;}});
+    }catch(err){if(run===generation)root.innerHTML=`<p class="error">${e(err.message)}</p>`;}
+  }
+  window.OPComplete={workspace,control,customer,mount,handles:tab=>['reviews','workspace-audits'].includes(tab),cancel:()=>{generation++;document.querySelectorAll('.complete-workspace').forEach(d=>d.remove());}};
+})();

@@ -6,6 +6,7 @@ from app.core.security import decode_access_token, token_is_revoked
 from app.db.session import SessionLocal
 from app.models.tables import User, AccountClosure
 from app.models.account import SharedAccount, can_manage_store
+from app.services.governance import account_allowed
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -32,7 +33,7 @@ def get_current_user(
     if token_is_revoked(creds.credentials):
         raise HTTPException(status_code=401, detail="登录已失效")
     user = db.get(User, user_id)
-    if user is None or db.get(AccountClosure, user_id):
+    if user is None or db.get(AccountClosure, user_id) or not account_allowed(db, user, payload):
         raise HTTPException(status_code=401, detail="登录已失效")
     if db.get(SharedAccount, user_id) and payload.get('role') in ('customer', 'merchant'):
         user._actor_role = 'customer' if payload['role'] == 'merchant' and not can_manage_store(db, user) else payload['role']
@@ -68,6 +69,8 @@ def get_optional_user(
     if token_is_revoked(creds.credentials) or db.get(AccountClosure, user_id):
         return None
     user = db.get(User, user_id)
+    if user and not account_allowed(db, user, payload):
+        return None
     if user and db.get(SharedAccount, user_id) and payload.get('role') in ('customer', 'merchant'):
         user._actor_role = 'customer' if payload['role'] == 'merchant' and not can_manage_store(db, user) else payload['role']
     if user and user.actor_role == 'merchant' and not can_manage_store(db, user):

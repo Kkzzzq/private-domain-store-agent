@@ -13,6 +13,7 @@ from app.db.redis_client import get_redis
 from app.models.tables import Shop, User, AccountClosure, Order
 from pydantic import BaseModel, Field
 from app.schemas.dto import LoginIn, RegisterIn, TokenOut, UserOut
+from app.services.governance import account_allowed
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _dummy_password_hash = hash_password("not-a-real-account-password")
@@ -68,7 +69,7 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     _limit_attempts(request, "login", settings.auth_login_limit, 60)
     user = db.scalar(select(User).where(User.username == body.username))
     valid = verify_password(body.password, user.password_hash if user else _dummy_password_hash)
-    if user is None or not valid or db.get(AccountClosure, user.id):
+    if user is None or not valid or db.get(AccountClosure, user.id) or not account_allowed(db, user):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = create_access_token(user_id=user.id, username=user.username, role=user.role)
     return TokenOut(access_token=token, user=_user_out(user))

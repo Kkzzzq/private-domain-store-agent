@@ -1,3 +1,4 @@
+from app.services.governance import shop_open
 """首页内容：轮播图、栏目位和用户评价。商家在后台配，买家端只读。"""
 
 from sqlalchemy import delete, func, select
@@ -83,7 +84,7 @@ def _section_products(db: Session, section: Section, visible: list[Product]) -> 
 def home_content(db: Session, share_code: str, user: User | None = None) -> dict:
     shop = shop_by_code(db, share_code)
     shop_payload = serialize_shop(shop)
-    if shop.status != "open":
+    if not shop_open(shop):
         return {"banners": [], "sections": [], "testimonials": [], "shop": shop_payload}
 
     banners = db.scalars(
@@ -147,7 +148,7 @@ def collection_page(
     from fastapi import HTTPException
 
     shop = shop_by_code(db, share_code)
-    visible = _visible_products(db, shop) if shop.status == "open" else []
+    visible = _visible_products(db, shop) if shop_open(shop) else []
     source = "all"
 
     if key == "all":
