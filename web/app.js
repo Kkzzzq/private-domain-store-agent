@@ -256,8 +256,29 @@ function star(value) {
   return `${filled}${empty}`;
 }
 
-/** 评分用 Web Awesome 的 wa-rating，CDN 不可用时退化成文字。 */
+/** Read-only scores render locally; interactive scoring uses wa-rating. */
 function ratingStars(value, { readonly = true, size = "s", label = "评分" } = {}) {
+  if (readonly) {
+    const score = Math.min(5, Math.max(0, Number(value) || 0));
+    const rating = document.createElement('span');
+    rating.className = 'review-rating';
+    rating.setAttribute('role','img');
+    rating.setAttribute('aria-label', `${label} ${score.toFixed(1)} 分，满分 5 分`);
+    const icons = document.createElement('span'); icons.className = 'review-rating-icons'; icons.setAttribute('aria-hidden','true');
+    const star = () => {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      svg.setAttribute('viewBox','0 0 24 24');
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d','m12 3 2.78 5.63 6.22.91-4.5 4.38 1.06 6.19L12 17.19l-5.56 2.92 1.06-6.19L3 9.54l6.22-.91Z');
+      svg.append(path);return svg;
+    };
+    for(let index=0;index<5;index++) {
+      const slot=document.createElement('span');slot.className='review-rating-star';slot.append(star());
+      const fill=document.createElement('span');fill.className='review-rating-fill';fill.style.width=`${Math.max(0,Math.min(1,score-index))*100}%`;fill.append(star());slot.append(fill);icons.append(slot);
+    }
+    const number=document.createElement('span');number.className='review-rating-score';number.textContent=score.toFixed(1);
+    rating.append(icons,number);return rating;
+  }
   const node = document.createElement("wa-rating");
   node.setAttribute("label", label);
   node.setAttribute("size", size);

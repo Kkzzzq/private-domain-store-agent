@@ -8,6 +8,14 @@
   const time = value => new Date(value).toLocaleString('zh-CN', {hour12:false});
   const trigger = el('button', merchant ? 'support-launch' : 'support-header-launch', merchant ? '客户消息 / 售后' : '联系商家'); trigger.type = 'button';
   trigger.setAttribute('aria-label',merchant?'客户消息与售后':'联系商家');
+  if (!merchant) {
+    const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d','M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z');
+    icon.append(path);trigger.prepend(icon);
+  }
+
   function placeTrigger() {
     if(merchant) { if(!trigger.isConnected)document.body.append(trigger); return; }
     const target=document.querySelector('.store-nav');

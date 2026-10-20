@@ -5,3 +5,12 @@
 
 .store-nav .support-header-launch{position:static;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;margin-left:10px;padding:8px 14px;border:1px solid #d9bda6;border-radius:8px;background:#fffcf7;color:#92563d;box-shadow:0 2px 8px #6040200a;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}.store-nav .support-header-launch:hover{background:#f6e9dc}.support-header-launch[hidden]{display:none}
 @media(max-width:600px){.store-nav{flex-wrap:wrap}.store-nav .support-header-launch{margin-left:2px;padding:6px 9px;font-size:12px}}
+
+body.storefront .strip .store-nav {align-items:center;gap:2px;padding:4px;background:color-mix(in srgb,var(--theme) 2%,transparent);border-radius:11px}
+body.storefront .strip .store-nav > a,
+body.storefront .strip .store-nav .support-header-launch {box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:7px 10px;font:13px/20px "Microsoft YaHei",sans-serif;border:0;border-radius:7px;white-space:nowrap}
+body.storefront .strip .store-nav .support-header-launch {position:static;margin:0 0 0 3px;background:transparent;color:#846653;box-shadow:none;cursor:pointer}
+body.storefront .strip .store-nav .support-header-launch:hover {background:var(--primary-soft);color:var(--primary)}
+body.storefront .strip .store-nav .support-header-launch:focus-visible {outline:2px solid var(--primary);outline-offset:2px}
+body.storefront .strip .store-nav svg {width:17px;height:17px}
+@media(max-width:600px){body.storefront .strip .store-nav{flex-wrap:nowrap;overflow-x:auto;justify-content:space-between;gap:0}body.storefront .strip .store-nav > a,body.storefront .strip .store-nav .support-header-launch{font-size:12px;padding:6px 7px;gap:4px;min-height:32px}body.storefront .strip .store-nav svg{width:15px;height:15px}}

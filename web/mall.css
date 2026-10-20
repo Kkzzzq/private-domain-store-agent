@@ -1202,3 +1202,14 @@ body.storefront .all-search { border: 1px solid #e7d9cf; background: #fffdf9; }
 body.storefront .all-search button { background: #f0e4da; color: #805b48; }
 body.storefront .all-search button:hover { background: #e9d8ca; }
 .chat[hidden] { display: none; }
+
+/* Stable local rating display, independent of component/CDN availability. */
+.review-rating {display:inline-flex;align-items:center;gap:7px;line-height:1;vertical-align:middle;color:#bd8451;white-space:nowrap}
+.review-rating-icons {display:inline-flex;gap:2px}
+.review-rating-star {position:relative;display:block;width:13px;height:13px;color:#e9e1d7}
+.review-rating-star svg {display:block;width:13px;height:13px;fill:currentColor}
+.review-rating-fill {position:absolute;left:0;top:0;height:100%;overflow:hidden;color:#c38b53}
+.review-rating-score {font:500 12px/1.2 Arial,sans-serif;color:#9e724a}
+.quote .name {display:grid;gap:5px}
+.review .who {display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.review .who .review-rating {margin-left:4px}
