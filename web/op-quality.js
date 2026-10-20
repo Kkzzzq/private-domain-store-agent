@@ -27,7 +27,7 @@ window.OPQuality = (() => {
     const RUN_ENVIRONMENT="isolated-local";
     const AGENT_ROUTE={business:"testing-business",evaluator:"testing-evaluator",functional:"testing-functional"};
     const AGENT_TITLE={business:"业务Agent",evaluator:"评测Agent",functional:"功能测试Agent"};
-    const TYPE_LABEL={assistant:"助手",functional:"功能",browser:"浏览器"};
+    const TYPE_LABEL={assistant:"Agent 测试用例",functional:"接口测试用例",browser:"UI 测试用例"};
     const TYPE_OF=row=>row.adapter==="registered_browser"?"browser":row.kind;
     const ADAPTER_LABEL={isolated_assistant_api:"隔离子进程 · 助手接口",registered_pytest:"固定 pytest 节点",registered_browser:"隔离浏览器（Edge/Chromium + 截图）",declarative_assistant:"声明式自定义用例"};
     const MODEL_FIELD={provider:"供应商标识",cloud_style:"云端协议",cloud_model:"云端模型",ollama_model:"本地模型",role:"被测角色",model:"模型",note:"说明",kind:"类型"};
@@ -182,7 +182,6 @@ window.OPQuality = (() => {
       if(comparison)renderComparison();
       renderPlans(kind);renderRunsSection(kind);
       if(selectedPlan)renderPlan(data.plans.find(plan=>plan.id===selectedPlan));
-      if(selectedRun)renderRun(data.runs.find(run=>run.id===selectedRun));
     }
     function renderComparison(){
       const dimension={environment_id:"测试环境",fixture_version:"fixture版本",mode:"执行模式",unfinished_run:"运行未结束"};
@@ -232,7 +231,6 @@ window.OPQuality = (() => {
       if(comparison)renderComparison();
       if(receipts.length)renderReceipts();
       renderRunsSection("all");
-      if(selectedRun)renderRun(data.runs.find(run=>run.id===selectedRun));
     }
     function renderRunsSection(kind){
       const section=el("section","qa-card");section.append(el("h3","","最近测试用例报告（最多 100 份）"));
@@ -243,16 +241,18 @@ window.OPQuality = (() => {
         const counts=runCounts(run);
         const broken=run.status==="failed"||counts.failed>0, halted=run.status==="blocked"||counts.blocked>0, stopped=run.status==="cancelled";
         const row=el("div",broken||halted||stopped?"qa-case-row qa-run-failed":"qa-case-row");
-        row.append(button(`${reportName(run)} · ${label(run.kind)}`,()=>{selectedRun=run.id;selectedCase=null;paint();root.querySelector(".qa-run-detail")?.scrollIntoView({behavior:"smooth",block:"start"});}),badge(run.status),
+        const toggle=button(`${reportName(run)} · ${label(run.kind)}`,()=>{selectedRun=selectedRun===run.id?null:run.id;selectedCase=null;const y=window.scrollY;paint();window.scrollTo({top:y,behavior:"instant"});});toggle.setAttribute("aria-expanded",String(selectedRun===run.id));
+        row.append(toggle,badge(run.status),
           el("span","qa-muted",`${label(run.mode)} · 用例 ${run.results.length} 条`),
           el("span",broken||halted?"qa-error":"qa-pass",`通过 ${counts.passed} / 失败 ${counts.failed} / 阻塞 ${counts.blocked}`),
           el("span","qa-muted",`开始 ${clock(run.started_at||run.created_at)} · 结束 ${clock(run.finished_at)}`),
           el("span","qa-muted",`代码 ${String(run.target?.target_revision||"").slice(0,12)||"—"}`));
         if(broken||halted||stopped)row.append(el("span","qa-error",`失败原因：${runReason(run)}`));
-        section.append(row);
+        row.dataset.runId=run.id;section.append(row);
+        if(selectedRun===run.id)renderRun(run,section);
       }root.append(section);
     }
-    function renderRun(run){
+    function renderRun(run,container=root){
       if(!run)return;
       const section=el("section","qa-run-detail");const head=heading(reportName(run),`${label(run.kind)} · ${label(run.status)} · ${run.summary.decision?label(run.summary.decision):"尚未形成结论"}`);
       const controls=el("div","qa-actions");
@@ -290,7 +290,7 @@ window.OPQuality = (() => {
       if(!evidence.assertions?.length)right.append(el("p","qa-muted","尚无有效断言结果，不算通过。"));
       if(evidence.budget)right.append(el("h4","","模型预算 / 实际来源"),pre(evidence.budget));
       right.append(el("p","qa-muted",`隔离清理：${evidence.cleanup_ok===true?"已确认":evidence.cleanup_ok===false?"未确认":"尚未执行"}`));
-      layout.append(cases,middle,right);section.append(layout);root.append(section);
+      layout.append(cases,middle,right);section.append(layout);container.append(section);
     }
     async function shotUrl(runId,artifactId){
       const key=runId+":"+artifactId;
@@ -332,13 +332,14 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       const submit=el('button','qa-primary','保存候选');submit.type='submit';form.append(submit,button('取消',()=>dialog.close()));const split=value=>value.split(/[,，\n]/).map(word=>word.trim()).filter(Boolean);form.onsubmit=async event=>{event.preventDefault();submit.disabled=true;try{const definition={title:title.value,role:role.value,turns:fields.map(field=>({message:field.question.value,required_tools:split(field.tools.value),expected_contains:split(field.contains.value),forbidden_contains:split(field.forbidden.value),max_product_price:field.price.value===''?null:Number(field.price.value)}))};const path=previous?`/cases/${previous.id}${previous.state==='candidate'?'':'/revisions'}`:'/cases';await api(path,definition,previous?.state==='candidate'?'PATCH':'POST');caseState='candidate';dialog.close();await refresh();}catch(err){message.textContent=err.message;}finally{submit.disabled=false;}};dialog.append(form);dialog.addEventListener('close',()=>dialog.remove(),{once:true});root.append(dialog);dialog.showModal();
     }
     function renderCases(){
-      root.append(heading("测试用例管理","全部已登记的助手、功能与浏览器用例；展开可看执行步骤、预期结果、代码文件与入口、风险标记。"));
+      root.append(heading("测试用例管理","按 Agent、接口、UI 自动化分类管理；展开查看中文执行步骤与预期结果。"));
       const total=data.cases.length,active=data.cases.filter(row=>row.state==="active").length;
       const tally=["assistant","functional","browser"].map(type=>`${TYPE_LABEL[type]} ${data.cases.filter(row=>TYPE_OF(row)===type&&row.state==="active").length} 已接入`).join(" · ");
       root.append(el("p","qa-muted",`已接入 ${active} / 共 ${total} 条：${tally}。候选（未接入）用例不能运行。`));
-      const toolbar=el("div","qa-actions");
-      for(const [value,text] of [["active","已接入"],["candidate","候选未接入"],["all","全部状态"]]){const node=button(text,()=>{caseState=value;paint();});node.disabled=caseState===value;toolbar.append(node);}
-      for(const [value,text] of [["all","全部类型"],["assistant","助手"],["functional","功能"],["browser","浏览器"]]){const node=button(text,()=>{caseType=value;paint();});node.disabled=caseType===value;toolbar.append(node);}
+      const toolbar=el("div","qa-case-filters");
+      const stateSelect=el("select");stateSelect.setAttribute("aria-label","用例状态");
+      for(const [value,text] of [["active","已接入"],["candidate","候选未接入"],["all","全部状态"]]){const node=el("option","",text);node.value=value;stateSelect.append(node);}stateSelect.value=caseState;stateSelect.onchange=()=>{caseState=stateSelect.value;paint();};
+      for(const [value,text] of [["all","全部类型"],["assistant","Agent 测试用例"],["functional","接口测试用例"],["browser","UI 测试用例"]]){const node=button(text,()=>{caseType=value;paint();});node.classList.toggle("is-active",caseType===value);node.setAttribute("aria-pressed",String(caseType===value));toolbar.append(node);}
       root.append(toolbar);
       const search=el("div","qa-search");
       const input=el("input");input.type="search";input.placeholder="按 id 或标题搜索，例如 A02 / 库存";input.value=caseQuery;input.setAttribute("aria-label","搜索用例");
@@ -354,10 +355,12 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       const allRunnable=runnable(data.cases);
       runAll.disabled=!allRunnable.length;runAll.title=allRunnable.length?"本次点击即批准并启动":runBlock(data.cases.find(row=>row.state==="active"))||"没有可运行的已接入用例";
       runSelected.disabled=!chosen().length;runSelected.title=chosen().length?"本次点击即批准并启动；批准与启动在同一次点击内完成":(selectedRows().length?`选中的用例都不能运行：${runBlock(selectedRows()[0])}`:"先勾选已接入用例");
-      search.append(input,actions(runAll,runSelected,button("清空选择",()=>{checked.clear();paint();})));
-      if(can('qa.assistant.run'))search.append(button('新增助手用例',()=>caseDialog(),true));
-      root.append(search);
-      root.append(el("p","qa-muted",`运行即批准：点击运行按钮会在同一次点击内完成「生成计划 → 批准（绑定 digest）→ 启动运行」。助手用例走 live 模式（没有 live 才用 rules），功能/浏览器用例固定 rules；环境 ${RUN_ENVIRONMENT}；预算 max_calls=${RUN_BUDGET.max_calls} / max_tokens=${RUN_BUDGET.max_tokens} / timeout=${RUN_BUDGET.timeout_seconds}s；每条计划最多 ${BATCH_LIMIT} 条用例，超出自动拆批，助手与功能用例不混在同一计划里。`));
+      search.append(input,stateSelect);
+      const execution=el("div","qa-case-execution");execution.append(actions(runSelected,runAll,button("清空选择",()=>{checked.clear();paint();})));
+      const creation=el("div","qa-actions");
+      if(can('qa.assistant.run'))creation.append(button('新增 Agent 用例',()=>caseDialog()));
+      execution.append(creation);root.append(search,execution);
+      const advanced=el("details","qa-execution-note");advanced.append(el("summary","","执行环境与预算说明"),el("p","qa-muted",`同类型每批最多 ${BATCH_LIMIT} 条，共享预算；超出时分批。Agent 使用 live，接口与 UI 使用固定断言；环境 ${RUN_ENVIRONMENT}。预算 ${RUN_BUDGET.max_calls} 次调用 / ${RUN_BUDGET.max_tokens} tokens / ${RUN_BUDGET.timeout_seconds}s，耗尽明确阻塞。`));root.append(advanced);
       if(receipts.length||failures.length)renderReceipts();
       paintList();
       root.append(box);

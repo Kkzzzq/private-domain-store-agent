@@ -11,6 +11,8 @@ from uuid import uuid4
 
 
 BROWSER_CASES = {"E01": "买家规格加购用券结算", "E02": "商家SKU排序同步买家页面", "E03": "OP测试入口与买家权限隔离", "E04": "OP测试规划审批运行重跑对比", "E05": "OP页面维护店铺同步BC与审计落库"}
+from app.quality.browser_extra import CASES as EXTRA_BROWSER_CASES
+BROWSER_CASES.update(EXTRA_BROWSER_CASES)
 
 
 def execute_browser(case_id, evidence):
@@ -30,7 +32,7 @@ def execute_browser(case_id, evidence):
     browser = None
     with (workspace / "browser-server.log").open("w", encoding="utf-8") as log:
         server = subprocess.Popen([sys.executable, "-m", "app.quality.browser_server", "--port", str(port)],
-                                  cwd=settings.backend_root, env=dict(os.environ, QA_BROWSER_OP="1" if case_id in {"E04", "E05"} else "0"), stdout=log, stderr=log,
+                                  cwd=settings.backend_root, env=dict(os.environ, QA_BROWSER_OP="1" if case_id in {"E04", "E05", "E06"} else "0"), stdout=log, stderr=log,
                                   creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                                   start_new_session=os.name != "nt")
         try:
@@ -60,7 +62,7 @@ def execute_browser(case_id, evidence):
                     browser = playwright.chromium.launch(channel="msedge" if os.name == "nt" else None, headless=True,
                                                          args=["--disable-gpu", "--disable-background-networking"])
                     context = browser.new_context(viewport={"width": 1366, "height": 900})
-                    identity = merchant if case_id == "E02" else buyer
+                    identity = merchant if case_id in {"E02", "E07"} else buyer
                     context.add_init_script(f"sessionStorage.setItem('token_c',{json.dumps(identity)});sessionStorage.setItem('token_b',{json.dumps(identity)});")
                     page = context.new_page()
                     page.set_default_timeout(15000)
@@ -76,7 +78,10 @@ def execute_browser(case_id, evidence):
                         evidence.requests.append(row)
                     page.on("requestfinished", capture)
                     try:
-                        if case_id == "E01":
+                        if case_id in EXTRA_BROWSER_CASES:
+                            from app.quality.browser_extra import execute as execute_extra
+                            execute_extra(case_id, page, origin, evidence)
+                        elif case_id == "E01":
                             now = datetime.now(timezone.utc)
                             coupon = call("POST", "/api/v1/b/coupons", merchant, {"name": "浏览器验收优惠券", "threshold_cents": 0, "amount_cents": 1000, "total_count": 2,
                                           "starts_at": (now-timedelta(days=1)).isoformat(), "ends_at": (now+timedelta(days=1)).isoformat()})
@@ -151,7 +156,7 @@ def execute_browser(case_id, evidence):
                             page.get_by_label("登录密码", exact=True).fill("merchant123")
                             page.get_by_role("button", name="进入运营工作台").click()
                             page.get_by_role("button", name="测试用例管理", exact=True).click()
-                            page.get_by_role("button", name="新增助手用例", exact=True).click()
+                            page.get_by_role("button", name="新增 Agent 用例", exact=True).click()
                             editor = page.locator("dialog[open]")
                             editor.get_by_label("用例名称", exact=True).fill("浏览器创建搜索用例")
                             editor.get_by_label("第1轮用户输入", exact=True).fill("搜索抱枕")
@@ -159,7 +164,7 @@ def execute_browser(case_id, evidence):
                             editor.get_by_label("第1轮回答必须包含", exact=True).fill("抱枕")
                             editor.get_by_role("button", name="保存候选", exact=True).click()
                             page.get_by_role("button", name="审核启用", exact=True).click()
-                            page.get_by_role("button", name="已接入", exact=True).click()
+                            page.get_by_label("用例状态", exact=True).select_option("active")
                             page.get_by_role("button", name="新建版本", exact=True).click()
                             page.locator("dialog[open]").get_by_label("用例名称", exact=True).fill("浏览器搜索用例第二版")
                             with page.expect_response(lambda response: response.url.endswith("/revisions") and response.request.method == "POST") as revised:

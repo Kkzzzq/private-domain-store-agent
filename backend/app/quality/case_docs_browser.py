@@ -80,3 +80,8 @@ DOCS = {
     },
 }
 DOCS["E05"] = {"steps":["在真实浏览器（Edge/Chromium）登录OP并打开店铺完整维护", "通过表单修改公告保存，读取B和C接口核对", "查询数据库维护审计，再点击冻结与解冻检查C端商品"], "expected":["表单保存200，B和C公告与输入一致", "操作审计包含真实原因和成功状态", "冻结后C端无商品，解冻后恢复；保存现场截图"], "code_file":"backend/app/quality/browser.py", "code_node":"execute_browser(E05)", "risk":"writes"}
+DOCS.update({
+    "E06": {"steps": ["登录OP并进入测试用例管理", "依次点击Agent、接口、UI三类用例", "输入不存在的用例名称搜索"], "expected": ["三个分类均可点击且显示已接入用例", "无匹配时展示明确空态，不显示其他用例", "保存真实请求证据及页面截图"], "code_file": "backend/app/quality/browser_extra.py", "code_node": "execute(E06)", "risk": "read-only"},
+    "E07": {"steps": ["以商家身份打开商品页", "依次点击商品、订单、店铺设置和经营概览导航", "检查路由地址、侧栏可见性及接口错误"], "expected": ["各导航可以点击且路由与目标一致", "未出现服务端500类响应", "保存实际页面截图"], "code_file": "backend/app/quality/browser_extra.py", "code_node": "execute(E07)", "risk": "read-only"},
+    "E08": {"steps": ["打开南枝小店买家首页", "搜索不存在的商品并按回车", "重新打开首页核对搜索恢复"], "expected": ["搜索进入全部商品页并显示没有找到相关商品", "重新打开首页输入框为空", "保存真实页面和请求证据"], "code_file": "backend/app/quality/browser_extra.py", "code_node": "execute(E08)", "risk": "read-only"},
+})

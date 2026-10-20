@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_every_active_case_documents_steps_expected_and_real_code_file():
     active = [row["id"] for row in cases() if row["state"] == "active"]
-    assert len(active) == 88, "接入用例数量变化时请同步用例文档"
+    assert len(active) == 91, "接入用例数量变化时请同步用例文档"
     assert missing_docs(active) == [], "有用例缺少人工登记的步骤/预期"
     for case_id in active:
         doc = doc_for(case_id)
