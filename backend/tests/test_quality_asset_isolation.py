@@ -46,3 +46,29 @@ def test_model_budget_exhaustion_stops_before_network_and_reports_limits(monkeyp
         assert budget.output()['calls'] == 0
     finally:
         restore()
+
+
+def test_old_sqlite_is_replaced_only_inside_quality_runtime(monkeypatch):
+    import sqlite3
+    import sys
+    from types import SimpleNamespace
+    from app.quality.sandbox import ensure_sqlite
+    modern = SimpleNamespace(sqlite_version_info=(3, 51, 0), dbapi2=object())
+    monkeypatch.setattr(sqlite3, 'sqlite_version_info', (3, 31, 1))
+    monkeypatch.setitem(sys.modules, 'sqlite3', sqlite3)
+    monkeypatch.setitem(sys.modules, 'sqlite3.dbapi2', sqlite3.dbapi2)
+    monkeypatch.setitem(sys.modules, 'pysqlite3', modern)
+    ensure_sqlite()
+    assert sys.modules['sqlite3'] is modern
+    assert sys.modules['sqlite3.dbapi2'] is modern.dbapi2
+
+
+def test_old_sqlite_missing_compatibility_library_is_explicitly_blocked(monkeypatch):
+    import pytest
+    import sqlite3
+    import sys
+    from app.quality.sandbox import ensure_sqlite
+    monkeypatch.setattr(sqlite3, 'sqlite_version_info', (3, 31, 1))
+    monkeypatch.setitem(sys.modules, 'pysqlite3', None)
+    with pytest.raises(RuntimeError, match='pysqlite3-binary'):
+        ensure_sqlite()

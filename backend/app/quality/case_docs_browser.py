@@ -79,4 +79,4 @@ DOCS = {
         "risk": "writes",
     },
 }
-DOCS["E05"] = {"steps":["在真实Edge浏览器登录OP并打开店铺完整维护", "通过表单修改公告保存，读取B和C接口核对", "查询数据库维护审计，再点击冻结与解冻检查C端商品"], "expected":["表单保存200，B和C公告与输入一致", "操作审计包含真实原因和成功状态", "冻结后C端无商品，解冻后恢复；保存现场截图"], "code_file":"backend/app/quality/browser.py", "code_node":"execute_browser(E05)", "risk":"writes"}
+DOCS["E05"] = {"steps":["在真实浏览器（Edge/Chromium）登录OP并打开店铺完整维护", "通过表单修改公告保存，读取B和C接口核对", "查询数据库维护审计，再点击冻结与解冻检查C端商品"], "expected":["表单保存200，B和C公告与输入一致", "操作审计包含真实原因和成功状态", "冻结后C端无商品，解冻后恢复；保存现场截图"], "code_file":"backend/app/quality/browser.py", "code_node":"execute_browser(E05)", "risk":"writes"}
