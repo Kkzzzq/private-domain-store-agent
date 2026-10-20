@@ -1,3 +1,5 @@
 -r requirements.txt
 # Production runner is Ubuntu 20.04; 1.63 dropped that OS.
 playwright>=1.48.0,<1.63
+# Match the API runtime and Redis 5 server (new clients default to RESP3/HELLO).
+redis>=5.2,<6
