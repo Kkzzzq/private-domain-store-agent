@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from contextvars import ContextVar
+from typing import Callable
 
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,11 @@ class Actor:
     shop_id: int
     session_id: str = ""
     products: list[dict] = field(default_factory=list)
+    sources: list[dict] = field(default_factory=list)
+    retrieval_mode: str = "none"
+    model_retries: int = 0
+    catalog_loaded: bool = False
+    progress: Callable | None = None
 
 
 _ctx: ContextVar[tuple[Session, Actor] | None] = ContextVar("store_actor", default=None)

@@ -65,6 +65,8 @@ class RedisClient:
 
     def connect(self) -> None:
         if settings.redis_url == "memory":
+            if settings.strict_dependencies:
+                raise RuntimeError("严格模式要求真实 Redis")
             self._client = MemoryRedis()
             self.using_memory = True
             return
@@ -77,6 +79,8 @@ class RedisClient:
         try:
             client.ping()
         except redis.RedisError as exc:
+            if settings.strict_dependencies:
+                raise RuntimeError("严格模式 Redis 不可用") from exc
             logger.warning("Redis 不可用，会话和热点缓存改用进程内存：%s", exc)
             self._client = MemoryRedis()
             self.using_memory = True
@@ -90,8 +94,26 @@ class RedisClient:
         assert self._client is not None
         return self._client
 
+    def verify(self) -> bool:
+        client = self._ensure()
+        if settings.strict_dependencies and isinstance(client, MemoryRedis):
+            raise RuntimeError("严格模式不允许内存 Redis")
+        return bool(client.ping())
+
+    def _perform(self, operation):
+        try:
+            return operation(self._ensure())
+        except redis.RedisError as exc:
+            if settings.strict_dependencies:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=503, detail="Redis 暂时不可用") from exc
+            logger.warning("Redis 运行中断连，切换进程内存")
+            self._client = MemoryRedis()
+            self.using_memory = True
+            return operation(self._client)
+
     def get_json(self, key: str) -> Any:
-        raw = self._ensure().get(key)
+        raw = self._perform(lambda client: client.get(key))
         if raw is None:
             return None
         try:
@@ -101,20 +123,20 @@ class RedisClient:
             return None
 
     def increment(self, key, ttl):
-        client = self._ensure()
-        if isinstance(client, MemoryRedis):
-            return client.increment(key, ttl)
-        return int(client.eval("local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n", 1, key, ttl))
+        def increment_client(client):
+            if isinstance(client, MemoryRedis):
+                return client.increment(key, ttl)
+            return int(client.eval("local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n", 1, key, ttl))
+        return self._perform(increment_client)
 
     def set_json(self, key: str, value: Any, ex: int | None = 3600) -> None:
-        self._ensure().set(key, json.dumps(value, ensure_ascii=False), ex=ex)
+        self._perform(lambda client: client.set(key, json.dumps(value, ensure_ascii=False), ex=ex))
 
     def delete_pattern(self, pattern: str) -> int:
-        client = self._ensure()
-        keys = client.keys(pattern)
-        if not keys:
-            return 0
-        return int(client.delete(*keys))
+        def delete_matching(client):
+            keys = client.keys(pattern) if isinstance(client, MemoryRedis) else list(client.scan_iter(match=pattern))
+            return int(client.delete(*keys)) if keys else 0
+        return self._perform(delete_matching)
 
     def flush(self) -> None:
         client = self._ensure()

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect
 from sqlalchemy.exc import OperationalError
 
 from app.api.router import router
@@ -16,17 +17,31 @@ from app.db.session import SessionLocal, engine
 
 def init_db() -> None:
     import app.models.tables  # noqa: F401
+    if settings.strict_dependencies and engine.dialect.name != "mysql":
+        raise RuntimeError("严格依赖模式要求 MySQL")
 
     last_error: Exception | None = None
     for _ in range(30):
         try:
             Base.metadata.create_all(bind=engine)
             _ensure_sqlite_columns()
+            _ensure_sku_sort_order()
             return
         except OperationalError as exc:
             last_error = exc
             time.sleep(1)
     raise last_error or RuntimeError("数据库初始化失败")
+
+
+def _ensure_sku_sort_order() -> None:
+    if "sort_order" in {column["name"] for column in inspect(engine).get_columns("skus")}:
+        return
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("ALTER TABLE skus ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+    except OperationalError:
+        if "sort_order" not in {column["name"] for column in inspect(engine).get_columns("skus")}:
+            raise
 
 
 def _ensure_sqlite_columns() -> None:
@@ -102,6 +117,8 @@ async def lifespan(_app: FastAPI):
     try:
         seed_if_empty(db)
         upgrade_demo(db)
+        from app.services.assistant_identity import initialize_assistant_names
+        initialize_assistant_names(db)
     finally:
         db.close()
     scheduler = None

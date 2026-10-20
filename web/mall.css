@@ -125,6 +125,36 @@ body.tinted {
   gap: 18px; flex-wrap: wrap;
 }
 .collection-head h2 { font-size: 24px; letter-spacing: 1px; font-family: var(--serif); }
+.collection-title-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.collection-title-row h2 { margin: 0; }
+.collection-sort {
+  position: relative; color: var(--ink-2); font-size: 13px; z-index: 5;
+}
+.collection-sort-trigger {
+  list-style: none; display: flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 4px 8px; line-height: 18px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--card); transition: border-color .15s, background .15s;
+}
+.collection-sort-trigger::-webkit-details-marker { display: none; }
+.collection-sort-trigger:hover, .collection-sort[open] .collection-sort-trigger {
+  color: var(--theme); border-color: color-mix(in srgb, var(--theme) 35%, white); background: var(--primary-soft);
+}
+.sort-chevron { display: block; width: 12px; height: 12px; flex: 0 0 12px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
+.collection-sort[open] .sort-chevron { transform: rotate(180deg); }
+.collection-sort-menu {
+  position: absolute; left: 0; top: calc(100% + 5px); width: 154px; padding: 4px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+  box-shadow: 0 8px 24px #38251b14;
+}
+.collection-sort-menu button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 7px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--ink-2); font: inherit; text-align: left; cursor: pointer;
+}
+.collection-sort-menu button:hover { background: var(--brand-soft); }
+.collection-sort-menu button.on { background: var(--primary-soft); color: var(--theme); font-weight: 600; }
+.sort-check { width: 14px; text-align: center; }
+.collection-sort-trigger:focus-visible, .collection-sort-menu button:focus-visible { outline: 2px solid var(--theme); outline-offset: 2px; }
 .collection-head .muted { margin-top: 4px; }
 .collection-search { width: 300px; flex-shrink: 0; }
 .collection-main .grid { padding-bottom: 0; }

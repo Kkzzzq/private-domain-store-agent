@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.agent.assistant import assistant
+from app.agent.streaming import chat_stream
 from app.agent.context import Actor, reset_actor, set_actor
 from app.core.deps import get_current_user, get_db, get_optional_user, require_customer
 from app.models.tables import User
@@ -38,6 +39,23 @@ from app.services.reviews import create_review, list_reviews, pending_reviews
 from app.services.trade import add_cart, cart_view, checkout_cart, create_address, delete_address, list_addresses, remove_cart, update_cart
 
 router = APIRouter(prefix="/c", tags=["c"])
+
+from app.services import coupons as coupon_service
+
+
+@router.get("/shops/{share_code}/coupons")
+def coupons(share_code: str, user: User | None = Depends(get_optional_user), db: Session = Depends(get_db)):
+    return coupon_service.list_c(db, share_code, user)
+
+
+@router.post("/shops/{share_code}/coupons/{coupon_id}/claim")
+def claim_coupon(share_code: str, coupon_id: int, user: User = Depends(require_customer), db: Session = Depends(get_db)):
+    return coupon_service.claim(db, user, share_code, coupon_id)
+
+
+@router.post("/shops/{share_code}/coupon-quote")
+def coupon_quote(share_code: str, body: coupon_service.CouponQuote, user: User = Depends(require_customer), db: Session = Depends(get_db)):
+    return coupon_service.quote(db, user, share_code, body)
 
 
 @router.get("/shops/{share_code}", response_model=ShopOut)
@@ -215,6 +233,11 @@ def confirm(order_no: str, user: User = Depends(require_customer), db: Session =
     return confirm_order(db, user, order_no)
 
 
+@router.post("/shops/{share_code}/chat/stream")
+def stream_chat(share_code: str, body: ChatIn, user: User = Depends(require_customer), db: Session = Depends(get_db)):
+    return chat_stream(user, shop_by_code(db, share_code).id, body)
+
+
 @router.post("/shops/{share_code}/chat", response_model=ChatOut)
 def chat(
     share_code: str,
@@ -228,6 +251,12 @@ def chat(
         return assistant.chat(user_id=user.id, shop_id=shop.id, session_id=body.session_id, message=body.message.strip())
     finally:
         reset_actor(token)
+
+
+@router.get("/shops/{share_code}/chat/recent")
+def recent_chat(share_code: str, user: User = Depends(require_customer), db: Session = Depends(get_db)):
+    shop = shop_by_code(db, share_code)
+    return assistant.sessions.recent(user.id, shop.id)
 
 
 @router.get("/shops/{share_code}/sessions/{session_id}", response_model=SessionOut)

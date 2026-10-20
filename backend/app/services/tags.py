@@ -6,7 +6,7 @@
 
 from sqlalchemy import func, select
 
-from app.models.tables import Product, ProductTag, ProductTagLink, Shop, User
+from app.models.tables import Product, ProductTag, ProductTagLink, ProductTagStyle, Shop, User
 from app.schemas.dto import TagIn, TagUpdate
 
 # 建店时先给一套常用的，商家不喜欢可以改名或删掉
@@ -36,9 +36,27 @@ def serialize_tag(row: ProductTag, count: int = 0) -> dict:
         "id": row.id,
         "name": row.name,
         "color": row.color or "",
+        **style_of(row),
         "sort_order": row.sort_order,
         "product_count": count,
     }
+
+
+def style_of(row: ProductTag) -> dict:
+    profile = row.style_profile
+    return {key: getattr(profile, key, "") if profile else ""
+            for key in ("background_color", "border_color", "text_color")}
+
+
+def save_style(row: ProductTag, body) -> None:
+    values = body.model_dump(exclude_unset=True)
+    colors = {key: values[key] for key in ("background_color", "border_color", "text_color")
+              if key in values and values[key] is not None}
+    if colors:
+        if row.style_profile is None:
+            row.style_profile = ProductTagStyle()
+        for key, value in colors.items():
+            setattr(row.style_profile, key, value)
 
 
 def counts_for_shop(db, shop_id: int) -> dict[int, int]:
@@ -84,6 +102,7 @@ def create_tag(db, user: User, body: TagIn) -> dict:
         raise HTTPException(status_code=409, detail="已经有同名标签了")
     max_sort = db.scalar(select(func.max(ProductTag.sort_order)).where(ProductTag.shop_id == shop.id)) or 0
     row = ProductTag(shop_id=shop.id, name=name, color=(body.color or "").strip(), sort_order=max_sort + 1)
+    save_style(row, body)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -106,6 +125,7 @@ def update_tag(db, user: User, tag_id: int, body: TagUpdate) -> dict:
         row.color = body.color.strip()
     if body.sort_order is not None:
         row.sort_order = body.sort_order
+    save_style(row, body)
     db.commit()
     db.refresh(row)
     _invalidate()
@@ -131,7 +151,7 @@ def delete_tag(db, user: User, tag_id: int) -> None:
 def tags_of(product: Product) -> list[dict]:
     """按商家定义的顺序给出这件商品的标签，卡片左上角取第一个。"""
     links = sorted(product.tag_links, key=lambda link: (link.tag.sort_order, link.tag.id))
-    return [{"name": link.tag.name, "color": link.tag.color or ""} for link in links]
+    return [{"name": link.tag.name, "color": link.tag.color or "", **style_of(link.tag)} for link in links]
 
 
 def sync_product_tags(db, product: Product, names: list[str]) -> None:

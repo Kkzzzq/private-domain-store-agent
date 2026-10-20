@@ -125,7 +125,7 @@ def test_tool_loop_and_model_fallback(client, monkeypatch):
             assert "亚麻抱枕套" in result["answer"]
             result = assistant.chat(user_id=user.id, shop_id=1, session_id=None, message="有没有40元以内的商品？", llm=Ungrounded())
             assert result["mode"] == "fallback" and result["products"]
-            assert result["tools"][0]["tool"] == "recommend_products"
+            assert [trace["tool"] for trace in result["tools"]] == ["get_store_catalog", "recommend_products"]
             assert all(row["price_from"] <= 40 for row in result["products"])
         finally:
             reset_actor(token)

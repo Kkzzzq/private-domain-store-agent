@@ -30,7 +30,7 @@ def _serialize_row(row: CartItem) -> dict:
         "product_id": product.id,
         "product_name": product.name,
         "spec": sku.spec,
-        "image_url": product.image_url,
+        "image_url": sku.image_url or product.image_url,
         "price_yuan": yuan(sku.price_cents),
         "quantity": row.quantity,
         "stock": sku.stock,
@@ -43,7 +43,7 @@ def cart_view(db: Session, user: User, share_code: str) -> dict:
     shop = shop_by_code(db, share_code)
     items = [_serialize_row(row) for row in _cart_rows(db, user, shop.id)]
     goods = sum(int(round(item["price_yuan"] * 100)) * item["quantity"] for item in items if item["available"])
-    freight = freight_for(goods) if any(item["available"] for item in items) else 0
+    freight = freight_for(goods, shop) if any(item["available"] for item in items) else 0
     return {
         "items": items,
         "goods_yuan": yuan(goods),
@@ -111,6 +111,7 @@ def checkout_cart(db: Session, user: User, share_code: str, body: CartCheckout) 
         user,
         share_code,
         OrderCreate(
+            user_coupon_id=body.user_coupon_id,
             items=[OrderLine(sku_id=row.sku_id, quantity=row.quantity) for row in rows],
             address=body.address,
             receiver=body.receiver,

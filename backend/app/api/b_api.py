@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.deps import get_db, require_merchant
 from app.models.tables import User
 from app.agent.assistant import assistant
+from app.agent.streaming import chat_stream
 from app.agent.context import Actor, set_actor, reset_actor
 from app.schemas.dto import ChatIn, ChatOut, SessionOut
 from app.rag.knowledge import reindex_knowledge
@@ -67,12 +68,58 @@ from app.services.catalog import (
     update_product,
     update_shop,
     update_sku,
+    reorder_skus,
 )
 from app.services.orders import list_b_orders, ship_order, ship_orders
 from app.services import categories as category_service
 from app.services import tags as tag_service
 
 router = APIRouter(prefix="/b", tags=["b"])
+
+from app.schemas.decoration import DecorationDraft, SortOrderIn
+from app.services import decoration as decoration_service
+
+
+@router.get("/decoration")
+def read_decoration(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return decoration_service.decoration_snapshot(db, user)
+
+
+@router.post("/decoration/preview")
+def preview_decoration(body: DecorationDraft, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return decoration_service.preview_decoration(db, user, body)
+
+
+@router.put("/decoration")
+def save_decoration(body: DecorationDraft, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return decoration_service.save_decoration(db, user, body)
+
+
+@router.post("/sort/{kind}")
+def sort_rows(kind: str, body: SortOrderIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return decoration_service.reorder(db, user, kind, body.ordered_ids)
+
+from app.services import coupons as coupon_service
+
+
+@router.get("/coupons")
+def list_coupons(user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return coupon_service.list_b(db, user)
+
+
+@router.post("/coupons")
+def create_coupon(body: coupon_service.CouponIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return coupon_service.create(db, user, body)
+
+
+@router.patch("/coupons/{coupon_id}")
+def toggle_coupon(coupon_id: int, body: coupon_service.CouponStatus, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return coupon_service.toggle(db, user, coupon_id, body)
+
+
+@router.post("/chat/stream")
+def stream_chat(body: ChatIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return chat_stream(user, merchant_shop(db, user).id, body)
 
 
 @router.post("/chat", response_model=ChatOut)
@@ -148,6 +195,11 @@ def create_sku(
     db: Session = Depends(get_db),
 ):
     return add_sku(db, user, product_id, body)
+
+
+@router.post("/products/{product_id}/skus/sort", response_model=ProductOut)
+def sort_skus(product_id: int, body: SortOrderIn, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
+    return reorder_skus(db, user, product_id, body.ordered_ids)
 
 
 @router.patch("/skus/{sku_id}", response_model=ProductOut)

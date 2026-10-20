@@ -99,8 +99,16 @@ def test_off_shelf_items_stay_in_history_with_label(client):
     client.get(f"/api/v1/c/shops/nanzhi/products/{mug['id']}", headers=alice)
 
     # 下架抱枕，禁售马克杯
-    client.post(f"/api/v1/b/products/{pillow['id']}/status", headers=merchant, json={"action": "off"})
-    client.post(f"/api/v1/b/products/{mug['id']}/status", headers=merchant, json={"action": "ban"})
+    assert client.post(f"/api/v1/b/products/{pillow['id']}/status", headers=merchant, json={"action": "off"}).status_code == 200
+    # 禁售由平台设置，商家接口没有禁售权限。
+    assert client.post(f"/api/v1/b/products/{mug['id']}/status", headers=merchant, json={"action": "ban"}).status_code == 403
+    from app.db.session import SessionLocal
+    from app.models.tables import Product
+    from app.services.catalog import invalidate_catalog_cache
+    with SessionLocal() as db:
+        db.get(Product, mug['id']).status = "banned"
+        db.commit()
+    invalidate_catalog_cache()
 
     # 首页和详情页不再出现
     listed = {item["name"] for item in client.get("/api/v1/c/shops/nanzhi/products").json()}

@@ -1,9 +1,12 @@
 from fastapi import HTTPException
+from sqlalchemy.orm import object_session
 
 from app.models.tables import Product, Sku
 
 # 当前状态 + 动作 -> 新状态。禁售不能直接上架，必须先解禁回到下架。
 _TRANSITIONS = {
+    ("draft", "on"): "on",
+    ("draft", "off"): "off",
     ("off", "on"): "on",
     ("on", "off"): "off",
     ("on", "ban"): "banned",
@@ -34,7 +37,21 @@ def listed_on_c(product: Product) -> bool:
 def visible_skus(product: Product) -> list[Sku]:
     if product.shop.status != "open" or product.status != "on":
         return []
-    return [sku for sku in product.skus if sku.status == "on"]
+    return [sku for sku in ordered_skus(product) if sku.status == "on"]
+
+
+def ordered_skus(product: Product) -> list[Sku]:
+    return sorted(product.skus, key=lambda sku: (sku.sort_order or 0, sku.id or 0))
+
+
+def assert_merchant_editable(product: Product, sku: Sku | None = None) -> None:
+    db = object_session(product)
+    if db is not None:
+        db.refresh(product, attribute_names=["status"], with_for_update=True)
+        if sku is not None:
+            db.refresh(sku, attribute_names=["status"], with_for_update=True)
+    if product.status == "banned" or (sku is not None and sku.status == "banned"):
+        raise HTTPException(403, "商品或规格已被平台禁售，商家不能编辑、排序、上下架或解禁，请联系平台处理")
 
 
 def purchase_block(sku: Sku, quantity: int) -> str | None:

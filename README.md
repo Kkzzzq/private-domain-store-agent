@@ -1,10 +1,16 @@
 # 私域电商智能运营平台
 
+本机已补齐[无虚拟化真实环境](docs/native-live.md)：MySQL、Redis、智谱聊天及Embedding-3、Chroma的七组严格验收通过，演示服务在127.0.0.1:8000运行。原Ollama和Docker方案保留；当前真实运行组合以该文档为准，不将云端服务称为Ollama。
+
+真实服务联调的需求与通过标准见 [联调 PRD](docs/prd-live-acceptance.md)，运行方式见 [真实联调手册](docs/live-acceptance.md)。使用独立 MySQL/Redis/Ollama 环境，严格区分代码实现、模拟测试与真实模型验收，报告自动落入 `backend/data/acceptance/`。
+
 ## 双端智能助手
 
 需求与验收见 [PRD](docs/prd.md)。商家后台右下角的「智能助手」悬浮入口可查询本店商品、全部订单、经营概览和库存预警；买家右下角助手可搜索/推荐商品、查本人订单及政策。两端支持多轮对话、新对话、商品卡与明确的降级提示。
 
 所有 Agent 工具只读，身份与店铺在服务器确定。默认每用户每分钟 30 次请求，工具调用写入脱敏审计表 `agent_tool_logs`。推荐支持热销、浏览偏好、相似商品及预算，Redis 保存独立会话与限流计数。真实模型通过 LangChain/Ollama Function Calling，知识库使用标题分块与 Chroma；模型离线使用规则查询，界面明确标注。
+
+需求驱动推荐见 [推荐PRD](docs/prd-recommendation-agent.md)：模型先调用本店商品概览，再提取预算、数量、分类、必含/排除条件，筛选具体有货SKU并解释理由。预算按数量小计，不含运费；没有匹配时不擅自放宽条件。当前也支持智谱云模型，操作及完整验收边界见 [真实联调手册](docs/live-acceptance.md)。
 
 买家示例：「有没有抱枕」「SKU 1 还有货吗」「预算 40 元推荐商品」「我的订单」「这个订单发货了吗」「定制品能退吗」。商家示例：「经营概览」「库存预警」「本店订单」「搜索抱枕」。模型和基础设施的验证边界、Wireshark 排障步骤见 [验收与排障](docs/troubleshooting.md)。
 

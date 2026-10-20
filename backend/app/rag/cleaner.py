@@ -30,7 +30,6 @@ def structured_chunks(text):
                 if normalized and normalized not in seen:
                     seen.add(normalized)
                     body.append(normalized)
-        if body:
-            body.append("")
+        flush()
     flush()
     return chunks

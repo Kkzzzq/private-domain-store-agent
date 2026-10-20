@@ -19,7 +19,10 @@ def sku_of(product, spec):
 def test_pages_exist(client):
     assert "买家店铺" in client.get("/c.html").text
     assert "商家工作台" in client.get("/b.html").text
-    assert "私域电商智能运营平台" in client.get("/").text
+    portal = client.get("/")
+    assert portal.status_code == 200
+    assert '/c.html?code=nanzhi' in portal.text and '/b.html' in portal.text
+    assert client.get('/portal.css').status_code == 200
 
 
 def test_search_matches_category_as_well_as_name(client):
@@ -99,18 +102,26 @@ def test_shelf_ban_and_shop_close_control_whether_c_can_buy(client):
         headers=b_headers,
         json={"action": "ban"},
     )
-    assert banned.status_code == 200
+    assert banned.status_code == 403
+    from app.db.session import SessionLocal
+    from app.models.tables import Product
+    with SessionLocal() as db:
+        db.get(Product, mug["id"]).status = "banned"
+        db.commit()
     assert "陶瓷马克杯" not in {item["name"] for item in client.get("/api/v1/c/shops/nanzhi/products").json()}
     direct_on = client.post(
         f"/api/v1/b/products/{mug['id']}/status",
         headers=b_headers,
         json={"action": "on"},
     )
-    assert direct_on.status_code == 400
+    assert direct_on.status_code == 403
     assert "解禁" in direct_on.json()["detail"]
 
-    client.post(f"/api/v1/b/products/{mug['id']}/status", headers=b_headers, json={"action": "unban"})
+    assert client.post(f"/api/v1/b/products/{mug['id']}/status", headers=b_headers, json={"action": "unban"}).status_code == 403
     assert "陶瓷马克杯" not in {item["name"] for item in client.get("/api/v1/c/shops/nanzhi/products").json()}
+    with SessionLocal() as db:
+        db.get(Product, mug["id"]).status = "off"
+        db.commit()
     client.post(f"/api/v1/b/products/{mug['id']}/status", headers=b_headers, json={"action": "on"})
     assert "陶瓷马克杯" in {item["name"] for item in client.get("/api/v1/c/shops/nanzhi/products").json()}
 

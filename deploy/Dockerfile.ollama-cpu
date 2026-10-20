@@ -1,0 +1,10 @@
+FROM python:3.12-slim
+ARG OLLAMA_SHA256
+COPY runtime.tgz /tmp/runtime.tgz
+RUN tar -xzf /tmp/runtime.tgz -C /usr/local \
+    && printf '%s  /usr/local/bin/ollama\n' "$OLLAMA_SHA256" | sha256sum -c - \
+    && rm /tmp/runtime.tgz
+ENV OLLAMA_HOST=0.0.0.0:11434
+EXPOSE 11434
+ENTRYPOINT ["/usr/local/bin/ollama"]
+CMD ["serve"]

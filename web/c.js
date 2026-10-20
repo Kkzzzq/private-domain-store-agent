@@ -1,6 +1,20 @@
 const params = new URLSearchParams(location.search);
 let code = params.get("code") || "nanzhi";
-const api = createApi("token_c");
+const liveApi = createApi("token_c");
+const decorationPreview = params.get("preview") || "";
+let previewPayload = null;
+
+async function api(path, options = {}) {
+  if (!decorationPreview) return liveApi(path, options);
+  if (!previewPayload || (options.method && options.method !== "GET")) throw new Error("装修预览不可执行交易");
+  if (path.endsWith("/home")) return structuredClone(previewPayload.home);
+  if (path.includes("/products?")) {
+    const query = new URL(path, location.origin).searchParams;
+    const offset = Number(query.get("offset") || 0), limit = Number(query.get("limit") || 8);
+    return structuredClone(previewPayload.products.slice(offset, offset + limit));
+  }
+  throw new Error("此操作不在装修预览范围内");
+}
 
 let shop = null;
 let cats = null;
@@ -12,6 +26,9 @@ let chatLines = [];
 let chatOpen = false;
 let chatBusy = false;
 let chatIdentity = "";
+let chatRestored = false;
+let chatRestoring = false;
+let chatRestoreError = "";
 let addressId = null;
 let cartCount = 0;
 let cartPick = null;
@@ -55,7 +72,7 @@ function cover(url) {
 function discountOf(price, market) {
   if (!market || market <= price) return null;
   const value = (price / market) * 10;
-  return `${value.toFixed(1)}折`;
+  return `${Number(value.toFixed(1))}折`;
 }
 
 function discountLabel(text) {
@@ -63,6 +80,19 @@ function discountLabel(text) {
 }
 
 async function render() {
+  if (decorationPreview) {
+    const root = document.querySelector("#app");
+    if (!previewPayload) { root.replaceChildren(h("p", "preview-loading", "正在准备未保存样式预览…")); return; }
+    shop = previewPayload.home.shop;
+    const view = await renderHome();
+    const page = h("main", "wrap");
+    page.append(view);
+    root.replaceChildren(renderStrip(), page, renderFooter());
+    if (storefrontSettings(shop).assistant_enabled) root.append(renderChatToggle());
+    root.inert = true;
+    document.body.classList.toggle("tinted", shop.strip_tint !== false);
+    return;
+  }
   const gen = ++renderGen;
   const root = document.querySelector("#app");
   // 进了别家店的商品，把整个页面的上下文切过去
@@ -80,6 +110,8 @@ async function render() {
     try {
       shop = await api(`/api/v1/c/shops/${code}`);
       applyTheme(shop.theme_color);
+      applyStorefrontSettings(shop);
+      document.title = `${shop.name} · 买家店铺`;
     } catch (error) {
       root.replaceChildren(h("p", "muted", error.message));
       return;
@@ -111,10 +143,11 @@ async function render() {
   if (gen !== renderGen) return;
   const page = h("main", "wrap");
   page.append(view);
-  root.replaceChildren(renderStrip(), page, renderFooter(), renderChatToggle());
+  root.replaceChildren(renderStrip(), page, renderFooter());
+  if (storefrontSettings(shop).assistant_enabled) root.append(renderChatToggle());
   // 顶部那层浅色过线的渐变画在 body 背景上，内容永远不会被它盖住
   document.body.classList.toggle("tinted", shop.strip_tint !== false);
-  if (chatOpen) root.append(renderChat());
+  if (chatOpen && storefrontSettings(shop).assistant_enabled) root.append(renderChat());
   // 换页才回顶，同页内的筛选、加购刷新不动滚动位置
   if (moved) window.scrollTo({ top: 0, left: 0 });
   watchCountdowns();
@@ -187,7 +220,11 @@ async function renderHome() {
 
   const home = await api(`/api/v1/c/shops/${code}/home`);
   const box = h("div");
-  box.append(heroCarousel(home.banners));
+  shop = home.shop;
+  applyTheme(shop.theme_color);
+  applyStorefrontSettings(shop);
+  document.title = `${shop.name} · 买家店铺`;
+  if (storefrontSettings(shop).hero_enabled) box.append(heroCarousel(home.banners));
   home.sections.forEach((section) => box.append(productRow(section)));
   // 评价墙放在全部商品上面，先让买家看到别人怎么说
   if (home.testimonials.length) box.append(reviewWall(home.testimonials));
@@ -220,7 +257,7 @@ async function renderCollection(key) {
   return box;
 }
 
-/** 左侧：先按类目筛，再排序。 */
+/** 左侧：商品分类。 */
 function collectionSide(data) {
   const side = h("aside", "cat-side");
   const title = h("h3");
@@ -246,24 +283,53 @@ function collectionSide(data) {
     side.append(button);
   });
 
-  const sortBlock = h("div", "cat-sort");
-  sortBlock.append(h("div", "cat-sort-title", "排序"));
-  [
+  return side;
+}
+
+function collectionSort() {
+  const dropdown = h("details", "collection-sort");
+  const options = [
     ["default", "综合"],
     ["sales", "销量"],
     ["price_asc", "价格从低到高"],
     ["price_desc", "价格从高到低"],
-  ].forEach(([value, label]) => {
-    const button = h("button", sort === value ? "on" : "");
-    button.append(h("span", "", label), h("i", "", ""));
-    button.addEventListener("click", () => {
+  ];
+  const trigger = h("summary", "collection-sort-trigger");
+  trigger.setAttribute("aria-label", "商品排序");
+  const arrow = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  arrow.setAttribute("viewBox", "0 0 16 16");
+  arrow.setAttribute("class", "sort-chevron");
+  arrow.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "m4 6 4 4 4-4");
+  arrow.append(path);
+  trigger.append(h("span", "", options.find(([value]) => value === sort)?.[1] || "综合"), arrow);
+  const menu = h("div", "collection-sort-menu");
+  menu.setAttribute("aria-label", "排序方式");
+  options.forEach(([value, label]) => {
+    const option = h("button", sort === value ? "on" : "");
+    option.type = "button";
+    option.setAttribute("aria-pressed", String(sort === value));
+    option.append(h("span", "", label), h("span", "sort-check", sort === value ? "✓" : ""));
+    option.addEventListener("click", () => {
+      dropdown.open = false;
       sort = value;
       render();
     });
-    sortBlock.append(button);
+    menu.append(option);
   });
-  side.append(sortBlock);
-  return side;
+  dropdown.addEventListener("keydown", event => {
+    if (event.key === "Escape") { dropdown.open = false; trigger.focus(); }
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      dropdown.open = true;
+      const buttons = [...menu.querySelectorAll("button")];
+      const index = buttons.indexOf(document.activeElement);
+      buttons[(index + (event.key === "ArrowDown" ? 1 : buttons.length - 1) + buttons.length) % buttons.length].focus();
+    }
+  });
+  dropdown.append(trigger, menu);
+  return dropdown;
 }
 
 /** 右侧：上面一个搜索框，下面商品。 */
@@ -272,7 +338,9 @@ function collectionMain(data) {
 
   const head = h("div", "collection-head");
   const words = h("div");
-  words.append(h("h2", "", data.title));
+  const titleRow = h("div", "collection-title-row");
+  titleRow.append(h("h2", "", data.title), collectionSort());
+  words.append(titleRow);
   const parts = [`共 ${data.products.length} 件`];
   if (keyword) parts.push(`关键词「${keyword}」`);
   if (category) parts.push(`类目「${category}」`);
@@ -455,9 +523,28 @@ function productRow(section) {
   rail.append(prev, track, next);
   sec.append(rail);
 
-  const step = () => {
+  let targetPosition = null;
+  const move = (direction) => {
     const card = track.firstElementChild;
-    return card ? card.getBoundingClientRect().width + 17 : track.clientWidth;
+    if (!card) return;
+    const width = card.getBoundingClientRect().width;
+    const current = targetPosition ?? track.scrollLeft;
+    if (window.matchMedia("(min-width: 901px)").matches && storefrontSettings(shop).rail_columns === "3.5") {
+      const gap = 12.75;
+      const firstStop = width * .75 + gap;
+      const stride = width + gap;
+      const stop = current < firstStop / 2 ? -1 : Math.round((current - firstStop) / stride);
+      const nextStop = Math.max(-1, stop + direction);
+      track.classList.toggle("is-shifted", nextStop >= 0);
+      targetPosition = nextStop < 0 ? 0 : firstStop + nextStop * stride;
+    } else {
+      track.classList.remove("is-shifted");
+      const gap = parseFloat(getComputedStyle(track).columnGap) || 0;
+      targetPosition = current + direction * (width + gap);
+    }
+    targetPosition = Math.max(0, Math.min(targetPosition, track.scrollWidth - track.clientWidth));
+    track.scrollTo({ left: targetPosition, behavior: "smooth" });
+    setTimeout(sync, 400);
   };
   const sync = () => {
     const max = track.scrollWidth - track.clientWidth - 2;
@@ -465,14 +552,15 @@ function productRow(section) {
     next.disabled = track.scrollLeft >= max || max <= 0;
   };
   prev.addEventListener("click", () => {
-    track.scrollBy({ left: -step(), behavior: "smooth" });
-    setTimeout(sync, 400);
+    move(-1);
   });
   next.addEventListener("click", () => {
-    track.scrollBy({ left: step(), behavior: "smooth" });
-    setTimeout(sync, 400);
+    move(1);
   });
   track.addEventListener("scroll", sync);
+  track.addEventListener("scrollend", () => { targetPosition = null; });
+  track.addEventListener("pointerdown", () => { targetPosition = null; });
+  track.addEventListener("wheel", () => { targetPosition = null; }, { passive: true });
   requestAnimationFrame(sync);
   return sec;
 }
@@ -574,7 +662,7 @@ function allProductsBlock() {
 function reviewWall(rows) {
   const wall = h("section", "wall");
   const head = h("div", "wall-head");
-  head.append(h("h2", "", "他们怎么说"), h("p", "", "来自这家店买家的真实反馈，店主可以在后台维护"));
+  head.append(h("h2", "", storefrontSettings(shop).testimonial_title), h("p", "", storefrontSettings(shop).testimonial_subtitle));
   wall.append(head);
 
   const quote = (row) => {
@@ -602,6 +690,7 @@ function reviewWall(rows) {
 
 function renderPromises(rows) {
   const box = h("div", "promises");
+  box.hidden = !rows?.length || !storefrontSettings(shop).promises_enabled;
   (rows && rows.length ? rows : []).forEach((row) => {
     const cell = h("div");
     cell.append(h("b", "", row.title), h("span", "muted", row.sub));
@@ -624,7 +713,7 @@ function tagBadge(product) {
       })();
   if (!node) return null;
   node.classList.add("soft");
-  if (custom && custom.color) node.style.setProperty("--tag", custom.color);
+  if (custom) applyTagStyle(node, custom);
   return node;
 }
 
@@ -692,6 +781,9 @@ function quickBuy(product, shopCode = code) {
   if (!requireLogin()) return;
   const mask = h("div", "modal quick-mask");
   const panel = h("div", "panel quick-panel");
+  const productRegion = h("div", "quick-product-region");
+  const specRegion = h("div", "quick-spec-region");
+  const quantityRegion = h("div", "quick-quantity-region");
 
   const close = h("button", "quick-close", "×");
   close.addEventListener("click", () => mask.remove());
@@ -710,14 +802,17 @@ function quickBuy(product, shopCode = code) {
   const priceRow = h("div", "quick-price");
   const priceText = h("b", "", "");
   const wasText = h("span", "price-was", "");
-  priceRow.append(h("i", "", "¥"), priceText, wasText);
+  const currentPrice = h("div", "quick-current-price");
+  currentPrice.append(h("i", "", "¥"), priceText);
+  priceRow.append(wasText, currentPrice);
   info.append(priceRow);
   top.append(image, info);
-  panel.append(close, top);
+  panel.append(close, productRegion, specRegion, quantityRegion);
+  productRegion.append(top);
 
   // 规格
   let current = (product.skus || []).find((sku) => sku.purchasable) || product.skus?.[0] || null;
-  panel.append(h("div", "field-label", "选择规格"));
+  specRegion.append(h("div", "field-label", "选择规格"));
   const specs = h("div", "sku-list");
   (product.skus || []).forEach((sku) => {
     const button = h("button", sku.id === current?.id ? "on" : "", sku.spec);
@@ -730,10 +825,10 @@ function quickBuy(product, shopCode = code) {
     });
     specs.append(button);
   });
-  panel.append(specs);
+  specRegion.append(specs);
 
   // 数量
-  panel.append(h("div", "field-label", "购买数量"));
+  quantityRegion.append(h("div", "field-label", "购买数量"));
   const qtyInput = document.createElement("input");
   qtyInput.value = "1";
   qtyInput.inputMode = "numeric";
@@ -755,10 +850,10 @@ function quickBuy(product, shopCode = code) {
   });
   qtyInput.addEventListener("change", clamp);
   qty.append(minus, qtyInput, plus);
-  panel.append(qty);
+  quantityRegion.append(qty);
 
   const stockNote = h("p", "muted", "");
-  panel.append(stockNote);
+  quantityRegion.append(stockNote);
 
   function paint() {
     if (!current) {
@@ -767,8 +862,11 @@ function quickBuy(product, shopCode = code) {
       stockNote.textContent = "";
       return;
     }
+    image.src = cover(current.image_url || product.image_url);
+    image.alt = `${product.name} · ${current.spec}`;
     priceText.textContent = Number(current.price_yuan).toFixed(2);
-    wasText.textContent = current.market_price_yuan ? `¥${Number(current.market_price_yuan).toFixed(2)}` : "";
+    const originalPrice = Number(current.market_price_yuan || 0);
+    wasText.textContent = originalPrice > Number(current.price_yuan) ? `¥${originalPrice.toFixed(2)}` : "";
     stockNote.textContent = current.purchasable
       ? `库存 ${current.stock} 件${product.limit_per_user ? ` · 每人限购 ${product.limit_per_user} 件` : ""}`
       : "该规格暂时缺货";
@@ -852,7 +950,7 @@ async function renderProduct(id) {
   layout.append(renderGallery(product, state));
   layout.append(renderProductInfo(product, state));
   box.append(layout);
-  box.append(renderProductSection(product, reviews));
+  box.append(renderProductSection(product, reviews, state));
   box.append(renderRelated(product, all));
   return box;
 }
@@ -881,6 +979,7 @@ function renderRelated(product, all) {
 */
 function createDetailState(product) {
   const images = [];
+  if (product.image_url) images.push({ url: product.image_url, sku: null });
   const seen = new Set();
   product.skus.forEach((sku) => {
     const url = (sku.image_url || "").trim();
@@ -915,7 +1014,7 @@ function createDetailState(product) {
     selectSku(sku) {
       if (!sku) return;
       state.sku = sku;
-      const at = images.findIndex((item) => item.sku && item.sku.id === sku.id);
+      const at = images.findIndex((item) => item.sku && (item.sku.id === sku.id || item.url === sku.image_url));
       if (at >= 0) state.index = at;
       state.notify();
     },
@@ -954,9 +1053,9 @@ function renderGallery(product, state) {
     const item = state.images[state.index];
     const url = item ? item.url : product.image_url;
     image.src = cover(url || product.image_url);
-    image.alt = item && item.sku ? `${product.name} ${item.sku.spec}` : product.name;
+    image.alt = item && item.sku ? `${product.name} ${state.sku?.spec || item.sku.spec}` : product.name;
     if (item && item.sku) {
-      caption.textContent = item.sku.spec;
+      caption.textContent = state.sku?.spec || item.sku.spec;
       caption.hidden = false;
     } else {
       caption.hidden = true;
@@ -977,10 +1076,7 @@ function renderGallery(product, state) {
     thumb.src = cover(item.url);
     thumb.alt = item.sku ? `${product.name} ${item.sku.spec}` : product.name;
     button.append(thumb);
-    if (item.sku) {
-      const label = h("span", "thumb-spec", item.sku.spec);
-      button.append(label);
-    }
+    if (item.sku) button.append(h("span", "thumb-spec", item.sku.spec));
     button.addEventListener("click", () => state.selectImage(at));
     thumbs.append(button);
   });
@@ -1039,20 +1135,143 @@ function renderBuyBar(product, ctx) {
   return bar;
 }
 
+let skuParameterTip = null;
+function hideSkuParameterTip() {
+  if (skuParameterTip) skuParameterTip.remove();
+  skuParameterTip = null;
+}
+window.addEventListener("scroll", hideSkuParameterTip, true);
+window.addEventListener("hashchange", hideSkuParameterTip);
+window.addEventListener("keydown", event => { if (event.key === "Escape") hideSkuParameterTip(); });
+function bindSkuParameters(button, sku) {
+  const parameters = [
+    { name: "售价", value: money(sku.price_yuan) },
+    { name: "库存", value: `${sku.stock} 件` },
+    ...(Array.isArray(sku.parameters) ? sku.parameters : []),
+  ];
+  const show = () => {
+    hideSkuParameterTip();
+    if (button.classList.contains("on")) return;
+    const tip = h("div", "sku-parameter-tip");
+    tip.id = `sku-parameters-${sku.id}`;
+    tip.setAttribute("role", "tooltip");
+    tip.append(h("b", "", sku.spec));
+    const list = h("dl");
+    parameters.forEach(item => {
+      const row = h("div");
+      row.append(h("dt", "", item.name), h("dd", "", item.value));
+      list.append(row);
+    });
+    tip.append(list);
+    document.body.append(tip);
+    skuParameterTip = tip;
+    button.setAttribute("aria-describedby", tip.id);
+    const rect = button.getBoundingClientRect();
+    tip.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - tip.offsetWidth - 8))}px`;
+    const above = rect.top - tip.offsetHeight - 8;
+    tip.style.top = `${Math.max(8, above >= 8 ? above : Math.min(rect.bottom + 8, innerHeight - tip.offsetHeight - 8))}px`;
+  };
+  button.addEventListener("mouseenter", show);
+  button.addEventListener("focus", show);
+  const hide = () => { hideSkuParameterTip(); button.removeAttribute("aria-describedby"); };
+  button.addEventListener("mouseleave", hide);
+  button.addEventListener("blur", hide);
+}
+
+function couponCondition(coupon) {
+  return coupon.threshold_cents ? `满${coupon.threshold_cents / 100}减${coupon.amount_cents / 100}` : `立减${coupon.amount_cents / 100}`;
+}
+
+function renderCouponEntry(options = {}) {
+  const entry = h("button", "coupon-entry");
+  entry.type = "button";
+  entry.hidden = true;
+  entry.setAttribute("aria-label", "查看店铺优惠券");
+  const ticket = h("span", "coupon-ticket", "查看可领优惠");
+  const more = h("span", "coupon-entry-more", options.onSelect ? "查看 ›" : "领券 ›");
+  entry.append(h("span", "coupon-entry-label", "优惠券"), ticket, more);
+  const shopCode = code;
+  entry.refreshCoupons = rows => {
+    const active = visibleShopCoupons(rows);
+    entry.hidden = active.length === 0;
+    const selected = active.find(c => c.user_coupon_id && c.user_coupon_id === options.selectedId?.());
+    ticket.textContent = selected ? `${couponCondition(selected)} · 使用中` : active.length ? couponCondition(active[0]) : "";
+  };
+  if (!options.getCoupons) api(`/api/v1/c/shops/${shopCode}/coupons`).then(entry.refreshCoupons).catch(() => { entry.hidden = true; });
+  entry.addEventListener("click", async () => {
+    const dialog = document.createElement("wa-dialog");
+    dialog.setAttribute("label", "店铺优惠券");
+    dialog.setAttribute("light-dismiss", "");
+    dialog.style.setProperty("--width", "440px");
+    const list = h("div", "coupon-list");
+    const note = h("p", "coupon-preview-note", "本店商品通用 · 每人每券限领一张 · 每单限用一张 · 不抵运费");
+    dialog.append(list, note);
+    const load = async () => {
+      try {
+        const rows = visibleShopCoupons(options.getCoupons ? options.getCoupons() : await api(`/api/v1/c/shops/${shopCode}/coupons`));
+        list.replaceChildren();
+        if (!rows.length) list.append(h("p", "muted", "店铺暂未发放优惠券"));
+        rows.forEach(c => {
+          const card = h("div", "coupon-card");
+          const selected = Boolean(c.user_coupon_id && c.user_coupon_id === options.selectedId?.());
+          if (selected) card.append(h("span", "coupon-using", "使用中"));
+          const face = h("div", "coupon-face");
+          face.append(h("strong", "", money(c.amount_cents / 100)), h("span", "", c.threshold_cents ? `满${c.threshold_cents / 100}元可用` : "无门槛"));
+          const content = h("div", "coupon-content");
+          content.append(h("b", "", c.name), h("span", "", `${new Date(c.starts_at).toLocaleDateString()}—${new Date(c.ends_at).toLocaleDateString()}`));
+          const labels = {available:"已领取", reserved:"订单使用中", used:"已使用"};
+          const selectable = Boolean(options.onSelect && c.user_coupon_id && c.status === "available" && c.eligible);
+          const claim = h("button", "btn-ghost coupon-claim", selected ? "已选用" : selectable ? "使用这张券" : options.onSelect && c.status === "available" && !c.eligible ? "未满足使用条件" : labels[c.status] || (c.can_claim ? "立即领取" : "已领完"));
+          claim.disabled = selected || (!c.can_claim && !selectable);
+          claim.addEventListener("click", async () => {
+            if (!requireLogin()) { dialog.open = false; return; }
+            claim.disabled = true;
+            try {
+              if (selectable) await options.onSelect(c.user_coupon_id);
+              else {
+                await api(`/api/v1/c/shops/${shopCode}/coupons/${c.id}/claim`, {method:"POST"});
+                toast("领取成功", "ok");
+                if (options.onClaim) await options.onClaim();
+                else entry.refreshCoupons(await api(`/api/v1/c/shops/${shopCode}/coupons`));
+              }
+              await load();
+            } catch (error) { toast(error.message); claim.disabled = false; }
+          });
+          content.append(claim); card.append(face, content); list.append(card);
+        });
+        if (options.onSelect && rows.length) {
+          const none = h("button", "btn-ghost coupon-none", options.selectedId() ? "不使用优惠券" : "当前不使用优惠券");
+          none.disabled = !options.selectedId();
+          none.addEventListener("click", async () => {
+            none.disabled = true;
+            try { await options.onSelect(null); await load(); }
+            catch (error) { toast(error.message); none.disabled = false; }
+          });
+          list.append(none);
+        }
+      } catch (error) { list.replaceChildren(h("p", "muted", error.message)); }
+    };
+    const close = h("button", "btn-ghost coupon-close", "完成");
+    close.addEventListener("click", () => { dialog.open = false; });
+    dialog.append(close);
+    dialog.addEventListener("wa-after-hide", () => dialog.remove());
+    document.body.append(dialog); dialog.open = true;
+    await load();
+  });
+  return entry;
+}
+
 function renderProductInfo(product, state) {
   const info = h("div", "info");
-  info.append(h("h1", "", product.name));
-  info.append(h("div", "sub-title", "店主直发 · 支持 7 天无理由退货 · 满 99 元包邮"));
+  const heading = h("div", "product-heading");
+  heading.append(h("h1", "", product.name), h("div", "sub-title", storefrontSettings(shop).product_subtitle));
+  info.append(heading);
 
-  const ratingRow = h("div", "rating-line");
-  ratingRow.append(
-    ratingStars(product.rating_avg || 0, { size: "m" }),
-    h("span", "muted", ratingText(product.rating_avg, product.review_count)),
-    h("a", "link", `已售 ${product.sales_count} 件`)
-  );
-  const jump = ratingRow.lastChild;
-  jump.href = "#reviews";
-  info.append(ratingRow);
+  if (product.description?.trim()) {
+    const intro = h("p", "product-intro", product.description.trim().split(/[。！？]/)[0] + "。");
+    heading.append(intro);
+  }
+  const selectedSummary = h("span", "selected-spec-summary", "");
 
   let current = state.sku;
   const pricebox = h("div", "pricebox");
@@ -1060,24 +1279,29 @@ function renderProductInfo(product, state) {
   const big = h("span", "big");
   const was = h("span", "old", "");
   const offTag = h("span", "off", "");
-  priceLine.append(big, was, offTag);
+  const discountRow = h("div", "discount-row");
+  discountRow.append(offTag);
+  const currentPrice = h("div", "current-price");
+  currentPrice.append(big);
+  const originalPrice = h("div", "original-price");
+  originalPrice.append(h("span", "price-label", "原价"), was);
+  priceLine.append(currentPrice, originalPrice);
   const stockNote = h("div", "stock");
-  pricebox.append(priceLine, stockNote);
+  pricebox.append(discountRow, priceLine, stockNote);
 
   const promotions = h("div", "promotions");
-  const promo = h("span");
-  promo.append(document.createTextNode("优惠　"));
-  promo.append(h("b", "", "满 99 包邮"));
-  promo.append(document.createTextNode("　·　"));
-  promo.append(h("b", "", "7 天无理由"));
+  const promo = h("div", "promotion-badges");
+  promo.append(h("b", "", storeShippingText(shop)));
   if (product.limit_per_user) {
-    promo.append(document.createTextNode("　·　"));
     promo.append(h("b", "", `每人限购 ${product.limit_per_user} 件`));
   }
   promotions.append(promo);
 
   function paint() {
     current = state.sku;
+    hideSkuParameterTip();
+    specs.querySelectorAll("[aria-describedby]").forEach(button => button.removeAttribute("aria-describedby"));
+    selectedSummary.textContent = current?.spec || "暂无可选规格";
     if (!current) {
       big.replaceChildren(document.createTextNode("暂无规格"));
       was.textContent = "";
@@ -1089,6 +1313,10 @@ function renderProductInfo(product, state) {
     const off = discountOf(current.price_yuan, current.market_price_yuan);
     was.textContent = current.market_price_yuan ? `¥${Number(current.market_price_yuan).toFixed(2)}` : "";
     offTag.textContent = off || "";
+    offTag.hidden = !off;
+    const saved = Number(current.market_price_yuan) - Number(current.price_yuan);
+    originalPrice.hidden = !current.market_price_yuan;
+    discountRow.hidden = !(saved > 0);
     stockNote.textContent = current.purchasable
       ? `库存 ${current.stock} 件　·　${product.sales_count} 人已买`
       : "该规格暂时缺货，可以问问店主";
@@ -1097,18 +1325,34 @@ function renderProductInfo(product, state) {
   }
 
   info.append(pricebox, promotions);
-  info.append(h("div", "field-label", "选择规格"));
+  info.append(renderCouponEntry());
+  const specLabel = h("div", "field-label detail-spec-label", "选择规格");
+  specLabel.append(selectedSummary);
+  info.append(specLabel);
   const specs = h("div", "sku-list");
   product.skus.forEach((sku) => {
     const button = h("button", sku.id === current?.id ? "on" : "", sku.spec);
     button.dataset.skuId = String(sku.id);
+    bindSkuParameters(button, sku);
     if (!sku.purchasable) button.classList.add("dead");
     button.addEventListener("click", () => state.selectSku(sku));
     specs.append(button);
   });
   info.append(specs);
+  const expandSpecs = h("button", "expand-specs", `展开全部规格（${product.skus.length}）⌄`);
+  expandSpecs.type = "button";
+  expandSpecs.hidden = product.skus.length <= 4;
+  expandSpecs.setAttribute("aria-expanded", "false");
+  expandSpecs.addEventListener("click", () => {
+    hideSkuParameterTip();
+    const expanded = specs.classList.toggle("expanded");
+    expandSpecs.setAttribute("aria-expanded", String(expanded));
+    expandSpecs.textContent = expanded ? "收起规格 ⌃" : `展开全部规格（${product.skus.length}）⌄`;
+  });
+  info.append(expandSpecs);
 
-  info.append(h("div", "field-label", "购买数量"));
+  const quantityRow = h("div", "detail-quantity");
+  quantityRow.append(h("div", "field-label", "购买数量"));
   const qtyInput = document.createElement("input");
   qtyInput.value = "1";
   qtyInput.inputMode = "numeric";
@@ -1130,7 +1374,8 @@ function renderProductInfo(product, state) {
   });
   qtyInput.addEventListener("change", clamp);
   qty.append(minus, qtyInput, plus);
-  info.append(qty);
+  quantityRow.append(qty);
+  info.append(quantityRow);
   if (product.limit_per_user) {
     const note = h("div", "muted");
     note.textContent = `这件商品每人最多买 ${product.limit_per_user} 件`;
@@ -1183,8 +1428,12 @@ function renderProductInfo(product, state) {
   );
 
   const services = h("div", "services");
-  ["正品保障", "7 天无理由退货", "满 99 元包邮", "48 小时内发货"].forEach((text) => services.append(h("span", "", text)));
+  if (storefrontSettings(shop).promises_enabled) (shop.promises || []).forEach(item => services.append(h("span", "", item.title)));
+  promotions.remove();
   info.append(services);
+  const specGroup = h("div", "detail-spec-group");
+  info.insertBefore(specGroup, specLabel);
+  specGroup.append(specLabel, specs, expandSpecs);
   // 先注册 paint（它会把 current 同步成最新规格），再注册按钮状态
   state.onChange(paint);
   state.onChange(syncActions);
@@ -1192,7 +1441,7 @@ function renderProductInfo(product, state) {
   return info;
 }
 
-function renderProductSection(product, reviews) {
+function renderProductSection(product, reviews, state) {
   const section = h("section", "section");
   const head = h("div", "section-head");
   const one = h("span", "on", "商品详情");
@@ -1201,12 +1450,8 @@ function renderProductSection(product, reviews) {
   head.append(one, two, three);
 
   const detail = h("div", "section-body");
-  detail.append(h("p", "", product.description || "店主还没有补充说明。"));
-  const blocks = [
-    ["关于这件手作", "每一件都是小批量做出来的，尺寸、颜色和纹理会有轻微差别，这正是手作的特点。收到的实物可能和照片有一点色差，介意的话可以先问问店主。"],
-    ["使用与打理", "日常用干布擦拭即可。可水洗的材质建议冷水轻柔手洗，不要漂白，展开阴干，避免长时间暴晒和高温熨烫。"],
-    ["发货与包装", "付款后 48 小时内按顺序发出，默认用可回收的纸盒和牛皮纸缓冲，不额外加塑料填充。需要送礼可以备注，店主会换成礼盒包装。"],
-  ];
+  detail.append(h("p", "product-description", product.description || "店主还没有补充说明。"));
+  const blocks = storefrontSettings(shop).detail_sections.map(item => [item.title, item.body]);
   blocks.forEach(([title, text]) => {
     const block = h("div");
     block.style.marginTop = "22px";
@@ -1226,8 +1471,8 @@ function renderProductSection(product, reviews) {
     ["规格数量", `${product.skus.length} 个`],
     ["累计销量", `${product.sales_count} 件`],
     ["限购规则", product.limit_per_user ? `每人最多 ${product.limit_per_user} 件` : "不限购"],
-    ["发货时效", "付款后 48 小时内"],
-    ["运费说明", "订单满 99 元包邮，未满收 8 元"],
+    ["发货时效", storefrontSettings(shop).dispatch_text],
+    ["运费说明", storeShippingText(shop)],
   ];
   rows.forEach(([k, v]) => {
     const tr = document.createElement("tr");
@@ -1485,7 +1730,7 @@ async function renderCart() {
 
   const picked = cart.items.filter((item) => cartPick.has(item.id) && item.available);
   const goods = picked.reduce((sum, item) => sum + item.price_yuan * item.quantity, 0);
-  const freight = goods > 0 && goods < 99 ? 8 : 0;
+  const freight = storeFreight(shop, goods);
   const bar = h("div", "cart-bar");
   const left = h("div", "left");
   const allLabel = h("label", "row");
@@ -1600,14 +1845,28 @@ async function renderCheckout() {
   const aside = h("div", "panel");
   aside.append(h("h2", "panel-title", "订单结算"));
   const goods = lines.reduce((sum, item) => sum + item.price_yuan * item.quantity, 0);
-  const freight = goods < 99 ? 8 : 0;
+  const freight = storeFreight(shop, goods);
   [["商品金额", money(goods)], ["运费", freight ? money(freight) : "包邮"]].forEach(([label, value]) => {
     const line = h("div", "aside-total");
     line.append(h("span", "muted", label), h("span", "", value));
     aside.append(line);
   });
   const final = h("div", "aside-total final");
-  final.append(h("span", "", "应付总额"), h("b", "", money(goods + freight)));
+  const finalAmount = h("b", "", money(goods + freight));
+  final.append(h("span", "", "应付总额"), finalAmount);
+  let selectedCouponId = null;
+  let quotedCoupons = [];
+  const couponEntry = renderCouponEntry({
+    getCoupons: () => quotedCoupons,
+    selectedId: () => selectedCouponId,
+    onClaim: () => updateQuote(true),
+    onSelect: async id => { selectedCouponId = id; await updateQuote(); },
+  });
+  const discountLine = h("div", "aside-total");
+  const discountAmount = h("span", "", "-¥0.00");
+  discountLine.append(h("span", "muted", "优惠抵扣"), discountAmount);
+  discountLine.hidden = true;
+  aside.append(couponEntry, discountLine);
   aside.append(final);
 
   const error = h("p", "muted", "");
@@ -1616,11 +1875,40 @@ async function renderCheckout() {
   submit.setAttribute("form", "checkout-form");
   submit.style.width = "100%";
   submit.style.marginTop = "16px";
+  const quoteItems = buyNow ? [{sku_id:buyNow.sku_id, quantity:buyNow.quantity}] : picked.map(item => ({sku_id:item.sku_id, quantity:item.quantity}));
+  let quoteReady = false;
+  let quoteGeneration = 0;
+  const updateQuote = async (refreshOptions = false) => {
+    const generation = ++quoteGeneration;
+    quoteReady = false; submit.disabled = true; couponEntry.disabled = true; error.textContent = "";
+    try {
+      let quote = await api(`/api/v1/c/shops/${code}/coupon-quote`, {method:"POST", body:JSON.stringify({items:quoteItems, user_coupon_id:refreshOptions ? null : selectedCouponId})});
+      if (generation !== quoteGeneration) return;
+      if (refreshOptions) {
+        selectedCouponId = bestOwnedCoupon(quote.coupons, quote.goods_yuan)?.user_coupon_id || null;
+        if (selectedCouponId) quote = await api(`/api/v1/c/shops/${code}/coupon-quote`, {method:"POST", body:JSON.stringify({items:quoteItems, user_coupon_id:selectedCouponId})});
+      }
+      if (generation !== quoteGeneration) return;
+      quotedCoupons = quote.coupons;
+      couponEntry.refreshCoupons(quotedCoupons);
+      finalAmount.textContent = money(quote.total_yuan);
+      discountAmount.textContent = `-${money(quote.discount_yuan)}`;
+      discountLine.hidden = !quote.discount_yuan;
+      quoteReady = true; submit.disabled = false; couponEntry.disabled = false;
+    } catch (err) {
+      if (generation === quoteGeneration) { error.textContent = `${err.message}，请重新选择优惠券或刷新页面`; couponEntry.disabled = false; }
+      throw err;
+    }
+  };
+  await updateQuote(true).catch(() => {});
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!quoteReady) return;
+    quoteReady = false;
+    couponEntry.disabled = true;
     submit.disabled = true;
     error.textContent = "";
-    const payload = { receiver: val(form, "receiver"), phone: val(form, "phone"), address: val(form, "address") };
+    const payload = { receiver: val(form, "receiver"), phone: val(form, "phone"), address: val(form, "address"), user_coupon_id: selectedCouponId };
     try {
       const order = buyNow
         ? await api(`/api/v1/c/shops/${code}/orders`, {
@@ -1637,6 +1925,8 @@ async function renderCheckout() {
       go("#/orders");
     } catch (err) {
       error.textContent = err.message;
+      couponEntry.disabled = false;
+      quoteReady = true;
       submit.disabled = false;
     }
   });
@@ -1732,7 +2022,7 @@ function orderCard(order) {
     pendingDeadlines[order.order_no] = Date.now() + order.expires_in_seconds * 1000;
   }
   foot.append(h("span", "muted", `${order.receiver} ${order.phone} ${order.address}`));
-  foot.append(h("span", "muted", `含运费 ${money(order.freight_yuan)}`));
+  foot.append(h("span", "muted", `含运费 ${money(order.freight_yuan)}${order.discount_yuan ? ` · ${order.coupon_name} 已减 ${money(order.discount_yuan)}` : ""}`));
   if (order.status === "pending") {
     foot.append(action("取消订单", "btn-ghost", () => api(`/api/v1/c/orders/${order.order_no}/cancel`, { method: "POST" })));
     foot.append(action("立即支付", "btn-buy", () => api(`/api/v1/c/orders/${order.order_no}/pay`, { method: "POST" })));
@@ -1877,15 +2167,15 @@ function renderFooter() {
   const inner = h("div", "wrap");
   const about = h("div");
   about.append(h("b", "", shop.name));
-  about.append(h("div", "muted", "私域独立店铺 · 分享码进店"));
+  about.append(h("div", "muted", storefrontSettings(shop).footer_about));
   about.append(h("div", "muted", `分享码 ${shop.share_code} · ${STATUS[shop.status] || ""}`));
   const help = h("div");
   help.append(h("b", "", "购物说明"));
-  help.append(h("div", "muted", "满 99 元包邮，未满收 8 元运费"));
-  help.append(h("div", "muted", "7 天无理由退货，定制品和已使用商品除外"));
+  help.append(h("div", "muted", storeShippingText(shop)));
+  help.append(h("div", "muted", storefrontSettings(shop).return_text));
   const service = h("div");
   service.append(h("b", "", "售后服务"));
-  service.append(h("div", "muted", "有问题点右下角问店内助手"));
+  service.append(h("div", "muted", storefrontSettings(shop).footer_service));
   service.append(h("div", "muted", "助手只能看到你自己在这家店的订单"));
   inner.append(about, help, service);
   footer.append(inner);
@@ -1893,7 +2183,17 @@ function renderFooter() {
 }
 
 function renderChatToggle() {
-  const button = h("button", "chat-fab", chatOpen ? "×" : "💬");
+  const button = h("button", "chat-fab", chatOpen ? "×" : "");
+  if (!chatOpen) {
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M12 3C5.9 3 2 6.6 2 11c0 2.6 1.4 4.9 3.8 6.4L5 22l5.2-3.1c.6.1 1.2.1 1.8.1 6.1 0 10-3.6 10-8S18.1 3 12 3Z");
+    icon.append(path);
+    button.append(icon);
+  }
+  button.setAttribute("aria-label", chatOpen ? "关闭店内助手" : "打开店内助手");
   button.title = "店内助手";
   button.addEventListener("click", () => {
     chatOpen = !chatOpen;
@@ -1902,17 +2202,48 @@ function renderChatToggle() {
   return button;
 }
 
+function currentChatIdentity() {
+  return `${code}:${sessionStorage.getItem("token_c") || ""}`;
+}
+
+async function restoreChat(identity) {
+  chatRestoring = true;
+  try {
+    const data = await api(`/api/v1/c/shops/${code}/chat/recent`);
+    if (identity !== currentChatIdentity()) return;
+    sessionId = data.session_id || "";
+    chatLines = (data.messages || []).map(item => ({
+      me: item.role === "user", text: item.content, products: item.products,
+    }));
+    chatRestored = true;
+    chatRestoreError = "";
+  } catch {
+    if (identity !== currentChatIdentity()) return;
+    chatRestoreError = "记录暂时未能恢复，请重试";
+  } finally {
+    if (identity === currentChatIdentity()) {
+      chatRestoring = false;
+      render();
+    }
+  }
+}
+
 function renderChat() {
-  const identity = `${code}:${sessionStorage.getItem("token_c") || ""}`;
+  const identity = currentChatIdentity();
   if (chatIdentity !== identity) {
     chatIdentity = identity;
     sessionId = "";
     chatLines = [];
+    chatBusy = false;
+    chatRestored = false;
+    chatRestoring = false;
+    chatRestoreError = "";
   }
+  if (loggedIn() && !chatRestored && !chatRestoring && !chatRestoreError) restoreChat(identity);
   const box = h("aside", "chat");
   const head = document.createElement("header");
   const title = h("div");
-  title.append(h("b", "", "店内助手"), h("small", "", "商品 · 库存 · 订单 · 售后"));
+  title.append(h("b", "", `${storeAssistantName(shop)} · 店内助手`), h("small", "", "商品 · 库存 · 订单 · 售后"));
   const close = h("button", "close", "×");
   close.addEventListener("click", () => {
     chatOpen = false;
@@ -1920,8 +2251,15 @@ function renderChat() {
   });
   head.append(title, close);
   const log = h("div", "log");
+  if (chatRestoring) log.append(h("div", "bubble", "正在恢复最近对话…"));
+  if (chatRestoreError) {
+    const retry = h("button", "", chatRestoreError);
+    retry.type = "button";
+    retry.addEventListener("click", () => { chatRestoreError = ""; render(); });
+    log.append(retry);
+  }
   if (!chatLines.length) {
-    log.append(h("div", "bubble", "你好，我是这家店的助手。可以推荐商品、查询库存和你自己的订单，也能检索售后和养护说明。"));
+    log.append(h("div", "bubble", `你好，我是${storeAssistantName(shop)}。${storefrontSettings(shop).assistant_welcome}`));
   }
   const appendCards = (products) => {
     if (!products || !products.length) return;
@@ -1938,19 +2276,20 @@ function renderChat() {
     log.append(cards);
   };
   chatLines.forEach((line) => {
-    log.append(h("div", line.me ? "bubble me" : "bubble", line.text));
+    const bubble = h("div", line.me ? "bubble me" : "bubble", line.text);
+    if (!line.me) renderAssistantMessage(bubble, line.text);
+    log.append(bubble);
     appendCards(line.products);
   });
-  const reset = h("button", "chat-reset", "新对话");
-  reset.disabled = chatBusy;
-  reset.addEventListener("click", () => { sessionId = ""; chatLines = []; render(); });
-  head.append(reset);
   const tips = h("div", "tips");
-  ["抱枕还有货吗", "我的订单到哪了", "定制品能退吗"].forEach((text) => {
+  storefrontSettings(shop).quick_questions.forEach((text) => {
     const chip = h("button", "", text);
+    chip.type = "button";
+    chip.disabled = chatBusy || chatRestoring || Boolean(chatRestoreError);
     chip.addEventListener("click", () => {
+      if (chatBusy) return;
       input.value = text;
-      input.focus();
+      form.requestSubmit();
     });
     tips.append(chip);
   });
@@ -1959,44 +2298,63 @@ function renderChat() {
   input.placeholder = "输入问题…";
   input.maxLength = 1000;
   const send = h("button", "", "发送");
-  send.disabled = chatBusy;
+  send.disabled = chatBusy || chatRestoring || Boolean(chatRestoreError);
   form.append(input, send);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!requireLogin()) return;
     const message = input.value.trim();
-    if (!message || chatBusy) return;
+    if (!message || chatBusy || chatRestoring || chatRestoreError) return;
+    const requestIdentity = identity;
     chatBusy = true;
-    send.disabled = reset.disabled = true;
+    send.disabled = true;
+    tips.querySelectorAll("button").forEach(button => { button.disabled = true; });
     chatLines.push({ me: true, text: message });
     input.value = "";
     log.append(h("div", "bubble me", message));
-    const pending = h("div", "bubble", "正在查…");
+    const pending = h("div", "bubble waiting", assistantWaitingText(shop));
     log.append(pending);
     log.scrollTop = log.scrollHeight;
     try {
-      const data = await api(`/api/v1/c/shops/${code}/chat`, {
-        method: "POST",
-        body: JSON.stringify({ message, session_id: sessionId || undefined }),
-      });
+      const data = await streamChat(`/api/v1/c/shops/${code}/chat/stream`, "token_c",
+        { message, session_id: sessionId || undefined }, () => {
+          pending.textContent = assistantWaitingText(shop);
+        });
+      if (requestIdentity !== currentChatIdentity()) return;
       sessionId = data.session_id;
-      const answer = `${data.answer}${data.mode === "fallback" ? "\n规则查询模式" : ""}${data.notices.length ? "\n" + data.notices.join("；") : ""}`;
-      pending.textContent = answer;
+      pending.classList.remove("waiting");
+      const answer = `${data.answer}${knowledgeSourceText(data)}${data.mode === "fallback" ? "\n规则查询模式" : ""}${data.notices.length ? "\n" + data.notices.join("；") : ""}`;
+      renderAssistantMessage(pending, answer);
       appendCards(data.products);
       chatLines.push({ me: false, text: answer, products: data.products });
     } catch (error) {
+      if (requestIdentity !== currentChatIdentity()) return;
+      pending.classList.remove("waiting");
       pending.textContent = error.message;
       chatLines.push({ me: false, text: error.message });
       input.value = message;
     } finally {
-      chatBusy = false;
-      send.disabled = reset.disabled = false;
+      if (requestIdentity === currentChatIdentity()) chatBusy = false;
+      send.disabled = false;
+      tips.querySelectorAll("button").forEach(button => { button.disabled = false; });
     }
     log.scrollTop = log.scrollHeight;
   });
   box.append(head, log, tips, form);
+  requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
   return box;
 }
 
+window.addEventListener("message", event => {
+  if (!decorationPreview || event.origin !== location.origin || event.source !== window.parent ||
+      event.data?.type !== "decoration-preview" || event.data.nonce !== decorationPreview) return;
+  previewPayload = event.data.data;
+  render();
+});
 window.addEventListener("hashchange", render);
+document.addEventListener("click", event => {
+  document.querySelectorAll(".collection-sort[open]").forEach(menu => {
+    if (!menu.contains(event.target)) menu.open = false;
+  });
+});
 render();

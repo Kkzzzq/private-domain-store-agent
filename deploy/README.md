@@ -1,14 +1,14 @@
-# 阿里云练手部署
+# 阿里云商城部署
 
 服务器：123.57.164.154，Ubuntu 20.04。项目位于 `/opt/private-store`。
 
-当前商城通过 SSH 转发在本机预览：`http://127.0.0.1:18081/`。该地址仅在建立转发的电脑上可用。
+正式入口：https://kkzzzq.cyou/ 。买家端 `/c.html?code=nanzhi`，商家端 `/b.html`。
 
-服务：`private-store.service`，使用独立 Python 3.12、SQLite 持久数据库、Redis 第 1 号库。助手使用规则检索。不会调用本地大模型，Chroma 和 LangChain 未安装。
+服务：`private-store.service`，使用独立 Python 3.12、SQLite 持久数据库、Redis 第 1 号库。2026-10-20 健康接口实测 SQLite/Redis 正常、agent_mode=auto；助手实际模型能力需另行验收。
 
-应用监听 `127.0.0.1:8001`，Nginx 监听 `127.0.0.1:8081`。目前没有公开商城端口或修改 Cloudflare DNS。
+应用监听 `127.0.0.1:8001`，Nginx 对外提供 80/443，HTTP 自动跳转 HTTPS；保留 `127.0.0.1:8081` 预览入口。公网 80/443 已从客户端实际连接成功。
 
-部署后的账号密码保存在服务器 `/root/private-store-accounts.txt`，本机副本位于 `D:\qiuzhao\private-store-accounts.txt`。密钥和账号文件不放入代码仓库。
+部署后的账号密码保存在服务器 `/root/private-store-accounts.txt`，本机副本位于 `D:\qiuzhao\other\私有配置\private-store-accounts.txt`。密钥和账号文件不放入代码仓库。
 
 重新建立本机预览通道，在 PowerShell 执行：
 
@@ -26,10 +26,16 @@ systemctl restart private-store
 
 备份时同时保存 `backend/data`、`backend/.env` 和 `web/covers/uploads`。SQLite 在运行时应通过 SQLite backup API 备份。
 
-## 域名接入待办
+## 域名与 HTTPS（2026-10-20）
 
-阿里云检测提示当前 Cloudflare 注册商不符合备案条件。北京服务器公开域名网站前，需要解决域名注册商及 ICP 备案条件；或者另行部署到香港或海外服务器。
+使用域名 `kkzzzq.cyou`，用户提供备案号 `陕ICP备2026029472号-1`。阿里云 DNS 主域名 A 记录已解析至 `123.57.164.154`；当前 www 无 A 记录，因此证书与站点仅绑定主域名。
 
-满足托管条件后，配置服务器 HTTPS 证书与 Nginx 443 入口、放行安全组 80/443，再在 Cloudflare 添加网站 A 记录指向服务器公网 IP，并配置 Full (strict)。保留已有 MX、TXT 和 cursor 隧道记录。当前没有执行这些公开接入步骤。
+Let's Encrypt 证书已签发，有效期至 2027-01-18。证书位于 `/etc/letsencrypt/live/kkzzzq.cyou/`，启用 `certbot.timer` 自动续期，成功后 hook 检查并 reload Nginx。账户未配置通知邮箱。
+
+首页、买家端、商家端通过 `web/site-registration.js` 显示备案链接，独立于店铺装修。Nginx 关闭代理缓冲并使用 300 秒读超时，以支持助手响应。上线前配置及 HTML 备份位于 `/root/private-store-backups/20261020-100331-domain`。
+
+`enable-domain.py` 供已有服务器在证书签发后运行，备份 HTML 和 Nginx 配置后启用域名；先上传 `web/site-registration.js`。它不会部署全部业务代码、迁移数据库或修改 DNS。此次仅接入域名并更新备案信息，服务器业务仍为原部署版本，本地正在开发的业务改动未整体上传。
+
+如需 www，先在阿里云 DNS 添加 `www` A 记录至服务器，确认生效后扩展证书和 Nginx；不要仅添加解析而遗漏 HTTPS 证书。
 
 `setup-demo.sh` 是本次服务器初始化脚本，依赖 `/opt/store-python/bin/python3.12` 和已上传的项目；不替换系统 Python。首次初始化会更换所有种子账号密码。依赖版本快照保存在服务器 `/opt/private-store/requirements-demo.lock.txt`。

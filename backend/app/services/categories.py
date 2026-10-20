@@ -56,6 +56,8 @@ def create_category(db, user: User, body: CategoryIn) -> dict:
 
     shop = merchant_shop(db, user)
     name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="分类名称不能为空")
     if _duplicate(db, shop.id, name):
         raise HTTPException(status_code=409, detail="已经有同名分类了")
     max_sort = db.scalar(select(func.max(ShopCategory.sort_order)).where(ShopCategory.shop_id == shop.id)) or 0
@@ -75,6 +77,8 @@ def update_category(db, user: User, category_id: int, body: CategoryUpdate) -> d
         raise HTTPException(status_code=404, detail="没有找到这个分类")
     if body.name is not None:
         name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="分类名称不能为空")
         if _duplicate(db, shop.id, name, exclude_id=row.id):
             raise HTTPException(status_code=409, detail="已经有同名分类了")
         # 标签改名时，把挂在这个类目下的商品一起搬过去

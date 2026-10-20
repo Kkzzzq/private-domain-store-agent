@@ -12,6 +12,8 @@ BASE_FREIGHT_CENTS = 800
 ORDER_TTL_MINUTES = 30
 from app.services.catalog import invalidate_catalog_cache, load_sku_for_shop, merchant_shop, shop_by_code, yuan
 from app.services.shelf import purchase_block
+from app.services import coupons
+from app.models.tables import CouponOrder
 
 STATUS_LABELS = {
     "pending": "待支付",
@@ -23,7 +25,12 @@ STATUS_LABELS = {
 
 
 def serialize_order(order: Order, *, audience: str) -> dict:
+    from sqlalchemy.orm import object_session
+    session = object_session(order)
+    coupon = session.scalar(select(CouponOrder).where(CouponOrder.order_id == order.id)) if session else None
     data = {
+        "discount_yuan": yuan(coupon.discount_cents) if coupon else 0,
+        "coupon_name": coupon.name if coupon else "",
         "order_no": order.order_no,
         "shop_id": order.shop_id,
         "shop_name": order.shop.name if order.shop is not None else "",
@@ -84,10 +91,14 @@ def _next_order_no(db: Session) -> str:
     return f"{prefix}{count:04d}"
 
 
-def freight_for(goods_cents: int) -> int:
-    if goods_cents <= 0 or goods_cents >= FREE_SHIPPING_CENTS:
+def freight_for(goods_cents: int, shop=None) -> int:
+    from app.services.storefront import storefront_settings
+    settings = storefront_settings(shop) if shop is not None else None
+    threshold = int(round(settings.free_shipping_yuan * 100)) if settings else FREE_SHIPPING_CENTS
+    freight = int(round(settings.base_freight_yuan * 100)) if settings else BASE_FREIGHT_CENTS
+    if goods_cents <= 0 or goods_cents >= threshold:
         return 0
-    return BASE_FREIGHT_CENTS
+    return freight
 
 
 def _order_lines(body: OrderCreate) -> list[tuple[int, int]]:
@@ -178,8 +189,13 @@ def create_order(db: Session, user: User, share_code: str, body: OrderCreate) ->
                 quantity=quantity,
             )
         )
-    order.freight_cents = freight_for(goods_cents)
-    order.total_cents = goods_cents + order.freight_cents
+    order.freight_cents = freight_for(goods_cents, shop)
+    try:
+        discount = coupons.reserve(db, user.id, shop.id, body.user_coupon_id, goods_cents, order)
+    except HTTPException:
+        db.rollback()
+        raise
+    order.total_cents = goods_cents + order.freight_cents - discount
     db.add(order)
     db.commit()
     invalidate_catalog_cache()
@@ -213,6 +229,12 @@ def pay_order(db: Session, user: User, order_no: str) -> dict:
         raise HTTPException(status_code=404, detail="没有找到这个订单")
     if order.status != "pending":
         raise HTTPException(status_code=400, detail="这个订单不需要支付")
+    changed = db.execute(update(Order).where(Order.id == order.id, Order.status == "pending",
+        (Order.expires_at.is_(None) | (Order.expires_at > utcnow()))).values(status="paid"))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(400, "订单已过期或状态已变更")
+    coupons.transition(db, order, used=True)
     order.status = "paid"
     order.expires_at = None
     for item in order.items:
@@ -270,6 +292,11 @@ def cancel_order(db: Session, user: User, order_no: str) -> dict:
         raise HTTPException(status_code=404, detail="没有找到这个订单")
     if order.status != "pending":
         raise HTTPException(status_code=400, detail="只有待支付订单可以取消")
+    changed = db.execute(update(Order).where(Order.id == order.id, Order.status == "pending").values(status="cancelled"))
+    if changed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(400, "订单状态已变更")
+    coupons.transition(db, order)
     _restore_stock(db, order)
     order.status = "cancelled"
     order.expires_at = None
@@ -285,14 +312,20 @@ def auto_cancel_expired(db: Session, now: datetime | None = None) -> int:
     expired = db.scalars(
         _orders().where(Order.status == "pending", Order.expires_at.is_not(None), Order.expires_at <= moment)
     ).unique().all()
+    count = 0
     for order in expired:
+        changed = db.execute(update(Order).where(Order.id == order.id, Order.status == "pending").values(status="cancelled"))
+        if changed.rowcount != 1:
+            continue
+        count += 1
+        coupons.transition(db, order)
         _restore_stock(db, order)
         order.status = "cancelled"
         order.expires_at = None
     if expired:
         db.commit()
         invalidate_catalog_cache()
-    return len(expired)
+    return count
 
 
 def confirm_order(db: Session, user: User, order_no: str) -> dict:

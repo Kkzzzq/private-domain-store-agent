@@ -1,4 +1,31 @@
-const api = createApi("token_b");
+const liveApi = createApi("token_b");
+let decorationWorkspace = null;
+let decorationActor = "";
+let decorationSaving = false;
+
+async function api(path, options = {}) {
+  const method = options.method || "GET";
+  const workspace = route().name === "home" ? decorationWorkspace : null;
+  if (workspace) {
+    if (path === "/api/v1/b/shop") {
+      if (method === "GET") return workspace.shopView();
+      if (method === "PATCH") {
+        workspace.data = workspace.candidate("appearance", JSON.parse(options.body));
+        workspace.persist();
+        return workspace.shopView();
+      }
+    }
+    const match = path.match(/^\/api\/v1\/b\/(banners|sections|testimonials)(?:\/(-?\d+))?$/);
+    if (match) {
+      const [, kind, id] = match;
+      if (method === "GET") return structuredClone(workspace.data[kind]);
+      return workspace.mutate(kind, method, options.body ? JSON.parse(options.body) : {}, id ? Number(id) : null);
+    }
+  }
+  const result = await liveApi(path, options);
+  if (workspace && path === "/api/v1/b/products" && method === "GET") workspace.products = result;
+  return result;
+}
 let me = null;
 let shopInfo = null;
 let renderVersion = 0;
@@ -28,6 +55,83 @@ function loggedIn() {
 
 function cover(url) {
   return url || "/covers/notebook.jpg";
+}
+
+function openFormDialog(form, title, trigger) {
+  const mask = h("div", "modal admin-editor-mask");
+  const panel = h("section", "panel admin-editor-panel");
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-label", title);
+  const heading = h("div", "admin-editor-heading");
+  const close = h("button", "btn-ghost", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "关闭编辑");
+  heading.append(h("h2", "", title), close);
+  const dismiss = () => {
+    if (form.querySelector('button[type="submit"]:disabled')) return;
+    mask.remove();
+    if (trigger?.isConnected) trigger.focus();
+    render();
+  };
+  form.classList.add("admin-dialog-form");
+  const footer = h("div", "admin-editor-actions");
+  const cancel = h("button", "btn-ghost", "取消");
+  cancel.type = "button";
+  cancel.addEventListener("click", dismiss);
+  const submit = form.querySelector('button[type="submit"]');
+  footer.append(cancel);
+  if (route().name === "home" && form.previewCandidate) {
+    const preview = h("button", "btn-ghost", "预览效果");
+    preview.type = "button";
+    preview.addEventListener("click", async () => {
+      if (preview.disabled) return;
+      preview.disabled = true;
+      try { await previewDecoration(form.previewCandidate()); }
+      catch (error) { toast(error.message, "bad"); }
+      finally { preview.disabled = false; }
+    });
+    footer.append(preview);
+  }
+  if (route().name === "home" && submit) submit.textContent = "应用到草稿";
+  if (submit) footer.append(submit);
+  form.append(footer);
+  panel.append(heading, form);
+  mask.append(panel);
+  close.addEventListener("click", dismiss);
+  mask.addEventListener("click", event => { if (event.target === mask) dismiss(); });
+  mask.addEventListener("keydown", event => {
+    if (event.key === "Escape") { event.preventDefault(); dismiss(); }
+    if (event.key === "Tab") {
+      const controls = [...panel.querySelectorAll("input, textarea, select, button, a[href]")].filter(node => !node.disabled && node.getClientRects().length);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  });
+  document.body.append(mask);
+  close.focus();
+}
+
+function editorAction(title, label, factory) {
+  const bar = h("div", "admin-list-heading");
+  const button = h("button", "btn", label);
+  button.addEventListener("click", () => openFormDialog(factory(), label.replace(/^＋ /, ""), button));
+  bar.append(h("h2", "", title), button);
+  return bar;
+}
+
+function settingsSummary(form, title, entries) {
+  const panel = h("div", "panel settings-summary");
+  const header = editorAction(title, "编辑设置", () => form);
+  const list = h("dl", "settings-summary-list");
+  for (const [label, value] of entries) {
+    const row = h("div");
+    row.append(h("dt", "", label), h("dd", "", String(value || "未设置")));
+    list.append(row);
+  }
+  panel.append(header, list);
+  return panel;
 }
 
 function val(form, name) {
@@ -76,54 +180,35 @@ function confirmAction(title, detail, actionLabel = "确认删除") {
   });
 }
 
-/**
- * 上移 / 下移。把重排后的整份顺序按 1..n 写回，
- * 比只跟邻居交换稳（两张序号相同时交换会互相抵消，点了没反应）。
- */
-async function shiftRow(kind, rows, index, delta) {
-  const target = index + delta;
-  if (target < 0 || target >= rows.length) return false;
-  const next = rows.slice();
-  const [moved] = next.splice(index, 1);
-  next.splice(target, 0, moved);
-  for (let order = 0; order < next.length; order += 1) {
-    if (next[order].sort_order === order + 1) continue;
-    await api(`/api/v1/b/${kind}/${next[order].id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ sort_order: order + 1 }),
-    });
-  }
-  toast("顺序已更新", "ok");
-  return true;
-}
-
-/** 一排「上移 / 下移」按钮，几处列表共用。 */
-function orderButtons(kind, rows, index) {
-  const wrap = h("div", "row order-buttons");
-  const up = h("button", "", "上移");
-  up.type = "button";
-  up.disabled = index === 0;
-  up.addEventListener("click", async () => {
-    if (await shiftRow(kind, rows, index, -1)) render();
+function sortableRows(container, selector, kind) {
+  makeSortable(container, selector, async ids => {
+    try {
+      if (route().name === "home") {
+        const currentRows = decorationWorkspace.data[kind];
+        decorationWorkspace.reorder(kind, ids);
+        currentRows.forEach(row => { row.sort_order = ids.indexOf(row.id) + 1; });
+        const toolbar = document.querySelector(".decoration-toolbar");
+        if (toolbar) toolbar.replaceWith(decorationToolbar());
+      } else {
+        await liveApi(`/api/v1/b/sort/${kind}`, {method: "POST", body: JSON.stringify({ordered_ids: ids})});
+      }
+      container.querySelectorAll(".label-rank").forEach((cell, index) => {
+        for (const node of [...cell.childNodes]) if (node.nodeType === Node.TEXT_NODE) node.remove();
+        cell.append(document.createTextNode(String(index + 1).padStart(2, "0")));
+      });
+    } catch (error) { toast(error.message, "bad"); throw error; }
   });
-  const down = h("button", "", "下移");
-  down.type = "button";
-  down.disabled = index === rows.length - 1;
-  down.addEventListener("click", async () => {
-    if (await shiftRow(kind, rows, index, 1)) render();
-  });
-  wrap.append(up, down);
-  return wrap;
 }
 
 const MENU = [
-  ["dashboard", "📊 经营概览"],
-  ["products", "📦 商品管理"],
-  ["categories", "🏷️ 分类标签"],
-  ["tags", "🔖 商品标签"],
-  ["orders", "🧾 订单管理"],
-  ["home", "🎨 首页装修"],
-  ["shop", "🏪 店铺设置"],
+  ["dashboard", "经营概览"],
+  ["products", "商品管理"],
+  ["categories", "分类标签"],
+  ["tags", "商品标签"],
+  ["coupons", "优惠券管理"],
+  ["orders", "订单管理"],
+  ["home", "首页装修"],
+  ["shop", "店铺设置"],
 ];
 
 async function render() {
@@ -153,9 +238,15 @@ async function render() {
       shopInfo = null;
     }
   }
+  if (shopInfo) {
+    applyTheme(shopInfo.theme_color);
+    applyStorefrontSettings(shopInfo);
+    document.body.classList.toggle("tinted", shopInfo.strip_tint !== false);
+  }
   // 先把页面内容备好，再搭外壳：页面里改了店铺信息（店名、主题色），
   // 顶栏这一次就能用上新值，不会慢一拍
   const main = h("main", "main");
+  main.classList.add(["products", "orders"].includes(route().name) ? "workspace-wide" : "workspace-compact");
   try {
     main.append(await mainView());
   } catch (error) {
@@ -181,7 +272,7 @@ function topBar() {
   const bar = h("header", "admin-top");
   const logo = h("div", "logo");
   logo.append(h("span", "", "南"), document.createTextNode(shopInfo ? shopInfo.name : "商家后台"));
-  bar.append(logo, h("span", "env", "商家工作台 · 演示环境"));
+  bar.append(logo, h("span", "env", "商家工作台"));
   bar.append(h("div", "spacer"));
   const user = h("div", "user");
   const preview = h("a", "link", "查看买家端 ↗");
@@ -189,14 +280,6 @@ function topBar() {
   preview.target = "_blank";
   preview.style.color = "#ff8f1f";
   user.append(h("span", "", me ? `${me.nickname}` : ""), preview);
-  const logout = h("button", "", "退出");
-  logout.addEventListener("click", () => {
-    sessionStorage.removeItem("token_b");
-    me = null;
-    shopInfo = null;
-    render();
-  });
-  user.append(logout);
   bar.append(user);
   return bar;
 }
@@ -236,22 +319,29 @@ function sidebar() {
   const side = h("aside", "side");
   side.append(h("div", "side-brand", "店铺管理"));
   MENU.forEach(([name, label]) => {
-    const link = h("a", route().name === name ? "on" : "", label);
+    const link = h("a", route().name === name ? "on" : "");
+    const paths = {
+      dashboard: "M4 20h16M7 16v-5m5 5V4m5 12V8",
+      products: "m3 7 9-4 9 4-9 4-9-4Zm0 0v10l9 4 9-4V7M12 11v10M7.5 5l9 4",
+      categories: "M3 3h7v7H3V3Zm11 0h7v7h-7V3ZM3 14h7v7H3v-7Zm11 0h7v7h-7v-7Z",
+      tags: "M3 3h8l10 10-8 8L3 11V3Zm4 4h.01",
+      coupons: "M3 5h18v5a2 2 0 0 0 0 4v5H3v-5a2 2 0 0 0 0-4V5Zm12 0v3m0 3v2m0 3v3",
+      orders: "M6 3h12v18l-3-2-3 2-3-2-3 2V3Zm3 5h6m-6 4h6",
+      home: "M3 3h18v18H3V3Zm0 6h18M9 9v12",
+      shop: "M4 10v11h16V10M3 10l2-7h14l2 7M3 10a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 21v-7h6v7",
+    };
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("class", "side-nav-icon");
+    icon.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", paths[name]);
+    icon.append(path);
+    link.append(icon, h("span", "", label));
     link.href = `#/${name}`;
     side.append(link);
   });
   side.append(h("div", "spacer"));
-  const user = h("div", "side-user");
-  user.append(h("div", "", `当前账号：${me ? me.username : ""}`));
-  const logout = h("button", "", "退出登录");
-  logout.addEventListener("click", () => {
-    sessionStorage.removeItem("token_b");
-    me = null;
-    shopInfo = null;
-    render();
-  });
-  user.append(logout);
-  side.append(user);
   return side;
 }
 
@@ -264,6 +354,7 @@ async function mainView() {
   if (current.name === "products") return current.id ? productEditor(current.id) : productList();
   if (current.name === "categories") return categoriesAdmin();
   if (current.name === "tags") return tagsAdmin();
+  if (current.name === "coupons") return couponsAdmin();
   if (current.name === "orders") return orderList(current.id);
   if (current.name === "home") return homeAdmin(current.id);
   if (current.name === "shop") return shopForm();
@@ -307,11 +398,14 @@ function merchantAssistant() {
     panel.parentElement.querySelector(".merchant-chat-fab").replaceWith(merchantAssistantToggle());
     panel.remove();
   });
-  header.append(h("h2", "", "智能运营助手"), close);
+  header.append(h("h2", "", `${storeAssistantName(shopInfo)} · 智能运营助手`), close);
   panel.append(header, h("p", "muted", "商品 · 库存 · 订单 · 经营概览"));
   const log = h("div", "merchant-chat-log");
   const append = (data) => {
-    log.append(h("p", data.text.startsWith("你：") ? "merchant-question" : "merchant-answer", data.text));
+    const question = data.text.startsWith("你：");
+    const content = h("div", question ? "merchant-question" : "merchant-answer", data.text);
+    if (!question) renderAssistantMessage(content, data.text);
+    log.append(content);
     (data.products || []).forEach((product) => {
       const link = h("a", "btn-ghost", `${product.name} · ${money(product.price_from)}起`);
       link.href = `#/products/${product.id}`;
@@ -342,12 +436,20 @@ function merchantAssistant() {
     merchantMessages.push(question);
     append(question);
     send.disabled = reset.disabled = true;
-    const waiting = h("p", "muted", "正在查询…");
+    const waiting = h("div", "muted", assistantWaitingText(shopInfo));
+    let previewShown = false;
     log.append(waiting);
     try {
-      const data = await api("/api/v1/b/chat", { method: "POST", body: JSON.stringify({ message, session_id: merchantSession || undefined }) });
+      const data = await streamChat("/api/v1/b/chat/stream", "token_b",
+        { message, session_id: merchantSession || undefined }, () => {
+          if (!previewShown) waiting.textContent = assistantWaitingText(shopInfo);
+        }, event => {
+          previewShown = true;
+          renderAssistantMessage(waiting, `${event.answer}\n\n${assistantWaitingText(shopInfo)}`);
+          log.scrollTop = log.scrollHeight;
+        });
       merchantSession = data.session_id;
-      const reply = { text: `${data.answer}\n${data.mode === "fallback" ? "规则查询 · " : ""}${data.notices.join("；")}`, products: data.products };
+      const reply = { text: `${data.answer}${knowledgeSourceText(data)}\n${data.mode === "fallback" ? "规则查询 · " : ""}${data.notices.join("；")}`, products: data.products };
       merchantMessages.push(reply);
       append(reply);
       input.value = "";
@@ -437,14 +539,116 @@ function imageField(label, name, value) {
 }
 
 /* ---------------- 首页装修 ---------------- */
+function decorationToolbar() {
+  const workspace = decorationWorkspace;
+  const bar = h("div", "decoration-toolbar");
+  const status = h("div");
+  status.append(h("strong", "", workspace.conflict ? "草稿与线上版本冲突" : workspace.dirty ? "有未保存的装修修改" : "当前为已保存版本"));
+  status.append(h("p", "muted", "新增、编辑、隐藏、删除与拖拽只修改草稿；预览不发布，保存后买家端才生效。"));
+  const actions = h("div", "row");
+  const reset = h("button", "btn-ghost", "放弃草稿");
+  reset.disabled = !workspace.dirty;
+  reset.addEventListener("click", async () => {
+    if (!(await confirmAction("放弃所有装修草稿？", "会重新加载线上版本，尚未保存的修改将丢失。", "确认放弃"))) return;
+    sessionStorage.removeItem(workspace.key);
+    decorationWorkspace = null;
+    render();
+  });
+  const preview = h("button", "btn-ghost", "预览");
+  preview.addEventListener("click", async () => {
+    if (preview.disabled) return;
+    preview.disabled = true;
+    try { await previewDecoration(workspace.data); }
+    catch (error) { toast(error.message, "bad"); }
+    finally { preview.disabled = false; }
+  });
+  const save = h("button", "btn decoration-save", "保存并生效");
+  save.disabled = !workspace.dirty || workspace.conflict || decorationSaving;
+  save.addEventListener("click", () => saveDecoration(workspace.data));
+  actions.append(reset, preview, save);
+  bar.append(status, actions);
+  return bar;
+}
+
+async function saveDecoration(candidate) {
+  if (decorationSaving) return;
+  decorationSaving = true;
+  document.querySelectorAll(".decoration-save").forEach(button => { button.disabled = true; });
+  try {
+    const snapshot = await liveApi("/api/v1/b/decoration", {method: "PUT", body: JSON.stringify(decorationPayload(candidate))});
+    sessionStorage.removeItem(decorationWorkspace.key);
+    shopInfo = await liveApi("/api/v1/b/shop");
+    decorationWorkspace = new DecorationWorkspace(snapshot, shopInfo, sessionStorage, me.id);
+    toast("装修已保存，买家端刷新后可见", "ok");
+    render();
+  } catch (error) { toast(error.message, "bad"); }
+  finally {
+    decorationSaving = false;
+    document.querySelectorAll(".decoration-save").forEach(button => { button.disabled = false; });
+  }
+}
+
+async function previewDecoration(candidate) {
+  const snapshot = structuredClone(candidate);
+  const version = renderVersion;
+  const trigger = document.activeElement;
+  const data = await liveApi("/api/v1/b/decoration/preview", {method: "POST", body: JSON.stringify(decorationPayload(snapshot))});
+  if (version !== renderVersion) return;
+  const mask = h("div", "modal decoration-preview-mask");
+  const panel = h("section", "panel decoration-preview-panel");
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-label", "未保存装修预览");
+  const header = h("div", "decoration-preview-heading");
+  header.append(h("strong", "", "未保存预览 · 仅当前商家可见，不可下单"));
+  const actions = h("div", "row");
+  const save = h("button", "btn decoration-save", "保存并生效");
+  save.disabled = decorationWorkspace.conflict ||
+    JSON.stringify(decorationPayload(snapshot)) === JSON.stringify(decorationWorkspace.baseline);
+  save.addEventListener("click", () => saveDecoration(snapshot));
+  const close = h("button", "btn-ghost", "返回编辑");
+  const dismiss = () => { mask.remove(); if (trigger?.isConnected) trigger.focus(); };
+  close.addEventListener("click", dismiss);
+  actions.append(save, close);
+  header.append(actions);
+  const frame = document.createElement("iframe");
+  const nonce = crypto.randomUUID();
+  frame.title = "装修草稿买家端预览";
+  frame.tabIndex = -1;
+  frame.src = `/c.html?code=${encodeURIComponent(decorationWorkspace.shop.share_code)}&preview=${nonce}`;
+  frame.addEventListener("load", () => frame.contentWindow.postMessage({type: "decoration-preview", nonce, data}, location.origin));
+  panel.append(header, frame);
+  mask.append(panel);
+  mask.addEventListener("keydown", event => {
+    if (event.key === "Escape") dismiss();
+    if (event.key === "Tab") {
+      event.preventDefault();
+      (document.activeElement === close && !save.disabled ? save : close).focus();
+    }
+  });
+  document.body.append(mask);
+  close.focus();
+}
+
+function draftMessage(message) {
+  return route().name === "home" ? "草稿已更新，尚未发布" : message;
+}
+
 async function homeAdmin(tab) {
+  const actor = `${me.id}:${shopInfo.id}`;
+  if (!decorationWorkspace || decorationActor !== actor) {
+    const [snapshot, shop] = await Promise.all([liveApi("/api/v1/b/decoration"), liveApi("/api/v1/b/shop")]);
+    decorationWorkspace = new DecorationWorkspace(snapshot, shop, sessionStorage, me.id);
+    decorationActor = actor;
+  }
   const current = tab || "banners";
   const box = h("div");
   box.append(h("h1", "page-title", "首页装修"));
-  box.append(h("p", "page-sub", "买家端首页的轮播图、商品栏目和用户评价都在这里改，保存后刷新买家端就能看到"));
+  box.append(h("p", "page-sub", "买家端首页轮播、商品栏目和反馈展示在这里配置，保存后刷新买家端可见"));
+  box.append(decorationToolbar());
 
   const tabs = h("div", "tabs");
-  [["banners", "轮播图"], ["sections", "商品栏目"], ["testimonials", "用户评价"], ["appearance", "首页样式"]].forEach(
+  [["banners", "轮播图"], ["sections", "商品栏目"], ["testimonials", "反馈展示"], ["appearance", "首页样式"]].forEach(
     ([value, label]) => {
       const button = h("button", value === current ? "on" : "", label);
       button.addEventListener("click", () => go(`#/home/${value}`));
@@ -485,11 +689,57 @@ async function appearanceAdmin() {
   const tintWrap = h("label", "field");
   tintWrap.append(h("span", "", "顶部一行底色"));
   const tint = document.createElement("select");
-  tint.append(new Option("主题色浅底（推荐）", "on"), new Option("纯白", "off"));
+  tint.append(new Option("主题色浅底（推荐）", "on"), new Option("仅背景底色，不叠加渐变", "off"));
   tint.value = shop.strip_tint === false ? "off" : "on";
   tintWrap.append(tint);
   grid.append(tintWrap);
   panel.append(grid);
+
+  const storefront = storefrontSettings(shop);
+  const configurable = Boolean(shop.storefront);
+  panel.append(h("h2", "panel-title", "C端全店外观与内容"));
+  panel.append(h("p", "muted", configurable ? "设置会同步到商品页、购物车和结算。运费数值影响真实下单；保障文案请与规则保持一致。" : "当前后端尚未加载全店配置接口，新配置暂不可编辑，需正常重启后端。"));
+  const presentationGrid = h("div", "form-grid");
+  const presentationInputs = {};
+  const controls = [
+    ["background_color", "C端背景底色", "color"], ["surface_color", "卡片背景色", "color"],
+    ["text_color", "主要文字色", "color"], ["muted_color", "辅助文字色", "color"],
+    ["product_image_ratio", "商品图比例", [["1/1", "正方形"], ["4/5", "竖向4:5"], ["3/4", "竖向3:4"]]],
+    ["rail_columns", "桌面每行商品数", [["3", "3张"], ["3.5", "3张半"], ["4", "4张"]]],
+    ["hero_enabled", "首页轮播", [["true", "展示"], ["false", "隐藏"]]],
+    ["promises_enabled", "首页及详情保障条", [["true", "展示"], ["false", "隐藏"]]],
+    ["assistant_enabled", "C端助手入口", [["true", "展示"], ["false", "隐藏"]]],
+    ["product_subtitle", "商品标题下说明", "text"], ["footer_about", "页脚店铺简介", "text"],
+    ["footer_service", "页脚联系说明", "text"], ["dispatch_text", "发货说明", "text"],
+    ["return_text", "退换货说明", "text"], ["free_shipping_yuan", "包邮门槛（元，0表示全店包邮）", "number"],
+    ["base_freight_yuan", "未满门槛运费（元）", "number"],
+    ["assistant_welcome", "助手欢迎语（自动带昵称前缀）", "text"],
+    ["testimonial_title", "首页反馈区标题", "text"], ["testimonial_subtitle", "首页反馈区说明", "text"],
+  ];
+  controls.forEach(([key, label, type]) => {
+    const wrap = h("label", "field");
+    wrap.append(h("span", "", label));
+    const input = document.createElement(Array.isArray(type) ? "select" : "input");
+    if (Array.isArray(type)) type.forEach(([value, text]) => input.append(new Option(text, value)));
+    else { input.type = type; if (type === "number") { input.min = "0"; input.step = "0.01"; } }
+    input.value = String(storefront[key]);
+    input.disabled = !configurable;
+    presentationInputs[key] = input;
+    wrap.append(input);
+    presentationGrid.append(wrap);
+  });
+  for (const [key, label, value] of [
+    ["quick_questions", "助手快捷问题（每行一条，最多6条，留空隐藏）", storefront.quick_questions.join("\n")],
+    ["detail_sections", "商品详情通用说明（每行 标题：内容，最多6段，留空不展示）", storefront.detail_sections.map(item => `${item.title}：${item.body}`).join("\n")],
+  ]) {
+    const wrap = h("label", "field full");
+    wrap.append(h("span", "", label));
+    const input = document.createElement("textarea");
+    input.rows = 4; input.value = value; input.disabled = !configurable;
+    presentationInputs[key] = input;
+    wrap.append(input); presentationGrid.append(wrap);
+  }
+  panel.append(presentationGrid);
 
   panel.append(
     h(
@@ -527,7 +777,7 @@ async function appearanceAdmin() {
       line.append(title, sub, remove);
       promiseRows.append(line);
     });
-    if (!rows.length) promiseRows.append(h("p", "muted", "现在一条都没有，买家端会隐藏这一条"));
+    if (!rows.length) promiseRows.append(h("p", "muted", "未填写时恢复默认保障内容；如需隐藏，请关闭上方保障条开关。"));
   };
   paint();
   const addPromise = h("button", "btn-ghost btn-mini", "加一条");
@@ -541,26 +791,52 @@ async function appearanceAdmin() {
 
   const error = h("p", "muted", "");
   const submit = h("button", "btn", "保存样式");
+  const readAppearance = () => {
+    const settings = { ...storefront };
+    if (configurable) {
+      controls.forEach(([key, , type]) => {
+        settings[key] = typeof storefront[key] === "boolean" ? presentationInputs[key].value === "true"
+          : type === "number" ? Number(presentationInputs[key].value) : presentationInputs[key].value.trim();
+      });
+      settings.quick_questions = presentationInputs.quick_questions.value.split("\n").map(item => item.trim()).filter(Boolean);
+      settings.detail_sections = presentationInputs.detail_sections.value.split("\n").map(item => item.trim()).filter(Boolean).map(item => {
+        const match = item.match(/^(.+?)[：:](.+)$/);
+        if (!match) throw new Error("通用说明请按“标题：内容”填写");
+        return { title: match[1].trim(), body: match[2].trim() };
+      });
+    }
+
+    return { hero_height: Number(height.value), ...(configurable ? {storefront: settings} : {}), strip_tint: tint.value === "on",
+      promises: rows.filter(row => row.title.trim()).map(row => ({title: row.title.trim(), sub: row.sub.trim()})) };
+  };
+  panel.previewCandidate = () => decorationWorkspace.candidate("appearance", readAppearance());
   submit.type = "submit";
   panel.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
     try {
-      shopInfo = await api("/api/v1/b/shop", {
-        method: "PATCH",
-        body: JSON.stringify({
-          hero_height: Number(height.value),
-          strip_tint: tint.value === "on",
-          promises: rows.filter((row) => row.title.trim()).map((row) => ({ title: row.title.trim(), sub: row.sub.trim() })),
-        }),
-      });
-      toast("样式已保存", "ok");
+      shopInfo = await api("/api/v1/b/shop", { method: "PATCH", body: JSON.stringify(readAppearance()) });
+      toast(draftMessage("样式已保存"), "ok");
       render();
     } catch (err) {
       error.textContent = err.message;
+    } finally {
+      submit.disabled = false;
     }
   });
   panel.append(error, submit);
-  box.append(panel);
+  box.append(settingsSummary(panel, "外观与内容配置", [
+    ["首页轮播", storefront.hero_enabled ? `展示 · ${shop.hero_height || 640}px` : "已隐藏"],
+    ["商品展示", `${storefront.rail_columns}列 · 图片${storefront.product_image_ratio}`],
+    ["背景 / 卡片", `${storefront.background_color} / ${storefront.surface_color}`],
+    ["文字 / 辅助文字", `${storefront.text_color} / ${storefront.muted_color}`],
+    ["运费规则", storeShippingText(shop)],
+    ["发货与退换", `${storefront.dispatch_text}；${storefront.return_text}`],
+    ["店内助手", storefront.assistant_enabled ? `已开启 · ${storefront.quick_questions.length}条快捷问题` : "已隐藏"],
+    ["通用详情说明", `${storefront.detail_sections.length}段`],
+    ["售后保障条", storefront.promises_enabled ? `展示 · ${rows.length}项` : "已隐藏"],
+  ]));
   return box;
 }
 
@@ -574,19 +850,22 @@ async function bannersAdmin() {
   const onSale = products.filter((product) => product.status === "on");
 
   const list = h("div", "panel");
-  list.append(h("h2", "panel-title", `轮播图（${banners.length}）`));
-  if (!banners.length) list.append(h("p", "muted", "还没有轮播图，先在下面加一张"));
-  banners.forEach((banner, index) => {
-    list.append(bannerRow(banner, banners, index, onSale, sections));
-  });
-  list.append(h("p", "muted", "顺序按列表从上到下，买家端点右侧按钮就是按这个顺序翻"));
+  if (!banners.length) list.append(h("p", "muted", "还没有轮播图，点击右上角新增"));
+  const items = h("div", "sortable-rows");
+  banners.forEach((banner, index) => items.append(bannerRow(banner, banners, index, onSale, sections)));
+  list.append(items);
+  sortableRows(items, ".banner-row", "banners");
+  list.append(h("p", "muted", "拖动左侧手柄调整顺序，预览确认后点击保存并生效。"));
 
-  box.append(list, bannerForm(onSale, sections));
+  list.prepend(editorAction(`轮播图（${banners.length}）`, "＋ 新增轮播图", () => bannerForm(onSale, sections)));
+  box.append(list);
   return box;
 }
 
 function bannerRow(banner, banners, index, products, sections) {
   const row = h("div", "banner-row");
+  row.dataset.sortId = banner.id;
+  row.dataset.sortName = banner.title || "轮播图";
   const image = document.createElement("img");
   image.src = banner.image_url;
   image.alt = banner.title;
@@ -603,23 +882,13 @@ function bannerRow(banner, banners, index, products, sections) {
   const state = h("span", `pill ${banner.enabled ? "on" : "off"}`, banner.enabled ? "展示中" : "已隐藏");
 
   const ops = h("div", "ops");
-  const up = h("button", "", "上移");
-  up.disabled = index === 0;
-  up.addEventListener("click", async () => {
-    if (await shiftRow("banners", banners, index, -1)) render();
-  });
-  const down = h("button", "", "下移");
-  down.disabled = index === banners.length - 1;
-  down.addEventListener("click", async () => {
-    if (await shiftRow("banners", banners, index, 1)) render();
-  });
   const toggle = h("button", "", banner.enabled ? "隐藏" : "展示");
   toggle.addEventListener("click", async () => {
     await api(`/api/v1/b/banners/${banner.id}`, {
       method: "PATCH",
       body: JSON.stringify({ enabled: !banner.enabled }),
     });
-    toast(banner.enabled ? "已隐藏" : "已展示", "ok");
+    toast(draftMessage(banner.enabled ? "已隐藏" : "已展示"), "ok");
     render();
   });
   const remove = h("button", "danger", "删除");
@@ -628,30 +897,33 @@ function bannerRow(banner, banners, index, products, sections) {
     if (!ok) return;
     try {
       await api(`/api/v1/b/banners/${banner.id}`, { method: "DELETE" });
-      toast("已删除", "ok");
+      toast(draftMessage("已删除"), "ok");
       render();
     } catch (error) {
       toast(error.message, "bad");
     }
   });
-  ops.append(up, down, toggle, remove);
+  const edit = h("button", "", "编辑");
+  edit.addEventListener("click", () => openFormDialog(bannerForm(products, sections, banner), "编辑轮播图", edit));
+  ops.append(edit, toggle, remove);
   row.append(image, words, state, ops);
   return row;
 }
 
-function bannerForm(products, sections) {
+function bannerForm(products, sections, banner = null) {
   const panel = h("form", "panel stack");
-  panel.append(h("h2", "panel-title", "新增轮播图"));
+  panel.append(h("h2", "panel-title", banner ? "编辑轮播图" : "新增轮播图"));
   const grid = h("div", "form-grid");
-  grid.append(imageField("横屏大图", "image_url", ""));
-  grid.append(field("标题（大字）", "title", ""));
-  grid.append(field("副标题", "subtitle", ""));
+  grid.append(imageField("横屏大图", "image_url", banner?.image_url || ""));
+  grid.append(field("标题（大字）", "title", banner?.title || ""));
+  grid.append(field("副标题", "subtitle", banner?.subtitle || ""));
   panel.append(grid);
 
   const linkRow = h("div", "form-grid");
   const typeWrap = h("label", "field");
   typeWrap.append(h("span", "", "点击跳转"));
   const type = document.createElement("select");
+  type.name = "link_type";
   [["none", "不跳转，只展示"], ["product", "跳到商品详情"], ["section", "跳到某个栏目"]].forEach(([value, label]) => {
     const option = document.createElement("option");
     option.value = value;
@@ -659,10 +931,12 @@ function bannerForm(products, sections) {
     type.append(option);
   });
   typeWrap.append(type);
+  type.value = banner?.link_type || "none";
 
   const valueWrap = h("label", "field");
   valueWrap.append(h("span", "", "跳转目标"));
   const target = document.createElement("select");
+  target.name = "link_value";
   const fill = () => {
     target.replaceChildren();
     if (type.value === "product") {
@@ -674,22 +948,33 @@ function bannerForm(products, sections) {
     } else {
       target.append(new Option("不需要选", ""));
     }
+    if (banner?.link_value && type.value === banner.link_type &&
+        ![...target.options].some(option => option.value === banner.link_value)) {
+      target.append(new Option("原跳转目标（当前不在可选列表）", banner.link_value));
+    }
     target.disabled = type.value === "none";
   };
   type.addEventListener("change", fill);
   fill();
+  if (banner?.link_value) target.value = banner.link_value;
   valueWrap.append(target);
   linkRow.append(typeWrap, valueWrap);
   panel.append(linkRow);
 
   const error = h("p", "muted", "");
-  const submit = h("button", "btn", "添加轮播图");
+  const submit = h("button", "btn", banner ? "保存修改" : "添加轮播图");
+  panel.previewCandidate = () => decorationWorkspace.candidate("banners", {
+    image_url: val(panel, "image_url"), title: val(panel, "title"), subtitle: val(panel, "subtitle"),
+    link_type: type.value, link_value: type.value === "none" ? "" : target.value,
+  }, banner?.id);
   submit.type = "submit";
   panel.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
     try {
-      await api("/api/v1/b/banners", {
-        method: "POST",
+      await api(`/api/v1/b/banners${banner ? "/" + banner.id : ""}`, {
+        method: banner ? "PATCH" : "POST",
         body: JSON.stringify({
           image_url: val(panel, "image_url"),
           title: val(panel, "title"),
@@ -698,10 +983,12 @@ function bannerForm(products, sections) {
           link_value: type.value === "none" ? "" : target.value,
         }),
       });
-      toast("轮播图已添加", "ok");
+      toast(draftMessage(banner ? "轮播图已保存" : "轮播图已添加"), "ok");
       render();
     } catch (err) {
       error.textContent = err.message;
+    } finally {
+      submit.disabled = false;
     }
   });
   panel.append(error, submit);
@@ -714,16 +1001,21 @@ async function sectionsAdmin() {
   const onSale = products.filter((product) => product.status === "on");
 
   const list = h("div", "panel");
-  list.append(h("h2", "panel-title", `商品栏目（${sections.length}）`));
-  list.append(h("p", "muted", "买家端首页从上到下就是这个顺序：先推荐，再畅销榜，然后是自定义栏目"));
+  list.append(h("p", "muted", "拖动左侧手柄调整买家端首页的栏目顺序，保存后生效。"));
   if (!sections.length) list.append(h("p", "muted", "还没有栏目"));
-  sections.forEach((section, index) => list.append(sectionRow(section, sections, index, onSale)));
-  box.append(list, sectionForm(onSale));
+  const items = h("div", "sortable-rows");
+  sections.forEach((section, index) => items.append(sectionRow(section, sections, index, onSale)));
+  list.append(items);
+  sortableRows(items, ".sec-row", "sections");
+  list.prepend(editorAction(`商品栏目（${sections.length}）`, "＋ 新增栏目", () => sectionForm(onSale)));
+  box.append(list);
   return box;
 }
 
 function sectionRow(section, sections, index, products) {
   const row = h("div", "sec-row");
+  row.dataset.sortId = section.id;
+  row.dataset.sortName = section.title;
   const words = h("div");
   words.style.flex = "1";
   words.append(h("div", "", `${section.title}　${section.source === "sales" ? "（按销量自动）" : "（手选）"}`));
@@ -741,16 +1033,6 @@ function sectionRow(section, sections, index, products) {
   );
   const ops = h("div", "ops");
   const state = h("span", `pill ${section.enabled ? "on" : "off"}`, section.enabled ? "展示中" : "已隐藏");
-  const up = h("button", "", "上移");
-  up.disabled = index === 0;
-  up.addEventListener("click", async () => {
-    if (await shiftRow("sections", sections, index, -1)) render();
-  });
-  const down = h("button", "", "下移");
-  down.disabled = index === sections.length - 1;
-  down.addEventListener("click", async () => {
-    if (await shiftRow("sections", sections, index, 1)) render();
-  });
   const toggle = h("button", "", section.enabled ? "隐藏" : "展示");
   toggle.addEventListener("click", async () => {
     await api(`/api/v1/b/sections/${section.id}`, {
@@ -759,7 +1041,7 @@ function sectionRow(section, sections, index, products) {
     });
     render();
   });
-  const edit = h("button", "", "改商品");
+  const edit = h("button", "", "编辑");
   edit.addEventListener("click", () => sectionEditor(section, products));
   const remove = h("button", "danger", "删除");
   remove.addEventListener("click", async () => {
@@ -767,95 +1049,26 @@ function sectionRow(section, sections, index, products) {
     if (!ok) return;
     try {
       await api(`/api/v1/b/sections/${section.id}`, { method: "DELETE" });
-      toast("栏目已删除", "ok");
+      toast(draftMessage("栏目已删除"), "ok");
       render();
     } catch (error) {
       toast(error.message, "bad");
     }
   });
-  ops.append(state, up, down, toggle, edit, remove);
+  ops.append(state, toggle, edit, remove);
   row.append(words, ops);
   return row;
 }
 
 function sectionEditor(section, products) {
-  const dialog = h("div", "modal");
-  const panel = h("form", "panel stack");
-  panel.append(h("h2", "panel-title", `编辑「${section.title}」`));
-  const picked = new Set(section.product_ids);
-  const counter = h("p", "muted", "");
-  const list = h("div", "pick-list");
-  const paintCount = () => {
-    counter.textContent = `已选 ${picked.size} / 6 件${picked.size ? "：首页按勾选顺序展示前 6 件" : ""}`;
-  };
-  products.forEach((product) => {
-    const label = h("label", "pick-item");
-    const check = document.createElement("input");
-    check.type = "checkbox";
-    check.className = "check";
-    check.checked = picked.has(product.id);
-    check.addEventListener("change", () => {
-      if (check.checked && picked.size >= 6) {
-        check.checked = false;
-        toast("手工栏目最多选 6 件，多出来的不会展示", "bad");
-        return;
-      }
-      if (check.checked) picked.add(product.id);
-      else picked.delete(product.id);
-      paintCount();
-    });
-    const thumb = document.createElement("img");
-    thumb.src = cover(product.image_url);
-    thumb.alt = product.name;
-    const name = h("span", "", product.name);
-    label.append(check, thumb, name);
-    list.append(label);
-  });
-  paintCount();
-
-  const error = h("p", "muted", "");
-  const save = h("button", "btn", "保存");
-  save.type = "submit";
-  const close = h("button", "btn-ghost", "取消");
-  close.type = "button";
-  close.addEventListener("click", () => dialog.remove());
-  const row = h("div", "row");
-  row.append(save, close);
-  panel.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    try {
-      await api(`/api/v1/b/sections/${section.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ product_ids: [...picked] }),
-      });
-      dialog.remove();
-      toast("已保存", "ok");
-      render();
-    } catch (err) {
-      error.textContent = err.message;
-    }
-  });
-  panel.append(list, counter, error, row);
-  dialog.append(panel);
-  dialog.addEventListener("click", (event) => {
-    if (event.target === dialog) dialog.remove();
-  });
-  // 和删除确认一样，按 Esc 也能关
-  const onKey = (event) => {
-    if (event.key === "Escape") {
-      dialog.remove();
-      document.removeEventListener("keydown", onKey);
-    }
-  };
-  document.addEventListener("keydown", onKey);
-  document.body.append(dialog);
+  openFormDialog(sectionForm(products, section), "编辑商品栏目", document.activeElement);
 }
 
-function sectionForm(products) {
+function sectionForm(products, section = null) {
   const panel = h("form", "panel stack");
-  panel.append(h("h2", "panel-title", "新增栏目"));
+  panel.append(h("h2", "panel-title", section ? "编辑栏目" : "新增栏目"));
   const grid = h("div", "form-grid");
-  grid.append(field("栏目标题", "title", ""), field("副标题", "subtitle", ""));
+  grid.append(field("栏目标题", "title", section?.title || ""), field("副标题", "subtitle", section?.subtitle || ""));
   const sourceWrap = h("label", "field");
   sourceWrap.append(h("span", "", "商品来源"));
   const source = document.createElement("select");
@@ -866,13 +1079,14 @@ function sectionForm(products) {
     source.append(option);
   });
   sourceWrap.append(source);
+  source.value = section?.source || "manual";
   grid.append(sourceWrap);
   panel.append(grid);
 
-  const picked = new Set();
+  const picked = new Set(section?.product_ids || []);
   const counter = h("p", "muted", "");
   const paintCount = () => {
-    counter.textContent = `已选 ${picked.size} / 6 件`;
+    counter.textContent = `已选 ${picked.size} / 24 件（首页展示前6件，合集页展示全部）`;
   };
   const list = h("div", "pick-list");
   products.forEach((product) => {
@@ -880,10 +1094,11 @@ function sectionForm(products) {
     const check = document.createElement("input");
     check.type = "checkbox";
     check.className = "check";
+    check.checked = picked.has(product.id);
     check.addEventListener("change", () => {
-      if (check.checked && picked.size >= 6) {
+      if (check.checked && picked.size >= 24) {
         check.checked = false;
-        toast("手工栏目最多选 6 件", "bad");
+        toast("手工栏目最多选 24 件", "bad");
         return;
       }
       if (check.checked) picked.add(product.id);
@@ -896,17 +1111,26 @@ function sectionForm(products) {
     label.append(check, thumb, h("span", "", product.name));
     list.append(label);
   });
-  const hint = h("p", "muted", "手工栏目最多选 6 件，买家端按勾选顺序展示；选「按销量自动」就不用勾");
+  const hint = h("p", "muted", "手选最多24件，首页按勾选顺序展示前6件，合集页展示全部；按销量自动时无需勾选。");
   panel.append(h("div", "field-label", "手选商品"), counter, list, hint);
+  const updateSource = () => { list.hidden = source.value === "sales"; counter.hidden = list.hidden; };
+  source.addEventListener("change", updateSource);
+  updateSource();
+  paintCount();
 
   const error = h("p", "muted", "");
-  const submit = h("button", "btn", "添加栏目");
+  const submit = h("button", "btn", section ? "保存修改" : "添加栏目");
+  panel.previewCandidate = () => decorationWorkspace.candidate("sections", {
+    title: val(panel, "title"), subtitle: val(panel, "subtitle"), source: source.value, product_ids: [...picked],
+  }, section?.id);
   submit.type = "submit";
   panel.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
     try {
-      await api("/api/v1/b/sections", {
-        method: "POST",
+      await api(`/api/v1/b/sections${section ? "/" + section.id : ""}`, {
+        method: section ? "PATCH" : "POST",
         body: JSON.stringify({
           title: val(panel, "title"),
           subtitle: val(panel, "subtitle"),
@@ -914,10 +1138,12 @@ function sectionForm(products) {
           product_ids: [...picked],
         }),
       });
-      toast("栏目已添加", "ok");
+      toast(draftMessage(section ? "栏目已保存" : "栏目已添加"), "ok");
       render();
     } catch (err) {
       error.textContent = err.message;
+    } finally {
+      submit.disabled = false;
     }
   });
   panel.append(error, submit);
@@ -928,11 +1154,13 @@ async function testimonialsAdmin() {
   const box = h("div");
   const rows = await api("/api/v1/b/testimonials");
   const list = h("div", "panel");
-  list.append(h("h2", "panel-title", `用户评价（${rows.length}）`));
-  list.append(h("p", "muted", "这些是首页底部流动展示的短评，可以自己写，也可以把买家的真实评价整理进来"));
+  list.append(h("p", "muted", "这些是商家维护的首页展示内容，不会修改用户真实订单评价。"));
   if (!rows.length) list.append(h("p", "muted", "还没有评价"));
+  const items = h("div", "sortable-rows");
   rows.forEach((row, index) => {
     const item = h("div", "quote-row");
+    item.dataset.sortId = row.id;
+    item.dataset.sortName = row.nickname;
     const words = h("div");
     words.style.flex = "1";
     const who = h("div", "row");
@@ -940,16 +1168,6 @@ async function testimonialsAdmin() {
     words.append(who, h("div", "muted", row.content));
     const ops = h("div", "ops");
     const state = h("span", `pill ${row.enabled ? "on" : "off"}`, row.enabled ? "展示中" : "已隐藏");
-    const up = h("button", "", "上移");
-    up.disabled = index === 0;
-    up.addEventListener("click", async () => {
-      if (await shiftRow("testimonials", rows, index, -1)) render();
-    });
-    const down = h("button", "", "下移");
-    down.disabled = index === rows.length - 1;
-    down.addEventListener("click", async () => {
-      if (await shiftRow("testimonials", rows, index, 1)) render();
-    });
     const toggle = h("button", "", row.enabled ? "隐藏" : "展示");
     toggle.addEventListener("click", async () => {
       await api(`/api/v1/b/testimonials/${row.id}`, {
@@ -964,21 +1182,31 @@ async function testimonialsAdmin() {
       if (!ok) return;
       try {
         await api(`/api/v1/b/testimonials/${row.id}`, { method: "DELETE" });
-        toast("已删除", "ok");
+        toast(draftMessage("已删除"), "ok");
         render();
       } catch (error) {
         toast(error.message, "bad");
       }
     });
-    ops.append(state, up, down, toggle, remove);
+    const edit = h("button", "", "编辑");
+    edit.addEventListener("click", () => openFormDialog(testimonialForm(row), "编辑反馈展示", edit));
+    ops.append(state, edit, toggle, remove);
     item.append(words, ops);
-    list.append(item);
+    items.append(item);
   });
 
+  list.append(items);
+  sortableRows(items, ".quote-row", "testimonials");
+  list.prepend(editorAction(`反馈展示（${rows.length}）`, "＋ 新增反馈", () => testimonialForm()));
+  box.append(list);
+  return box;
+}
+
+function testimonialForm(row = null) {
   const panel = h("form", "panel stack");
-  panel.append(h("h2", "panel-title", "新增评价"));
+  panel.append(h("h2", "panel-title", row ? "编辑反馈" : "新增反馈"));
   const grid = h("div", "form-grid");
-  grid.append(field("昵称", "nickname", ""));
+  grid.append(field("昵称", "nickname", row?.nickname || ""));
   const ratingWrap = h("label", "field");
   ratingWrap.append(h("span", "", "评分"));
   const rating = document.createElement("select");
@@ -988,34 +1216,41 @@ async function testimonialsAdmin() {
     option.textContent = `${value} 星`;
     rating.append(option);
   });
+  rating.value = String(row?.rating || 5);
   ratingWrap.append(rating);
   grid.append(ratingWrap);
-  grid.append(field("评价内容", "content", "", true, "textarea"));
+  grid.append(field("评价内容", "content", row?.content || "", true, "textarea"));
   panel.append(grid);
 
   const error = h("p", "muted", "");
-  const submit = h("button", "btn", "添加评价");
+  const submit = h("button", "btn", row ? "保存修改" : "添加反馈");
+  panel.previewCandidate = () => decorationWorkspace.candidate("testimonials", {
+    nickname: val(panel, "nickname"), content: val(panel, "content"), rating: Number(rating.value),
+  }, row?.id);
   submit.type = "submit";
   panel.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
     try {
-      await api("/api/v1/b/testimonials", {
-        method: "POST",
+      await api(`/api/v1/b/testimonials${row ? "/" + row.id : ""}`, {
+        method: row ? "PATCH" : "POST",
         body: JSON.stringify({
           nickname: val(panel, "nickname"),
           content: val(panel, "content"),
           rating: Number(rating.value),
         }),
       });
-      toast("评价已添加", "ok");
+      toast(draftMessage("评价已添加"), "ok");
       render();
     } catch (err) {
       error.textContent = err.message;
+    } finally {
+      submit.disabled = false;
     }
   });
   panel.append(error, submit);
-  box.append(list, panel);
-  return box;
+  return panel;
 }
 
 /** 类目选择：选项来自后台维护的分类标签，也允许现场填个新的。 */
@@ -1024,6 +1259,7 @@ function categoryField(names, value) {
   wrap.append(h("span", "", "类目"));
   const input = document.createElement("input");
   input.name = "category";
+  input.maxLength = 15;
   input.value = value || names[0] || "";
   input.setAttribute("list", "cat-options");
   input.placeholder = "选一个或直接填新的";
@@ -1039,214 +1275,204 @@ function categoryField(names, value) {
   return wrap;
 }
 
-/* ---------------- 分类标签：合集页左侧那排 tag 就是这里定的 ---------------- */
-async function categoriesAdmin() {
-  const box = h("div");
-  box.append(h("h1", "page-title", "分类标签"));
-  box.append(
-    h(
-      "p",
-      "page-sub",
-      "合集页左侧的筛选项、商品编辑里的类目选项都来自这套标签。名字随时可以改，改完挂在旧类目下的商品会一起跟过来。"
-    )
-  );
-
-  const rows = await api("/api/v1/b/categories");
-  const list = h("div", "panel");
-  list.append(h("h2", "panel-title", `当前标签（${rows.length}）`));
-  if (!rows.length) list.append(h("p", "muted", "还没有标签，先在下面加一个"));
-  if (rows.length > 1) list.append(h("p", "muted", "标签顺序就是买家端看到的顺序，可以上下调整"));
-
-  const move = async (index, delta) => {
-    if (await shiftRow("categories", rows, index, delta)) render();
-  };
-
-  rows.forEach((row, index) => {
-    const item = h("div", "quote-row");
-    const input = document.createElement("input");
-    input.className = "cat-name";
-    input.value = row.name;
-
-    const ops = h("div", "ops");
-    const count = h("span", "pill", `${row.product_count} 件商品`);
-    const save = h("button", "", "改名");
-    save.addEventListener("click", async () => {
-      const name = input.value.trim();
-      if (!name || name === row.name) return;
-      try {
-        await api(`/api/v1/b/categories/${row.id}`, { method: "PATCH", body: JSON.stringify({ name }) });
-        toast("已改名，旧类目下的商品一起改了", "ok");
-        render();
-      } catch (error) {
-        toast(error.message, "bad");
-      }
-    });
-    const up = h("button", "", "上移");
-    up.disabled = index === 0;
-    up.addEventListener("click", () => move(index, -1));
-    const down = h("button", "", "下移");
-    down.disabled = index === rows.length - 1;
-    down.addEventListener("click", () => move(index, 1));
-    const remove = h("button", "danger", "删除");
-    remove.disabled = row.product_count > 0;
-    remove.title = row.product_count > 0 ? "还有商品挂在这个标签下，先改掉再删" : "";
-    remove.addEventListener("click", async () => {
-      const ok = await confirmAction(`删掉分类「${row.name}」？`, "没有商品挂在它下面才可以删。");
-      if (!ok) return;
-      try {
-        await api(`/api/v1/b/categories/${row.id}`, { method: "DELETE" });
-        toast("已删除", "ok");
-        render();
-      } catch (error) {
-        toast(error.message, "bad");
-      }
-    });
-    ops.append(count, save, up, down, remove);
-    item.append(input, ops);
-    list.append(item);
-  });
-
-  const panel = h("form", "panel stack");
-  panel.append(h("h2", "panel-title", "新增标签"));
-  panel.append(h("p", "muted", "比如「家居」「餐具」「香氛」「文具」，短一点买家扫得快"));
-  const grid = h("div", "form-grid");
-  grid.append(field("标签名", "name", ""));
-  panel.append(grid);
-
-  const error = h("p", "muted", "");
-  const submit = h("button", "btn", "添加标签");
+async function labelEditor(kind, row, trigger) {
+  const category = kind === "categories";
+  const title = `${row ? "编辑" : "新增"}${category ? "分类" : "商品标签"}`;
+  const mask = h("div", "modal label-editor-mask");
+  const panel = h("form", "panel stack label-editor");
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-label", title);
+  const heading = h("div", "label-editor-heading");
+  const close = h("button", "btn-ghost", "×");
+  close.type = "button";
+  close.setAttribute("aria-label", "关闭");
+  heading.append(h("h2", "", title), close);
+  panel.append(heading, field("名称", "name", row?.name || ""));
+  const input = panel.querySelector('input[name="name"]');
+  input.required = true;
+  input.maxLength = category ? 15 : 16;
+  const colors = {};
+  if (!category) {
+    const defaults = tagColorDefaults(row);
+    const preview = h("span", "tag-preview", row?.name || "标签预览");
+    const grid = h("div", "label-colors-grid");
+    const update = () => {
+      preview.textContent = input.value.trim() || "标签预览";
+      applyTagStyle(preview, Object.fromEntries(Object.entries(colors).map(([key, control]) => [key, control.value])));
+    };
+    for (const [key, title] of [["background_color", "背景颜色"], ["border_color", "边框颜色"], ["text_color", "文字颜色"]]) {
+      const wrap = h("label", "field");
+      wrap.append(h("span", "", title));
+      const control = document.createElement("input");
+      control.type = "color";
+      control.value = defaults[key];
+      control.name = key;
+      colors[key] = control;
+      control.addEventListener("input", update);
+      wrap.append(control);
+      grid.append(wrap);
+    }
+    input.addEventListener("input", update);
+    update();
+    const example = h("div", "label-preview-line");
+    example.append(h("span", "muted", "买家端效果"), preview);
+    panel.append(grid, example);
+  }
+  panel.append(h("p", "muted", category
+    ? "名称最多15字；修改后，该分类下的商品会同步更新。"
+    : "列表越靠前，商品卡展示该标签的优先级越高。"));
+  const error = h("p", "label-editor-error");
+  error.setAttribute("role", "alert");
+  const actions = h("div", "label-editor-actions");
+  const cancel = h("button", "btn-ghost", "取消");
+  cancel.type = "button";
+  const submit = h("button", "btn", row ? "保存修改" : "确认新增");
   submit.type = "submit";
-  panel.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    try {
-      await api("/api/v1/b/categories", { method: "POST", body: JSON.stringify({ name: val(panel, "name") }) });
-      toast("标签已添加", "ok");
-      render();
-    } catch (err) {
-      error.textContent = err.message;
+  actions.append(cancel, submit);
+  panel.append(error, actions);
+  mask.append(panel);
+  let saving = false;
+  let confirming = false;
+  const dismiss = () => {
+    if (saving || confirming) return;
+    mask.remove();
+    if (trigger?.isConnected) trigger.focus();
+  };
+  close.addEventListener("click", dismiss);
+  cancel.addEventListener("click", dismiss);
+  mask.addEventListener("click", event => { if (event.target === mask) dismiss(); });
+  mask.addEventListener("keydown", event => {
+    if (event.key === "Escape") { event.preventDefault(); dismiss(); }
+    if (event.key === "Tab") {
+      const controls = [...panel.querySelectorAll("input, button")].filter(node => !node.disabled);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
   });
-  panel.append(error, submit);
+  panel.addEventListener("submit", async event => {
+    event.preventDefault();
+    if (saving || confirming) return;
+    const name = input.value.trim();
+    if (!name) { error.textContent = "请填写名称"; input.focus(); return; }
+    if (category && row && name !== row.name) {
+      confirming = true;
+      const ok = await confirmAction("确认修改分类名称？",
+        `将「${row.name}」改为「${name}」，该分类下的 ${row.product_count} 件商品也会同步更新。`, "确认修改");
+      confirming = false;
+      if (!ok) { input.focus(); return; }
+    }
+    saving = true;
+    submit.disabled = true;
+    close.disabled = true;
+    cancel.disabled = true;
+    error.textContent = "";
+    try {
+      const payload = category ? { name } : { name, ...Object.fromEntries(Object.entries(colors).map(([key, control]) => [key, control.value])) };
+      await api(`/api/v1/b/${kind}${row ? "/" + row.id : ""}`, {
+        method: row ? "PATCH" : "POST", body: JSON.stringify(payload)
+      });
+      mask.remove();
+      toast(row ? "已保存" : "已新增", "ok");
+      render();
+    } catch (failure) {
+      error.textContent = failure.message;
+    } finally {
+      saving = false;
+      submit.disabled = false;
+      close.disabled = false;
+      cancel.disabled = false;
+    }
+  });
+  document.body.append(mask);
+  input.focus();
+}
 
-  box.append(list, panel);
+async function labelsAdmin(kind) {
+  const category = kind === "categories";
+  const box = h("div", "label-admin");
+  const header = h("div", "label-page-heading");
+  const titles = h("div");
+  titles.append(h("h1", "page-title", category ? "分类标签" : "商品标签"));
+  titles.append(h("p", "page-sub", category
+    ? "管理买家端的分类筛选与商品类目。修改名称后，关联商品同步更新。"
+    : "管理商品卡片角标。一件商品可关联多个，优先展示排序最靠前的标签。"));
+  const add = h("button", "btn", category ? "＋ 新增分类" : "＋ 新增标签");
+  add.addEventListener("click", () => labelEditor(kind, null, add));
+  header.append(titles, add);
+  box.append(header);
+  const rows = await api(`/api/v1/b/${kind}`);
+  const panel = h("div", "panel label-list-panel");
+  const top = h("div", "label-list-heading");
+  top.append(h("h2", "", `全部${category ? "分类" : "标签"}`), h("span", "label-total", `${rows.length} 个`));
+  panel.append(top, h("p", "muted label-list-note", category
+    ? "顺序与买家端分类展示一致；有关联商品的分类不可删除。"
+    : "拖动左侧手柄调整展示优先级，松开后自动保存；删除标签不会删除商品。"));
+  const scroll = h("div", "label-table-scroll");
+  const table = h("table", "label-table");
+  const head = h("thead");
+  const headRow = h("tr");
+  for (const text of category ? ["排序", "分类名称", "关联商品", "操作"] : ["排序", "标签名称", "展示预览", "关联商品", "操作"]) {
+    const cell = h("th", "", text);
+    cell.scope = "col";
+    headRow.append(cell);
+  }
+  head.append(headRow);
+  const body = h("tbody");
+  rows.forEach((row, index) => {
+    const item = h("tr");
+    item.dataset.sortId = row.id;
+    item.dataset.sortName = row.name;
+    item.append(h("td", "label-rank", String(index + 1).padStart(2, "0")), h("td", "label-name", row.name));
+    if (!category) {
+      const cell = h("td");
+      const preview = h("span", "tag-preview", row.name);
+      applyTagStyle(preview, row);
+      cell.append(preview);
+      item.append(cell);
+    }
+    item.append(h("td", "label-count", `${row.product_count} 件商品`));
+    const cell = h("td");
+    const ops = h("div", "label-ops");
+    const edit = h("button", "label-edit", "编辑");
+    edit.setAttribute("aria-label", `编辑${row.name}`);
+    edit.addEventListener("click", () => labelEditor(kind, row, edit));
+    ops.append(edit);
+    const remove = h("button", "label-delete", "删除");
+    remove.setAttribute("aria-label", `删除${row.name}`);
+    remove.disabled = category && row.product_count > 0;
+    remove.title = remove.disabled ? "请先移走该分类下的商品" : "";
+    remove.addEventListener("click", async () => {
+      const ok = await confirmAction(`删除「${row.name}」？`, category
+        ? "删除后无法恢复。" : `关联的 ${row.product_count} 件商品会移除此角标，商品本身不受影响。`);
+      if (!ok) return;
+      try {
+        await api(`/api/v1/b/${kind}/${row.id}`, { method: "DELETE" });
+        toast("已删除", "ok"); render();
+      } catch (failure) { toast(failure.message, "bad"); }
+    });
+    ops.append(remove);
+    cell.append(ops);
+    item.append(cell);
+    body.append(item);
+  });
+  table.append(head, body);
+  sortableRows(body, "tr", kind);
+  scroll.append(table);
+  panel.append(scroll);
+  if (!rows.length) panel.append(h("p", "label-empty", "暂无记录，点击右上角按钮添加"));
+  box.append(panel);
   return box;
 }
 
-/* ---------------- 商品标签：买家端卡片左上角那个角标 ---------------- */
+async function categoriesAdmin() {
+  return labelsAdmin("categories");
+}
+
 async function tagsAdmin() {
-  const box = h("div");
-  box.append(h("h1", "page-title", "商品标签"));
-  box.append(
-    h(
-      "p",
-      "page-sub",
-      "买家端商品卡左上角的角标（促销 / 爆款 / 新上线 …）就是这套标签。一件商品可以挂多个，卡片上显示排在最前面的那个。"
-    )
-  );
-
-  const rows = await api("/api/v1/b/tags");
-  const list = h("div", "panel");
-  list.append(h("h2", "panel-title", `当前标签（${rows.length}）`));
-  if (!rows.length) list.append(h("p", "muted", "还没有标签，先在下面加一个"));
-  if (rows.length > 1) list.append(h("p", "muted", "顺序决定商品卡上显示哪一个，越靠前越优先"));
-
-  const save = async (row, payload, done) => {
-    try {
-      await api(`/api/v1/b/tags/${row.id}`, { method: "PATCH", body: JSON.stringify(payload) });
-      toast(done, "ok");
-      render();
-    } catch (error) {
-      toast(error.message, "bad");
-    }
-  };
-
-  const move = async (index, delta) => {
-    if (await shiftRow("tags", rows, index, delta)) render();
-  };
-
-  rows.forEach((row, index) => {
-    const item = h("div", "quote-row");
-    const input = document.createElement("input");
-    input.className = "cat-name";
-    input.value = row.name;
-
-    const color = document.createElement("input");
-    color.type = "color";
-    color.className = "tag-color";
-    color.value = row.color || "#ff5000";
-
-    // 预览：和买家端商品卡上那个角标一模一样的样式，改颜色即时跟着变
-    const preview = h("span", "tag-preview", row.name);
-    const paintPreview = () => preview.style.setProperty("--tag", color.value || row.color || "");
-    color.addEventListener("input", paintPreview);
-    paintPreview();
-
-    const ops = h("div", "ops");
-    const count = h("span", "pill", `${row.product_count} 件商品`);
-    const rename = h("button", "", "保存");
-    rename.addEventListener("click", () => {
-      const name = input.value.trim();
-      if (!name || (name === row.name && color.value === row.color)) return;
-      save(row, { name, color: color.value }, "标签已更新");
-    });
-    const up = h("button", "", "上移");
-    up.disabled = index === 0;
-    up.addEventListener("click", () => move(index, -1));
-    const down = h("button", "", "下移");
-    down.disabled = index === rows.length - 1;
-    down.addEventListener("click", () => move(index, 1));
-    const remove = h("button", "danger", "删除");
-    remove.addEventListener("click", async () => {
-      const ok = await confirmAction(`删掉标签「${row.name}」？`, `挂过它的 ${row.product_count} 件商品会一起摘掉这个角标。`);
-      if (!ok) return;
-      try {
-        await api(`/api/v1/b/tags/${row.id}`, { method: "DELETE" });
-        toast("已删除，挂过它的商品也一起摘掉了", "ok");
-        render();
-      } catch (error) {
-        toast(error.message, "bad");
-      }
-    });
-    ops.append(count, rename, up, down, remove);
-    item.append(input, color, preview, ops);
-    list.append(item);
-  });
-
-  const panel = h("form", "panel stack");
-  panel.append(h("h2", "panel-title", "新增标签"));
-  panel.append(h("p", "muted", "两个字的短词最合适，比如「促销」「爆款」「新上线」"));
-  const grid = h("div", "form-grid");
-  grid.append(field("标签名", "name", ""));
-  const colorWrap = h("label", "field");
-  colorWrap.append(h("span", "", "底色"));
-  const newColor = document.createElement("input");
-  newColor.type = "color";
-  newColor.name = "color";
-  newColor.value = "#ff5000";
-  colorWrap.append(newColor);
-  grid.append(colorWrap);
-  panel.append(grid);
-
-  const error = h("p", "muted", "");
-  const submit = h("button", "btn", "添加标签");
-  submit.type = "submit";
-  panel.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    try {
-      await api("/api/v1/b/tags", {
-        method: "POST",
-        body: JSON.stringify({ name: val(panel, "name"), color: newColor.value }),
-      });
-      toast("标签已添加", "ok");
-      render();
-    } catch (err) {
-      error.textContent = err.message;
-    }
-  });
-  panel.append(error, submit);
-
-  box.append(list, panel);
-  return box;
+  return labelsAdmin("tags");
 }
 
 /** 商品编辑里的标签多选，最多 4 个，和接口上限一致。 */
@@ -1364,7 +1590,7 @@ async function dashboard() {
   quick.append(h("h2", "panel-title", "常用操作"));
   const row = h("div", "row");
   const addProduct = h("button", "btn", "发布新商品");
-  addProduct.addEventListener("click", () => go("#/products/new"));
+  addProduct.addEventListener("click", () => openProductEditor("new", addProduct));
   const toOrders = h("button", "btn-ghost", `处理待发货（${data.pending_ship}）`);
   toOrders.addEventListener("click", () => go("#/orders/paid"));
   const toShop = h("button", "btn-ghost", "修改店铺公告");
@@ -1400,13 +1626,13 @@ async function productList() {
     node.value = value;
     return node;
   };
-  const status = select("商品状态", [["", "全部状态"], ["on", "在售"], ["off", "下架"], ["banned", "禁售"]], productFilters.status);
+  const status = select("商品状态", [["", "全部状态"], ["draft", "草稿"], ["on", "在售"], ["off", "下架"], ["banned", "禁售"]], productFilters.status);
   const category = select("商品类目", [["", "全部类目"], ...[...new Set(products.map(p => p.category).filter(Boolean))].map(name => [name, name])], productFilters.category);
   const stockFilter = select("库存筛选", [["", "全部库存"], ["low", "库存预警（≤5）"], ["zero", "已售罄"]], productFilters.stock);
   const sort = select("商品排序", [["default", "默认排序"], ["sales", "销量从高到低"], ["stock", "库存从低到高"], ["price", "价格从低到高"]], productFilters.sort);
   const reset = h("button", "btn-ghost", "重置");
   const add = h("button", "btn push", "＋ 发布商品");
-  add.addEventListener("click", () => go("#/products/new"));
+  add.addEventListener("click", () => openProductEditor("new", add));
   bar.append(keyword, status, category, stockFilter, sort, reset, add);
   box.append(bar);
   const host = h("div");
@@ -1424,7 +1650,7 @@ async function productList() {
     productFilters.page = Math.min(productFilters.page, pages);
     const pageRows = rows.slice((productFilters.page - 1) * 10, productFilters.page * 10);
     stats.replaceChildren();
-    [["全部商品", products.length, ""], ["在售商品", products.filter(p => p.status === "on").length, "on"], ["已下架", products.filter(p => p.status === "off").length, "off"], ["库存预警", products.filter(low).length, "low"]].forEach(([label, count, filter]) => {
+    [["全部商品", products.length, ""], ["草稿", products.filter(p => p.status === "draft").length, "draft"], ["在售商品", products.filter(p => p.status === "on").length, "on"], ["已下架", products.filter(p => p.status === "off").length, "off"], ["库存预警", products.filter(low).length, "low"]].forEach(([label, count, filter]) => {
       const card = h("button", "product-stat" + ((filter === "low" ? productFilters.stock === "low" : productFilters.status === filter) ? " active" : ""));
       card.append(h("span", "", label), h("strong", "", String(count)));
       card.disabled = busy;
@@ -1498,7 +1724,13 @@ function productTable(products, options = {}) {
     const opsRow = h("div", "ops");
     const edit = h("a", "", "编辑");
     edit.href = `#/products/${product.id}`;
-    opsRow.append(edit);
+    edit.addEventListener("click", event => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      openProductEditor(String(product.id), edit);
+    });
+    if (product.status !== "banned") opsRow.append(edit);
+    else opsRow.append(h("span", "muted", "平台禁售 · 只读"));
 
     statusActions(product.status).filter(([action]) => action !== "ban").forEach(([act, label]) => {
       const button = h("button", act === "ban" ? "danger" : "", label);
@@ -1558,11 +1790,22 @@ function productTable(products, options = {}) {
   return wrap;
 }
 
-async function productEditor(id) {
+async function openProductEditor(id, trigger) {
+  const version = renderVersion;
+  try {
+    const content = await productEditor(id, true);
+    if (version !== renderVersion || !trigger.isConnected) return;
+    const form = content.querySelector("form");
+    if (!form) { toast("没有找到这个商品", "bad"); return; }
+    openFormDialog(form, id === "new" ? "发布商品" : "编辑商品信息", trigger);
+  } catch (error) { toast(error.message, "bad"); }
+}
+
+async function productEditor(id, basicOnly = false) {
   const creating = id === "new";
   const box = h("div");
   box.append(h("h1", "page-title", creating ? "发布商品" : "编辑商品"));
-  box.append(h("p", "page-sub", creating ? "新商品默认下架，确认好再上架" : "改动会立刻生效到买家端"));
+  box.append(h("p", "page-sub", creating ? "保存为商品草稿，确认后可发布上架或完成创建；草稿不会出现在买家端" : "改动会立刻生效到买家端"));
   const back = h("button", "btn-ghost", "← 返回商品列表");
   back.addEventListener("click", () => go("#/products"));
   box.append(back);
@@ -1574,6 +1817,10 @@ async function productEditor(id) {
     const products = await api("/api/v1/b/products");
     product = products.find((item) => String(item.id) === id);
     if (!product) return h("div", "panel", "没有找到这个商品");
+    if (product.status === "banned") {
+      box.append(h("p", "panel", "该商品已被平台禁售，只能查看；商家不能编辑或自行解禁，请联系平台处理。"), renderSkuPanel(product));
+      return box;
+    }
   }
   let catNames = [];
   let tagNames = [];
@@ -1598,6 +1845,7 @@ async function productEditor(id) {
     field("每人限购（0 表示不限）", "limit_per_user", String(product.limit_per_user ?? 0)),    field("商品说明", "description", product.description, true, "textarea")
   );
   panel.append(grid, tagField);
+  if (!creating) panel.append(field("商品排序（数字越小越靠前）", "sort_order", String(product.sort_order || 0)));
   if (creating) {
     panel.append(h("h2", "panel-title", "首个规格"));
     const skuGrid = h("div", "form-grid");
@@ -1606,7 +1854,7 @@ async function productEditor(id) {
   }
 
   const error = h("p", "muted", "");
-  const submit = h("button", "btn", creating ? "创建并保存" : "保存修改");
+  const submit = h("button", "btn", creating ? "保存商品草稿" : "保存修改");
   submit.type = "submit";
   panel.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1630,14 +1878,16 @@ async function productEditor(id) {
         image_url: val(panel, "image_url"),
         limit_per_user: Number(val(panel, "limit_per_user") || 0),
         tag_names: tagField.selected(),
+        ...(!creating ? { sort_order: Number(val(panel, "sort_order") || 0) } : {}),
       };
       if (creating) {
         payload.skus = [
           { spec: val(panel, "spec"), price_yuan: Number(val(panel, "price")), stock: Number(val(panel, "stock")) },
         ];
-        payload.status = "off";
+        payload.status = "draft";
         await api("/api/v1/b/products", { method: "POST", body: JSON.stringify(payload) });
-        toast("商品已创建，记得上架", "ok");
+        Object.assign(productFilters, {keyword: "", status: "draft", category: "", stock: "", page: 1});
+        toast("已保存商品草稿，确认后再发布上架", "ok");
       } else {
         await api(`/api/v1/b/products/${product.id}`, { method: "PATCH", body: JSON.stringify(payload) });
         toast("已保存", "ok");
@@ -1647,13 +1897,13 @@ async function productEditor(id) {
       error.textContent = err.message;
     } finally {
       submit.disabled = false;
-      submit.textContent = creating ? "创建并保存" : "保存修改";
+      submit.textContent = creating ? "保存商品草稿" : "保存修改";
     }
   });
   panel.append(error, submit);
   box.append(panel);
 
-  if (!creating) {
+  if (!creating && !basicOnly) {
     box.append(renderSkuPanel(product));
   }
   return box;
@@ -1661,8 +1911,10 @@ async function productEditor(id) {
 
 function renderSkuPanel(product, reload = render) {
   const panel = h("div", "panel");
+  let unsaved = false;
+  panel.addEventListener("input", () => { unsaved = true; });
   panel.append(h("h2", "panel-title", `规格与库存（${product.skus.length}）`));
-  panel.append(h("p", "muted", "给规格单独配一张图，买家在详情页切规格（或点缩略图）时主图就换成这张"));
+  panel.append(h("p", "muted", product.status === "banned" ? "平台禁售商品：规格、图片、价格、库存和状态均只读。" : "拖动规格左侧手柄排序，松开后自动保存并同步买家端规格与缩略图顺序。"));
   const wrap = h("div", "table-wrap");
   const table = h("table", "table sku-table");
   const head = document.createElement("thead");
@@ -1672,6 +1924,8 @@ function renderSkuPanel(product, reload = render) {
   const tbody = document.createElement("tbody");
   product.skus.forEach((sku) => {
     const tr = document.createElement("tr");
+    tr.dataset.sortId = sku.id;
+    tr.dataset.sortName = sku.spec;
     const specCell = document.createElement("td");
     const specInput = document.createElement("input");
     specInput.className = "stock-input spec-input";
@@ -1679,6 +1933,17 @@ function renderSkuPanel(product, reload = render) {
     specInput.maxLength = 40;
     specInput.setAttribute("aria-label", `${sku.spec} 规格名`);
     specCell.append(specInput);
+    const parameterEditor = document.createElement("details");
+    parameterEditor.className = "sku-parameter-editor";
+    parameterEditor.append(h("summary", "", "商品参数（选填）"));
+    const parameterInput = document.createElement("textarea");
+    parameterInput.rows = 4;
+    parameterInput.placeholder = "每行一项，例如：\n容量：350 mL\n材质：陶瓷";
+    parameterInput.setAttribute("aria-label", `${sku.spec} 商品参数（选填）`);
+    parameterInput.value = (sku.parameters || []).map(item => `${item.name}：${item.value}`).join("\n");
+    parameterInput.disabled = !Array.isArray(sku.parameters);
+    parameterEditor.append(parameterInput, h("small", "muted", parameterInput.disabled ? "后端尚未加载参数功能，重启后可配置。" : "可留空，最多12项；买家悬停对应规格时显示。"));
+    specCell.append(parameterEditor);
 
     // 每个规格一张图，买家端详情页切规格就会换主图
     const imageCell = document.createElement("td");
@@ -1725,7 +1990,8 @@ function renderSkuPanel(product, reload = render) {
           stock: Number(stockInput.value),
           image_url: imageWrap.querySelector("input").value.trim(),
         };
-        if (marketInput.value) payload.market_price_yuan = Number(marketInput.value);
+        if (!parameterInput.disabled) payload.parameters = readSkuParameters(parameterInput.value);
+        payload.market_price_yuan = marketInput.value ? Number(marketInput.value) : null;
         await api(`/api/v1/b/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify(payload) });
         toast(`${payload.spec} 已更新`, "ok");
         await reload();
@@ -1755,9 +2021,22 @@ function renderSkuPanel(product, reload = render) {
     });
     ops.append(opsRow);
     tr.append(specCell, imageCell, marketCell, priceCell, stockCell, state, ops);
+    if (product.status === "banned" || sku.status === "banned") {
+      tr.querySelectorAll("input, textarea, button").forEach(node => { node.disabled = true; });
+      opsRow.replaceChildren(h("span", "muted", "平台禁售 · 只读"));
+    }
     tbody.append(tr);
   });
   table.append(head, tbody);
+  if (product.status !== "banned" && product.skus.every(sku => sku.status !== "banned")) {
+    makeSortable(tbody, "tr", async ids => {
+      try {
+        if (unsaved) throw new Error("请先保存规格内容的修改，再拖拽排序");
+        const sorted = await api(`/api/v1/b/products/${product.id}/skus/sort`, {method: "POST", body: JSON.stringify({ordered_ids: ids})});
+        product.skus.splice(0, product.skus.length, ...sorted.skus);
+      } catch (error) { toast(error.message, "bad"); throw error; }
+    });
+  }
   wrap.append(table);
   panel.append(wrap);
 
@@ -1793,11 +2072,25 @@ function renderSkuPanel(product, reload = render) {
     }
   });
   addRow.append(spec, price, stock, add);
+  if (product.status === "banned") addRow.querySelectorAll("input, button").forEach(node => { node.disabled = true; });
   panel.append(addRow);
   return panel;
 }
 
 /** 规格表单的本地校验，先拦一次，省得拿英文的接口报错去给商家看。 */
+function readSkuParameters(text) {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (lines.length > 12) throw new Error("商品参数最多12项");
+  return lines.map(line => {
+    const at = line.search(/[:：]/);
+    const name = line.slice(0, at).trim();
+    const value = line.slice(at + 1).trim();
+    if (at <= 0 || !name || !value) throw new Error("参数请按“名称：内容”填写，每行一项");
+    if (name.length > 24 || value.length > 100) throw new Error("参数名称最多24字，内容最多100字");
+    return { name, value };
+  });
+}
+
 function checkSkuInput(specInput, priceInput, stockInput, marketInput) {
   const spec = specInput.value.trim();
   if (!spec) return "规格名不能为空";
@@ -2045,7 +2338,7 @@ function orderDetails(order) {
     row.append(h("div", "", `${item.product_name} · ${item.sku_spec}`), h("span", "muted", `${money(item.price_yuan)} × ${item.quantity}`));
     panel.append(row);
   });
-  panel.append(h("p", "muted", `商品 ${money(order.goods_yuan)} · 运费 ${money(order.freight_yuan)}`), h("div", "order-detail-total", `订单金额 ${money(order.total_yuan)}`));
+  panel.append(h("p", "muted", `商品 ${money(order.goods_yuan)} · 运费 ${money(order.freight_yuan)}${order.discount_yuan ? ` · ${order.coupon_name} 优惠 ${money(order.discount_yuan)}` : ""}`), h("div", "order-detail-total", `订单金额 ${money(order.total_yuan)}`));
   mask.append(panel); document.body.append(mask); close.focus();
 }
 
@@ -2062,12 +2355,14 @@ async function shopForm() {
   const grid = h("div", "form-grid");
   grid.append(
     field("店铺名称", "name", shop.name),
+    field("专属 AI 昵称（最多10字，无空格）", "assistant_name", storeAssistantName(shop)),
     statusField(shop.status),
     field("店铺 Logo 地址", "logo_url", shop.logo_url),
     field("主题色", "theme_color", shop.theme_color, false, "color"),
     field("店铺公告", "notice", shop.notice, true, "textarea")
   );
   panel.append(grid);
+  grid.querySelector('[name="assistant_name"]').maxLength = 10;
   const hint = h("p", "muted", "主题色会直接用在买家端的按钮、价格和标签上，改完刷新买家端就能看到");
   panel.append(hint);
   const error = h("p", "muted", "");
@@ -2075,21 +2370,30 @@ async function shopForm() {
   submit.type = "submit";
   panel.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (submit.disabled) return;
+    submit.disabled = true;
     try {
       shopInfo = await api("/api/v1/b/shop", {
         method: "PATCH",
         body: JSON.stringify({
           name: val(panel, "name"),
+          assistant_name: val(panel, "assistant_name"),
           notice: val(panel, "notice"),
           status: val(panel, "status") || "open",
           logo_url: val(panel, "logo_url"),
           theme_color: val(panel, "theme_color"),
         }),
       });
+      if (!shopInfo.assistant_name) {
+        error.textContent = "其他设置已保存；AI昵称接口尚未加载，请正常重启后端后再保存昵称。";
+        return;
+      }
       toast("店铺设置已保存", "ok");
       render();
     } catch (err) {
       error.textContent = err.message;
+    } finally {
+      submit.disabled = false;
     }
   });
   panel.append(error, submit);
@@ -2110,7 +2414,11 @@ async function shopForm() {
   row.append(link, copy);
   share.append(row);
 
-  box.append(panel, share);
+  box.append(settingsSummary(panel, "店铺信息", [
+    ["店铺名称", shop.name], ["营业状态", shop.status === "open" ? "营业中" : "已休息"],
+    ["AI昵称", storeAssistantName(shop)], ["主题色", shop.theme_color],
+    ["店铺Logo", shop.logo_url ? "已配置" : "使用默认标识"], ["店铺公告", shop.notice],
+  ]), share);
   return box;
 }
 
@@ -2150,3 +2458,73 @@ function field(label, name, value, full = false, type = "input") {
 
 window.addEventListener("hashchange", render);
 render();
+
+
+async function couponsAdmin() {
+  const rows = await api("/api/v1/b/coupons");
+  const box = h("div", "coupons-admin");
+  box.append(h("h1", "page-title", "优惠券管理"), h("p", "muted", "店铺商品通用，每人每券限领一张，每单限用一张；按优惠前商品金额判断门槛和包邮，不抵运费。发放后规则固定，可随时停用。"));
+  const form = h("form", "form-grid coupon-admin-form");
+  const addField = (title, name, type, value, min, max) => {
+    const label = h("label"); label.append(h("span", "", title));
+    const input = h("input"); input.name = name; input.type = type; input.required = true; input.value = value;
+    if (min !== undefined) input.min = min;
+    if (max !== undefined) input.max = max;
+    if (type === "number") input.step = name === "total_count" ? "1" : ".01";
+    if (name === "name") input.maxLength = 60;
+    label.append(input); form.append(label);
+  };
+  const localDate = date => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,16);
+  addField("券名称", "name", "text", "店铺满减券");
+  addField("使用门槛（元，0为无门槛）", "threshold", "number", "99", 0, 1000000);
+  addField("优惠金额（元）", "amount", "number", "10", .01, 1000000);
+  addField("发放总量", "total_count", "number", "100", 1, 1000000);
+  addField("开始时间", "starts_at", "datetime-local", localDate(new Date()));
+  addField("结束时间", "ends_at", "datetime-local", localDate(new Date(Date.now() + 30 * 86400000)));
+  const error = h("p", "muted");
+  const save = h("button", "btn", "创建并发放"); save.type = "submit";
+  form.append(save, error);
+  form.addEventListener("submit", async event => {
+    event.preventDefault(); save.disabled = true; error.textContent = "";
+    try {
+      await api("/api/v1/b/coupons", {method:"POST", body:JSON.stringify({name:val(form,"name"), threshold_cents:Math.round(Number(val(form,"threshold"))*100), amount_cents:Math.round(Number(val(form,"amount"))*100), total_count:Number(val(form,"total_count")), starts_at:new Date(val(form,"starts_at")).toISOString(), ends_at:new Date(val(form,"ends_at")).toISOString()})});
+      toast("优惠券已发放，买家可领取", "ok"); render();
+    } catch (err) { error.textContent = err.message; save.disabled = false; }
+  });
+  box.append(editorAction(`全部优惠券（${rows.length}）`, "＋ 新增优惠券", () => form));
+  const list = h("div", "panel coupon-admin-list");
+  const stateNames = {active: "发放中", scheduled: "未开始", expired: "已结束", exhausted: "已领完", disabled: "已停用"};
+  const filter = h("div", "tabs coupon-state-tabs");
+  const cards = [];
+  const noMatch = h("p", "muted", "当前状态暂无优惠券");
+  noMatch.hidden = true;
+  Object.entries({all: "全部", ...stateNames}).forEach(([key, label]) => {
+    const count = key === "all" ? rows.length : rows.filter(coupon => coupon.issuance_state === key).length;
+    const button = h("button", key === "all" ? "on" : "", `${label}（${count}）`);
+    button.addEventListener("click", () => {
+      filter.querySelectorAll("button").forEach(node => node.classList.toggle("on", node === button));
+      cards.forEach(({card, coupon}) => { card.hidden = key !== "all" && coupon.issuance_state !== key; });
+      noMatch.hidden = !cards.length || cards.some(({card}) => !card.hidden);
+    });
+    filter.append(button);
+  });
+  box.append(filter);
+  if (!rows.length) list.append(h("p", "muted", "还没有优惠券，创建后会同步到买家端。"));
+  rows.forEach(c => {
+    const card = h("div", "coupon-admin-row");
+    const info = h("div");
+    const condition = c.threshold_cents ? `满${c.threshold_cents/100}减${c.amount_cents/100}` : `立减${c.amount_cents/100}`;
+    info.append(h("b", "", `${c.name} · ${condition}`), h("p", "muted", `${new Date(c.starts_at).toLocaleString()} 至 ${new Date(c.ends_at).toLocaleString()}`),
+      h("p", "muted", `已领 ${c.claimed_count}/${c.total_count} · 剩余可领 ${c.remaining_count ?? Math.max(0, c.total_count - c.claimed_count)} · 锁定 ${c.reserved_count || 0} · 已核销 ${c.used_count} · ${stateNames[c.issuance_state] || (!c.enabled ? "已停用" : c.active ? "发放中" : "未开始或已结束")}`));
+    const toggle = h("button", "btn-ghost", c.enabled ? "停用" : "启用");
+    toggle.addEventListener("click", async () => {
+      toggle.disabled = true;
+      try { await api(`/api/v1/b/coupons/${c.id}`, {method:"PATCH", body:JSON.stringify({enabled:!c.enabled})}); render(); }
+      catch (err) { toast(err.message); toggle.disabled = false; }
+    });
+    card.append(info, toggle); list.append(card);
+    cards.push({card, coupon: c});
+  });
+  list.append(noMatch);
+  box.append(list); return box;
+}

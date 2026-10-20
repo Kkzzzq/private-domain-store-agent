@@ -54,7 +54,7 @@ UNIT
 cat > /etc/nginx/sites-available/private-store <<'NGINX'
 server {
     listen 127.0.0.1:8081;
-    server_name kkzzzq.com www.kkzzzq.com;
+    server_name kkzzzq.cyou;
     client_max_body_size 10m;
     location / {
         proxy_pass http://127.0.0.1:8001;

@@ -18,6 +18,42 @@ def test_tags_start_from_seeded_library(client):
     assert sum(row["product_count"] for row in rows) >= 4
 
 
+def test_tag_independent_colors_reach_buyer_and_partial_updates(client):
+    headers = login(client, "merchant")
+    row = next(item for item in merchant_tags(client, headers) if item["name"] == "爆款")
+    colors = {"background_color": "#faf1de", "border_color": "#e0be8a", "text_color": "#60411a"}
+    changed = client.patch(f"/api/v1/b/tags/{row['id']}", headers=headers, json=colors)
+    assert changed.status_code == 200
+    assert all(changed.json()[key] == value for key, value in colors.items())
+    client.patch(f"/api/v1/b/tags/{row['id']}", headers=headers, json={"name": "热门"})
+    products = client.get("/api/v1/c/shops/nanzhi/products").json()
+    badge = next(tag for product in products for tag in product["tags"] if tag["name"] == "热门")
+    assert all(badge[key] == value for key, value in colors.items())
+    cleared = client.patch(f"/api/v1/b/tags/{row['id']}", headers=headers, json={"text_color": ""}).json()
+    assert cleared["text_color"] == ""
+    assert cleared["background_color"] == colors["background_color"]
+
+
+def test_tag_style_create_validate_and_delete(client):
+    headers = login(client, "merchant")
+    colors = {"background_color": "#faf1de", "border_color": "#e0be8a", "text_color": "#60411a"}
+    created = client.post("/api/v1/b/tags", headers=headers, json={"name": "配色测试", **colors})
+    assert created.status_code == 200
+    assert all(created.json()[key] == value for key, value in colors.items())
+    tag_id = created.json()["id"]
+    for key in colors:
+        assert client.patch(f"/api/v1/b/tags/{tag_id}", headers=headers, json={key: "red;display:none"}).status_code == 422
+    assert client.delete(f"/api/v1/b/tags/{tag_id}", headers=headers).status_code == 200
+    assert client.post("/api/v1/b/tags", headers=headers, json={"name": "配色测试", **colors}).status_code == 200
+
+
+def test_buyer_cannot_change_tag_style(client):
+    merchant = login(client, "merchant")
+    buyer = login(client, "alice")
+    row = merchant_tags(client, merchant)[0]
+    assert client.patch(f"/api/v1/b/tags/{row['id']}", headers=buyer, json={"text_color": "#123456"}).status_code == 403
+
+
 def test_buyer_card_carries_merchant_tags(client):
     listed = client.get("/api/v1/c/shops/nanzhi/products").json()
     pillow = next(item for item in listed if item["name"] == "亚麻抱枕套")

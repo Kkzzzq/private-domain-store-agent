@@ -3,6 +3,10 @@ import os
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["REDIS_URL"] = "memory"
 os.environ["AGENT_MODE"] = "fallback"
+os.environ["STRICT_DEPENDENCIES"] = "false"
+os.environ["AGENT_REQUIRE_LLM"] = "false"
+os.environ["RAG_REQUIRE_VECTORS"] = "false"
+os.environ["EMBEDDING_PROVIDER"] = "ollama"
 os.environ["JWT_SECRET"] = "test-secret"
 os.environ["CHROMA_PATH"] = "./data/test-chroma"
 

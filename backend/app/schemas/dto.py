@@ -1,6 +1,7 @@
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from app.schemas.storefront import StorefrontSettings
 
 
 class RegisterIn(BaseModel):
@@ -40,6 +41,8 @@ class SocialAccount(BaseModel):
 
 
 class ShopUpdate(BaseModel):
+    storefront: StorefrontSettings | None = None
+    assistant_name: str | None = Field(default=None, max_length=10, pattern=r"^[\u4e00-\u9fffA-Za-z0-9·_-]{1,10}$")
     name: str | None = Field(default=None, min_length=1, max_length=64)
     notice: str | None = Field(default=None, max_length=500)
     logo_url: str | None = Field(default=None, max_length=500)
@@ -52,6 +55,8 @@ class ShopUpdate(BaseModel):
 
 
 class ShopOut(BaseModel):
+    storefront: StorefrontSettings = Field(default_factory=StorefrontSettings)
+    assistant_name: str = "小店"
     id: int
     name: str
     notice: str
@@ -76,27 +81,48 @@ class TokenOut(BaseModel):
     user: UserOut
 
 
+class SkuParameter(BaseModel):
+    name: str = Field(min_length=1, max_length=24)
+    value: str = Field(min_length=1, max_length=100)
+
+    @field_validator("name", "value")
+    @classmethod
+    def trim_parameter(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("参数名称和值不能为空")
+        return value
+
+
 class SkuIn(BaseModel):
     spec: str = Field(min_length=1, max_length=40)
     image_url: str = Field(default="", max_length=500)
     price_yuan: float = Field(gt=0, le=100000)
     market_price_yuan: float | None = Field(default=None, gt=0, le=100000)
     stock: int = Field(ge=0, le=100000)
+    parameters: list[SkuParameter] = Field(default_factory=list, max_length=12)
 
 
 class ProductIn(BaseModel):
+    status: Literal["draft", "off"] = "draft"
     name: str = Field(min_length=1, max_length=128)
-    category: str = Field(default="家居", max_length=64)
+    category: str = Field(default="家居", max_length=15)
     description: str = Field(default="", max_length=2000)
     image_url: str = Field(default="", max_length=500)
     limit_per_user: int = Field(default=0, ge=0, le=99)
     tag_names: list[str] = Field(default_factory=list, max_length=4)
-    skus: list[SkuIn] = Field(min_length=1, max_length=20)
+    skus: list[SkuIn] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def require_completed_product_skus(self):
+        if self.status != "draft" and not self.skus:
+            raise ValueError("非草稿商品至少需要一个规格")
+        return self
 
 
 class ProductUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
-    category: str | None = Field(default=None, max_length=64)
+    category: str | None = Field(default=None, max_length=15)
     description: str | None = Field(default=None, max_length=2000)
     image_url: str | None = Field(default=None, max_length=500)
     sort_order: int | None = Field(default=None, ge=0, le=9999)
@@ -105,6 +131,7 @@ class ProductUpdate(BaseModel):
 
 
 class SkuUpdate(BaseModel):
+    parameters: list[SkuParameter] | None = Field(default=None, max_length=12)
     spec: str | None = Field(default=None, min_length=1, max_length=40)
     image_url: str | None = Field(default=None, max_length=500)
     price_yuan: float | None = Field(default=None, gt=0, le=100000)
@@ -113,6 +140,8 @@ class SkuUpdate(BaseModel):
 
 
 class SkuOut(BaseModel):
+    sort_order: int = 0
+    parameters: list[SkuParameter] = Field(default_factory=list)
     id: int
     spec: str
     image_url: str
@@ -123,7 +152,13 @@ class SkuOut(BaseModel):
     purchasable: bool | None = None
 
 
-class TagIn(BaseModel):
+class TagStyle(BaseModel):
+    background_color: str = Field(default="", pattern=r"^(#[0-9a-fA-F]{6})?$")
+    border_color: str = Field(default="", pattern=r"^(#[0-9a-fA-F]{6})?$")
+    text_color: str = Field(default="", pattern=r"^(#[0-9a-fA-F]{6})?$")
+
+
+class TagIn(TagStyle):
     name: str = Field(min_length=1, max_length=16)
     color: str = Field(default="", max_length=16)
 
@@ -132,9 +167,12 @@ class TagUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=16)
     color: str | None = Field(default=None, max_length=16)
     sort_order: int | None = Field(default=None, ge=0, le=9999)
+    background_color: str | None = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")
+    border_color: str | None = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")
+    text_color: str | None = Field(default=None, pattern=r"^(#[0-9a-fA-F]{6})?$")
 
 
-class TagOut(BaseModel):
+class TagOut(TagStyle):
     id: int
     name: str
     color: str
@@ -142,7 +180,7 @@ class TagOut(BaseModel):
     product_count: int
 
 
-class TagRef(BaseModel):
+class TagRef(TagStyle):
     """挂在商品上的标签，买家端只关心名字和颜色。"""
 
     name: str
@@ -183,6 +221,7 @@ class OrderLine(BaseModel):
 
 
 class OrderCreate(BaseModel):
+    user_coupon_id: int | None = Field(default=None, ge=1)
     sku_id: int | None = Field(default=None, ge=1)
     quantity: int = Field(default=1, ge=1, le=20)
     items: list[OrderLine] | None = None
@@ -207,6 +246,7 @@ class CartUpdate(BaseModel):
 
 
 class CartCheckout(BaseModel):
+    user_coupon_id: int | None = Field(default=None, ge=1)
     address: str = Field(min_length=4, max_length=120)
     receiver: str = Field(default="", max_length=32)
     phone: str = Field(default="", max_length=20)
@@ -289,11 +329,11 @@ class BannerOut(BaseModel):
 
 
 class CategoryIn(BaseModel):
-    name: str = Field(min_length=1, max_length=32)
+    name: str = Field(min_length=1, max_length=15)
 
 
 class CategoryUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=32)
+    name: str | None = Field(default=None, min_length=1, max_length=15)
     sort_order: int | None = Field(default=None, ge=0, le=9999)
 
 
@@ -397,6 +437,8 @@ class OrderItemOut(BaseModel):
 
 
 class OrderOut(BaseModel):
+    discount_yuan: float = 0
+    coupon_name: str = ""
     order_no: str
     shop_id: int
     shop_name: str
@@ -441,12 +483,17 @@ class ChatOut(BaseModel):
     notices: list[str]
     intent: str = "unclear"
     products: list[dict] = Field(default_factory=list)
+    sources: list[dict] = Field(default_factory=list)
+    retrieval_mode: str = "none"
+    model_retries: int = 0
+    summary_mode: str = "none"
 
 
 class SessionOut(BaseModel):
     session_id: str
     summary: str
     messages: list[dict]
+    summary_mode: str = "none"
 
 
 class ReindexOut(BaseModel):

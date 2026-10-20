@@ -5,10 +5,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.redis_client import get_redis
-from app.models.tables import Product, ProductTagLink, Shop, Sku, User
+from app.models.tables import Product, ProductTagLink, Shop, ShopAssistantProfile, Sku, SkuParameterProfile, User
+from app.services.assistant_identity import assistant_name
 from app.schemas.dto import ProductIn, ProductUpdate, ShopUpdate, SkuIn, SkuUpdate
 from app.services.reviews import rating_map
-from app.services.shelf import listed_on_c, next_status, visible_skus
+from app.services.shelf import assert_merchant_editable, listed_on_c, next_status, ordered_skus, visible_skus
 from app.services.tags import sync_product_tags, tags_of
 
 
@@ -39,7 +40,10 @@ def shop_by_code(db: Session, share_code: str) -> Shop:
 
 
 def serialize_shop(shop: Shop) -> dict:
+    from app.services.storefront import storefront_settings
     return {
+        "storefront": storefront_settings(shop).model_dump(),
+        "assistant_name": assistant_name(shop),
         "id": shop.id,
         "name": shop.name,
         "notice": shop.notice,
@@ -64,28 +68,44 @@ DEFAULT_PROMISES = [
 ]
 
 
+def _configured_promises(settings):
+    from app.services.storefront import shipping_promise
+    return {
+        "authenticity": dict(DEFAULT_PROMISES[0]),
+        "returns": dict(DEFAULT_PROMISES[1]) if settings.return_text == "7天无理由退货，定制品和已使用商品除外" else
+                   {"title": "退换说明", "sub": settings.return_text[:40]} if settings.return_text else None,
+        "shipping": shipping_promise(settings),
+        "dispatch": dict(DEFAULT_PROMISES[3]) if settings.dispatch_text == "付款后48小时内发货" else
+                    {"title": "发货说明", "sub": settings.dispatch_text[:40]} if settings.dispatch_text else None,
+    }
+
+
 def promises_of(shop: Shop) -> list[dict]:
+    from app.services.storefront import storefront_settings
+    defaults = [row for row in _configured_promises(storefront_settings(shop)).values() if row]
     raw = (shop.promises or "").strip()
     if not raw:
-        return [dict(item) for item in DEFAULT_PROMISES]
+        return defaults
     try:
         rows = json.loads(raw)
     except ValueError:
-        return [dict(item) for item in DEFAULT_PROMISES]
+        return defaults
     if not isinstance(rows, list) or not rows:
-        return [dict(item) for item in DEFAULT_PROMISES]
+        return defaults
     return [
         {"title": str(row.get("title", ""))[:16], "sub": str(row.get("sub", ""))[:40]}
         for row in rows
         if isinstance(row, dict) and str(row.get("title", "")).strip()
-    ] or [dict(item) for item in DEFAULT_PROMISES]
+    ] or defaults
 
 
 def serialize_sku(sku: Sku, *, purchasable: bool | None = None) -> dict:
     data = {
         "id": sku.id,
+        "sort_order": sku.sort_order or 0,
         "spec": sku.spec,
         "image_url": sku.image_url or "",
+        "parameters": sku.parameter_profile.parameters if sku.parameter_profile else [],
         "price_yuan": yuan(sku.price_cents),
         "market_price_yuan": yuan(sku.market_price_cents) if sku.market_price_cents else None,
         "stock": sku.stock,
@@ -106,9 +126,9 @@ def serialize_product(
         skus = visible_skus(product)
         sku_rows = [serialize_sku(sku, purchasable=sku.stock > 0) for sku in skus]
     else:
-        sku_rows = [serialize_sku(sku) for sku in product.skus]
+        sku_rows = [serialize_sku(sku) for sku in ordered_skus(product)]
     average, count = (ratings or {}).get(product.id, (None, 0))
-    markets = [row["market_price_yuan"] for row in sku_rows if row.get("market_price_yuan")]
+    starting_sku = min(sku_rows, key=lambda row: (row["price_yuan"], row["id"]), default=None)
     tags = tags_of(product)
     return {
         "id": product.id,
@@ -124,7 +144,7 @@ def serialize_product(
         "rating_avg": average,
         "review_count": count,
         "price_from": min((row["price_yuan"] for row in sku_rows), default=None),
-        "market_from": min(markets, default=None),
+        "market_from": starting_sku["market_price_yuan"] if starting_sku else None,
         "tags": tags,
         "skus": sku_rows,
     }
@@ -146,6 +166,19 @@ def _product_query():
 def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
     # 平台账号与店铺其他设置使用同一套商家权限检查。
     shop = merchant_shop(db, user)
+    previous_storefront = None
+    next_storefront = None
+    if body.storefront is not None:
+        from app.services.storefront import save_storefront_settings, storefront_settings
+        previous_storefront = storefront_settings(shop)
+        next_storefront = save_storefront_settings(db, shop, body.storefront)
+    if body.assistant_name is not None:
+        profile = db.get(ShopAssistantProfile, shop.id)
+        if profile is None:
+            db.add(ShopAssistantProfile(shop_id=shop.id, name=body.assistant_name, source="custom"))
+        else:
+            profile.name = body.assistant_name
+            profile.source = "custom"
     if body.name is not None:
         shop.name = body.name.strip()
     if body.notice is not None:
@@ -167,6 +200,22 @@ def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
         )
     if body.status is not None:
         shop.status = body.status
+    if previous_storefront is not None and shop.promises:
+        previous_promises = _configured_promises(previous_storefront)
+        next_promises = _configured_promises(next_storefront)
+        try:
+            rows = json.loads(shop.promises)
+        except ValueError:
+            rows = []
+        if not isinstance(rows, list):
+            rows = []
+        aligned = []
+        for row in rows:
+            key = next((key for key, value in previous_promises.items() if row == value), None)
+            value = next_promises[key] if key else row
+            if value is not None:
+                aligned.append(value)
+        shop.promises = json.dumps(aligned, ensure_ascii=False)
     db.commit()
     db.refresh(shop)
     invalidate_catalog_cache()
@@ -176,7 +225,7 @@ def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
 def list_b_products(db: Session, user: User, keyword: str = "", status: str = "") -> list[dict]:
     shop = merchant_shop(db, user)
     products = db.scalars(_product_query().where(Product.shop_id == shop.id)).unique().all()
-    if status in {"on", "off", "banned"}:
+    if status in {"draft", "on", "off", "banned"}:
         products = [product for product in products if product.status == status]
     if keyword:
         products = [product for product in products if keyword in product.name]
@@ -295,6 +344,7 @@ def _owned_product(db: Session, user: User, product_id: int) -> Product:
 
 def _sku_row(sku: SkuIn) -> Sku:
     return Sku(
+        parameter_profile=SkuParameterProfile(parameters=[item.model_dump() for item in sku.parameters]) if sku.parameters else None,
         spec=sku.spec.strip(),
         image_url=sku.image_url.strip(),
         price_cents=to_cents(sku.price_yuan),
@@ -313,12 +363,14 @@ def create_product(db: Session, user: User, body: ProductIn) -> dict:
         category=body.category.strip(),
         description=body.description.strip(),
         image_url=body.image_url.strip(),
-        status="off",
+        status=body.status,
         sort_order=max_sort + 1,
         limit_per_user=body.limit_per_user,
     )
-    for sku in body.skus:
-        product.skus.append(_sku_row(sku))
+    for index, sku in enumerate(body.skus):
+        row = _sku_row(sku)
+        row.sort_order = index + 1
+        product.skus.append(row)
     db.add(product)
     db.commit()
     from app.services.categories import register_category_name
@@ -333,10 +385,13 @@ def create_product(db: Session, user: User, body: ProductIn) -> dict:
 
 def add_sku(db: Session, user: User, product_id: int, body: SkuIn) -> dict:
     product = _owned_product(db, user, product_id)
+    assert_merchant_editable(product)
     spec = body.spec.strip()
     if any(sku.spec == spec for sku in product.skus):
         raise HTTPException(status_code=400, detail="这个规格已经存在")
-    product.skus.append(_sku_row(body))
+    row = _sku_row(body)
+    row.sort_order = max((sku.sort_order or 0 for sku in product.skus), default=0) + 1
+    product.skus.append(row)
     db.commit()
     invalidate_catalog_cache()
     return serialize_product(_owned_product(db, user, product_id), audience="b")
@@ -344,6 +399,7 @@ def add_sku(db: Session, user: User, product_id: int, body: SkuIn) -> dict:
 
 def update_product(db: Session, user: User, product_id: int, body: ProductUpdate) -> dict:
     product = _owned_product(db, user, product_id)
+    assert_merchant_editable(product)
     if body.name is not None:
         product.name = body.name.strip()
     if body.category is not None:
@@ -369,6 +425,11 @@ def update_product(db: Session, user: User, product_id: int, body: ProductUpdate
 
 def change_product_status(db: Session, user: User, product_id: int, action: str) -> dict:
     product = _owned_product(db, user, product_id)
+    assert_merchant_editable(product)
+    if action in ("ban", "unban"):
+        raise HTTPException(403, "禁售与解禁只能由平台处理")
+    if product.status == "draft" and not any(sku.status == "on" for sku in product.skus):
+        raise HTTPException(400, "请至少添加一个可售规格，再完成创建或上架")
     product.status = next_status(product.status, action)
     db.commit()
     invalidate_catalog_cache()
@@ -390,14 +451,18 @@ def _owned_sku(db: Session, user: User, sku_id: int) -> Sku:
 
 def update_sku(db: Session, user: User, sku_id: int, body: SkuUpdate) -> dict:
     sku = _owned_sku(db, user, sku_id)
+    assert_merchant_editable(sku.product, sku)
+    if body.parameters is not None:
+        sku.parameter_profile = SkuParameterProfile(parameters=[item.model_dump() for item in body.parameters]) if sku.parameter_profile is None else sku.parameter_profile
+        sku.parameter_profile.parameters = [item.model_dump() for item in body.parameters]
     if body.spec is not None:
         sku.spec = body.spec.strip()
     if body.image_url is not None:
         sku.image_url = body.image_url.strip()
     if body.price_yuan is not None:
         sku.price_cents = to_cents(body.price_yuan)
-    if body.market_price_yuan is not None:
-        sku.market_price_cents = to_cents(body.market_price_yuan)
+    if "market_price_yuan" in body.model_fields_set:
+        sku.market_price_cents = to_cents(body.market_price_yuan) if body.market_price_yuan is not None else 0
     if body.stock is not None:
         sku.stock = body.stock
     db.commit()
@@ -407,10 +472,31 @@ def update_sku(db: Session, user: User, sku_id: int, body: SkuUpdate) -> dict:
 
 def change_sku_status(db: Session, user: User, sku_id: int, action: str) -> dict:
     sku = _owned_sku(db, user, sku_id)
+    assert_merchant_editable(sku.product, sku)
+    if action in ("ban", "unban"):
+        raise HTTPException(403, "禁售与解禁只能由平台处理")
     sku.status = next_status(sku.status, action)
     db.commit()
     invalidate_catalog_cache()
     return serialize_product(_owned_product(db, user, sku.product_id), audience="b")
+
+
+def reorder_skus(db: Session, user: User, product_id: int, ordered_ids: list[int]) -> dict:
+    product = _owned_product(db, user, product_id)
+    assert_merchant_editable(product)
+    db.execute(select(Product.id).where(Product.id == product.id).with_for_update()).all()
+    rows = db.scalars(select(Sku).where(Sku.product_id == product.id).with_for_update()).all()
+    by_id = {row.id: row for row in rows}
+    if len(set(ordered_ids)) != len(rows) or len(ordered_ids) != len(rows) or set(ordered_ids) != set(by_id):
+        raise HTTPException(409, "规格列表已变化或包含其他商品规格，请刷新后重试")
+    if any(row.status == "banned" for row in rows):
+        raise HTTPException(403, "存在禁售规格，商家不能调整规格顺序")
+    for index, row_id in enumerate(ordered_ids):
+        by_id[row_id].sort_order = index + 1
+    db.commit()
+    db.expire_all()
+    invalidate_catalog_cache()
+    return serialize_product(_owned_product(db, user, product_id), audience="b")
 
 
 def load_sku_for_shop(db: Session, shop_id: int, sku_id: int) -> Sku | None:

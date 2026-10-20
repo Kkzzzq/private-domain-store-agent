@@ -3,43 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>南枝手作 · 私域电商智能运营平台</title>
-  <link rel="stylesheet" href="/mall.css">
+  <title>南枝手作 · 欢迎来到小店</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/portal.css?v=20261020">
 </head>
 <body>
-  <header class="header">
-    <div class="wrap">
-      <div class="brand">
-        <div class="mark">南</div>
-        <div>
-          <div class="name">南枝手作</div>
-          <div class="sub">PRIVATE STORE AGENT</div>
-        </div>
-      </div>
-      <div class="searchbox">
-        <p class="muted">私域独立店铺。商家在后台改商品和库存，买家从分享码进店，两端读的是同一套数据。</p>
-      </div>
-    </div>
-  </header>
-  <main class="wrap" style="padding:8px 0 40px">
-    <div class="grid" style="grid-template-columns:repeat(2,1fr);max-width:880px">
-      <a class="pcard" href="/c.html?code=nanzhi">
-        <div class="thumb"><img src="/covers/pillow.jpg" alt="买家店铺"></div>
-        <div class="body">
-          <div class="title">买家店铺</div>
-          <div class="meta"><span>分享码 nanzhi</span><span>买家登录或注册</span></div>
-          <div class="foot"><span class="muted">搜索 · 加购 · 下单 · 售后问答</span></div>
-        </div>
-      </a>
-      <a class="pcard" href="/b.html">
-        <div class="thumb"><img src="/covers/notebook.jpg" alt="商家后台"></div>
-        <div class="body">
-          <div class="title">商家工作台</div>
-          <div class="meta"><span>商家后台</span><span>使用商家账号登录</span></div>
-          <div class="foot"><span class="muted">商品 · 库存 · 订单 · 店铺设置</span></div>
-        </div>
-      </a>
-    </div>
-  </main>
+  <div class="portal-shell">
+    <header class="portal-header">
+      <a class="brand" href="/" aria-label="南枝手作首页"><span class="brand-mark">南</span><span class="brand-name">南枝手作<small>NANZHI STUDIO</small></span></a>
+      <span class="header-note">器物有温度，日常有心意</span>
+    </header>
+    <main>
+      <section class="intro" aria-labelledby="welcome-title">
+        <p class="eyebrow"><span></span> A LITTLE STORE, A LOVELY EVERYDAY</p>
+        <h1 id="welcome-title">让喜欢的好物，<br class="mobile-break">走进日常。</h1>
+        <p class="intro-copy">逛逛小店，发现一件心仪之物。<br>也让每一份用心经营，都有条不紊。</p>
+      </section>
+      <section class="entry-grid" aria-label="选择入口">
+        <a class="entry-card" href="/c.html?code=nanzhi">
+          <div class="card-image"><img src="/covers/pillow.jpg" alt="阳光下的柔软布艺与温暖居室" fetchpriority="high"><span class="image-label">把喜欢带回家</span></div>
+          <div class="card-content">
+            <div class="card-heading"><span class="card-index">01 / EXPLORE</span><span class="entry-code">小店 · nanzhi</span></div>
+            <h2>逛逛南枝小店</h2><p>杯盏、布艺与生活小物，挑一件属于你的日常。</p>
+            <div class="card-bottom"><span class="features">发现好物 · 轻松选购 · 店内助手</span><span class="entry-cta">进入小店 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></span></div>
+          </div>
+        </a>
+        <a class="entry-card merchant-card" href="/b.html">
+          <div class="card-image"><img src="/covers/notebook.jpg" alt="桌上的笔记本与日常经营记录"><span class="image-label">经营每一份热爱</span></div>
+          <div class="card-content">
+            <div class="card-heading"><span class="card-index">02 / MANAGE</span><span class="entry-code">商家专属</span></div>
+            <h2>打理我的小店</h2><p>从上新到发货，让小店的每一件事都有着落。</p>
+            <div class="card-bottom"><span class="features">商品管理 · 订单处理 · 店铺装修</span><span class="entry-cta">商家工作台 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></span></div>
+          </div>
+        </a>
+      </section>
+    </main>
+    <footer class="portal-footer"><span>南枝手作</span><span>认真选物，用心生活。</span></footer>
+  </div>
+  <script src="/site-registration.js?v=20261020"></script>
 </body>
 </html>

@@ -12,20 +12,29 @@ def _normalize_args(raw) -> dict:
     if isinstance(raw, str):
         try:
             parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError as exc:
+            raise ValueError("工具参数不是合法JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("工具参数必须为对象")
+        return parsed
     if isinstance(raw, dict):
         return raw
-    return {}
+    if raw is None:
+        return {}
+    raise ValueError("工具参数必须为对象")
 
 
 def execute_tool(name: str, raw_args) -> str:
     started = time.monotonic()
-    args = _normalize_args(raw_args)
+    args = {}
     def finish(result, ok=True, flag=""):
         record(name, args, ok, int((time.monotonic() - started) * 1000), flag)
         return result
+
+    try:
+        args = _normalize_args(raw_args)
+    except ValueError:
+        return finish("参数缺失或无效：工具参数必须是合法JSON对象", False, "invalid_args")
 
     if name not in allowed_tools(current()[1].role):
         return finish("不支持的工具或无权调用。", False, "forbidden_tool")
@@ -36,10 +45,14 @@ def execute_tool(name: str, raw_args) -> str:
     if spec is None or func is None:
         return finish("不支持的工具。", False, "unknown_tool")
     try:
-        parsed = spec.model_validate(_normalize_args(raw_args))
+        parsed = spec.model_validate(args)
     except ValidationError as exc:
-        loc = ".".join(str(part) for part in exc.errors()[0]["loc"])
+        error = exc.errors()[0]
+        loc = ".".join(str(part) for part in error["loc"]) or error["msg"]
         return finish(f"参数缺失或无效：{loc}", False, "invalid_args")
+
+    if name in ("recommend_products", "clarify_recommendation") and not current()[1].catalog_loaded:
+        return finish("请先调用get_store_catalog了解本店商品。", False, "catalog_required")
 
     for _ in range(2):
         try:

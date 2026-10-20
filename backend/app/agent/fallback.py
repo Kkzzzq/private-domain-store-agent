@@ -46,6 +46,8 @@ def fallback_reply(message: str) -> tuple[str, list[dict]]:
         args = {}
         name = {"overview": "merchant_overview", "low_inventory": "low_inventory", "recommend": "recommend_products"}[intent]
         if intent == "recommend":
+            if any(word in message for word in ("不要", "不喜欢", "只要", "适合", "材质", "送", "排除", "便宜一点", "换一个", "陶瓷", "抱枕", "杯", "蜡烛", "棉麻", "两", "件", "只")):
+                return "当前使用规则兜底，暂不能可靠解析材质、用途、数量和排除条件。请稍后使用智能推荐，或在商品页面按条件挑选；我不会忽略这些要求直接推荐热销商品。", []
             budget = re.search(r"(?:预算\s*|)(\d+(?:\.\d+)?)\s*(?:元|块|以内|以下)", message)
             related = re.search(r"(?:商品\s*|id\s*)(\d+)", message, re.I)
             args = {"reason": "viewed" if "浏览" in message or "再推荐" in message else "hot"}
@@ -57,8 +59,13 @@ def fallback_reply(message: str) -> tuple[str, list[dict]]:
                 args = {"reason": "budget", "budget_yuan": float(budget.group(1))}
             elif "预算" in message:
                 return "请告诉我预算金额，例如预算 100 元。", []
+        traces = []
+        if intent == "recommend":
+            catalog = execute_tool("get_store_catalog", {})
+            traces.append({"tool": "get_store_catalog", "args": {}, "result": catalog})
         result = execute_tool(name, args)
-        return result, [{"tool": name, "args": args, "result": result}]
+        traces.append({"tool": name, "args": args, "result": result})
+        return result, traces
     order_no = re.search(r"PS\d{8,}", message.upper())
     if order_no or any(word in message for word in ORDER_WORDS):
         args = {"order_no": order_no.group(0)} if order_no else {}

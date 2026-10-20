@@ -19,6 +19,7 @@ test -f "$stage/web/index.html"
 test -f "$stage/backend/requirements-server.txt"
 /opt/private-store/venv/bin/python -m compileall -q "$stage/backend/app"
 mkdir -p "$backup"
+cp -a "$app/backend/.env" "$backup/backend.env"
 tar --exclude='web/covers/uploads' -czf "$backup/code.tar.gz" -C "$app" backend/app backend/knowledge web
 cp -a "$app/venv" "$backup/venv"
 systemctl stop private-store
@@ -35,13 +36,7 @@ rollback() {
     systemctl start private-store || true
 }
 trap 'rollback' ERR
-"$app/venv/bin/python" - "$backup/store.db" <<'PY'
-import sqlite3,sys
-source=sqlite3.connect('file:/opt/private-store/backend/data/store.db?mode=ro',uri=True)
-target=sqlite3.connect(sys.argv[1]); source.backup(target)
-assert target.execute('PRAGMA quick_check').fetchone()[0]=='ok'
-target.close(); source.close()
-PY
+"$app/venv/bin/python" /usr/local/sbin/private-store-backup-db "$backup"
 rsync -a --delete "$stage/backend/app/" "$app/backend/app/"
 rsync -a --delete "$stage/backend/knowledge/" "$app/backend/knowledge/"
 rsync -a --delete --exclude='covers/uploads/' "$stage/web/" "$app/web/"
@@ -50,7 +45,7 @@ chown -R storeapp:storeapp "$app/backend/app" "$app/backend/knowledge" "$app/web
 systemctl start private-store
 healthy=0
 for attempt in $(seq 1 30); do
-    if curl --fail --silent --max-time 2 http://127.0.0.1:8001/api/v1/health | "$app/venv/bin/python" -c 'import json,sys; assert json.load(sys.stdin)["status"]=="ok"' 2>/dev/null; then healthy=1; break; fi
+    if curl --fail --silent --max-time 2 http://127.0.0.1:8001/api/v1/ready | "$app/venv/bin/python" -c 'import json,sys; result=json.load(sys.stdin); assert result["status"]=="ready" and all(result["checks"].values())' 2>/dev/null; then healthy=1; break; fi
     sleep 2
 done
 test "$healthy" = 1

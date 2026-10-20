@@ -3,6 +3,19 @@
 from test_bc_link import find, login
 
 
+def test_category_names_limit_fifteen_characters_at_all_write_paths(client):
+    headers = login(client, "merchant")
+    name = "分" * 15
+    created = client.post('/api/v1/b/categories', headers=headers, json={'name':name})
+    assert created.status_code == 200
+    path = f"/api/v1/b/categories/{created.json()['id']}"
+    assert client.post('/api/v1/b/categories', headers=headers, json={'name':name+'类'}).status_code == 422
+    assert client.patch(path, headers=headers, json={'name':name+'类'}).status_code == 422
+    assert client.patch(path, headers=headers, json={'name':'   '}).status_code == 422
+    assert client.patch('/api/v1/b/products/1', headers=headers, json={'category':name+'类'}).status_code == 422
+    assert client.get('/api/v1/b/categories',headers=headers).json()[-1]['name'] == name
+
+
 def merchant_categories(client, headers):
     return client.get("/api/v1/b/categories", headers=headers).json()
 

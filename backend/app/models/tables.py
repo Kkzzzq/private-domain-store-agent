@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -8,6 +8,40 @@ from app.db.base import Base
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class Coupon(Base):
+    __tablename__ = "coupons"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    threshold_cents: Mapped[int] = mapped_column()
+    amount_cents: Mapped[int] = mapped_column()
+    total_count: Mapped[int] = mapped_column()
+    claimed_count: Mapped[int] = mapped_column(default=0)
+    starts_at: Mapped[datetime] = mapped_column(DateTime)
+    ends_at: Mapped[datetime] = mapped_column(DateTime)
+    enabled: Mapped[bool] = mapped_column(default=True)
+
+
+class UserCoupon(Base):
+    __tablename__ = "user_coupons"
+    __table_args__ = (UniqueConstraint("coupon_id", "user_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coupon_id: Mapped[int] = mapped_column(ForeignKey("coupons.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="available")
+    claimed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class CouponOrder(Base):
+    __tablename__ = "coupon_orders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True)
+    user_coupon_id: Mapped[int] = mapped_column(ForeignKey("user_coupons.id"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    discount_cents: Mapped[int] = mapped_column()
+    status: Mapped[str] = mapped_column(String(16), default="reserved")
 
 
 class AgentToolLog(Base):
@@ -64,6 +98,21 @@ class Shop(Base):
     orders: Mapped[list["Order"]] = relationship(back_populates="shop")
 
 
+class ShopAssistantProfile(Base):
+    __tablename__ = "shop_assistant_profiles"
+
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), primary_key=True)
+    name: Mapped[str] = mapped_column(String(16))
+    source: Mapped[str] = mapped_column(String(16), default="custom")
+
+
+class ShopStorefrontProfile(Base):
+    __tablename__ = "shop_storefront_profiles"
+
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), primary_key=True)
+    settings: Mapped[str] = mapped_column(Text, default="{}")
+
+
 class Product(Base):
     __tablename__ = "products"
 
@@ -80,7 +129,7 @@ class Product(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     shop: Mapped[Shop] = relationship(back_populates="products")
-    skus: Mapped[list["Sku"]] = relationship(back_populates="product", cascade="all, delete-orphan")
+    skus: Mapped[list["Sku"]] = relationship(back_populates="product", cascade="all, delete-orphan", order_by=lambda: (Sku.sort_order, Sku.id))
     tag_links: Mapped[list["ProductTagLink"]] = relationship(cascade="all, delete-orphan")
 
 
@@ -96,9 +145,18 @@ class Sku(Base):
     price_cents: Mapped[int] = mapped_column()
     market_price_cents: Mapped[int] = mapped_column(default=0)
     stock: Mapped[int] = mapped_column(default=0)
+    sort_order: Mapped[int] = mapped_column(default=0)
     status: Mapped[str] = mapped_column(String(16), default="on")
 
     product: Mapped[Product] = relationship(back_populates="skus")
+    parameter_profile: Mapped["SkuParameterProfile | None"] = relationship(cascade="all, delete-orphan", uselist=False, lazy="selectin")
+
+
+class SkuParameterProfile(Base):
+    __tablename__ = "sku_parameter_profiles"
+
+    sku_id: Mapped[int] = mapped_column(ForeignKey("skus.id"), primary_key=True)
+    parameters: Mapped[list[dict]] = mapped_column(JSON, default=list)
 
 
 class Order(Base):
@@ -270,6 +328,16 @@ class ProductTag(Base):
     name: Mapped[str] = mapped_column(String(16))
     color: Mapped[str] = mapped_column(String(16), default="")
     sort_order: Mapped[int] = mapped_column(default=0)
+    style_profile: Mapped["ProductTagStyle | None"] = relationship(cascade="all, delete-orphan", uselist=False, lazy="selectin")
+
+
+class ProductTagStyle(Base):
+    __tablename__ = "product_tag_styles"
+
+    tag_id: Mapped[int] = mapped_column(ForeignKey("product_tags.id"), primary_key=True)
+    background_color: Mapped[str] = mapped_column(String(7), default="")
+    border_color: Mapped[str] = mapped_column(String(7), default="")
+    text_color: Mapped[str] = mapped_column(String(7), default="")
 
 
 class ProductTagLink(Base):

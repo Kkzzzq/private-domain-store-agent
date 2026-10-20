@@ -1,0 +1,41 @@
+:root { color-scheme: light; --ink: #302d28; --muted: #90887e; --accent: #bd5037; --line: #e8e1d7; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #f8f5ef; color: var(--ink); font: 14px/1.6 "Microsoft YaHei", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+.portal-shell { width: min(1120px, calc(100% - 64px)); margin: 0 auto; }
+.portal-header { display: flex; align-items: center; justify-content: space-between; padding: 24px 0 18px; border-bottom: 1px solid var(--line); }
+.brand { display: inline-flex; align-items: center; gap: 12px; }
+.brand-mark { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 50%; background: var(--accent); color: #fff9ef; font: 24px/1 "SimSun", serif; }
+.brand-name { font-size: 20px; font-weight: 600; letter-spacing: 3px; }
+.brand-name small { display: block; font: 9px/1.6 Arial, sans-serif; letter-spacing: 2px; color: var(--muted); margin-top: 1px; }
+.header-note { color: var(--muted); font-size: 12px; letter-spacing: 2px; }
+.intro { padding: 24px 0; text-align: center; }
+.eyebrow { margin: 0 0 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #a18b70; font: 10px/1.5 Arial, sans-serif; letter-spacing: 2.2px; }
+.eyebrow span { width: 5px; height: 5px; background: #bb7f55; border-radius: 50%; }
+h1 { font: 500 clamp(30px, 3.4vw, 40px)/1.35 "Songti SC", "SimSun", serif; letter-spacing: 3px; margin: 0; }
+.mobile-break { display: none; }
+.intro-copy { margin: 12px 0 0; font-size: 13px; line-height: 1.9; color: var(--muted); }
+.entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px; }
+.entry-card { display: block; border-radius: 14px; overflow: hidden; background: #fffdf9; border: 1px solid #e9e3d9; box-shadow: 0 3px 12px #3e302005; transition: box-shadow .22s, transform .22s; }
+.entry-card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px #3e302012; }
+.entry-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.card-image { position: relative; aspect-ratio: 2.4 / 1; overflow: hidden; background: #e6e1d8; }
+.card-image img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 55%; transition: transform .45s; }
+.merchant-card .card-image img { object-position: center 46%; }
+.entry-card:hover img { transform: scale(1.025); }
+.image-label { position: absolute; left: 18px; top: 18px; border-radius: 5px; padding: 5px 10px; background: #fffdf8dd; color: #5a5145; backdrop-filter: blur(6px); font-size: 11px; letter-spacing: 1px; }
+.card-content { padding: 22px 24px 20px; }
+.card-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.card-index { font: 10px/1.5 Arial, sans-serif; color: #aa9580; letter-spacing: 1.5px; }
+.entry-code { font-size: 10px; color: #aaa195; }
+h2 { margin: 10px 0 7px; font-size: 23px; font-weight: 500; letter-spacing: 1px; }
+.card-content > p { margin: 0; color: #8b8277; font-size: 12px; }
+.card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #eee9e1; margin-top: 20px; padding-top: 16px; }
+.features { color: #a3998e; font-size: 10px; }
+.entry-cta { display: inline-flex; align-items: center; justify-content: center; gap: 12px; border-radius: 6px; padding: 8px 12px; background: #bd5037; color: #fffdf8; font-size: 12px; white-space: nowrap; }
+.entry-cta svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.merchant-card .entry-cta { background: #f1ece3; color: #6f6050; }
+.portal-footer { display: flex; justify-content: space-between; padding: 24px 0; margin-top: 20px; color: #a69b8d; font-size: 10px; letter-spacing: 1px; }
+@media (max-width: 850px) { .portal-shell { width: calc(100% - 40px); } .entry-grid { gap: 18px; } .card-content { padding: 18px; } .card-bottom { align-items: flex-start; flex-direction: column; gap: 14px; } .entry-cta { align-self: stretch; } }
+@media (max-width: 600px) { .portal-shell { width: calc(100% - 32px); } .portal-header { padding: 20px 0 18px; } .header-note { font-size: 10px; letter-spacing: 0; max-width: 100px; text-align: right; } .brand-name { font-size: 17px; } .brand-mark { width: 37px; height: 37px; font-size: 21px; } .intro { padding: 32px 0 24px; } .eyebrow { font-size: 8px; letter-spacing: 1.4px; } .mobile-break { display: initial; } .entry-grid { grid-template-columns: 1fr; gap: 20px; } .card-image { aspect-ratio: 1.9/1; } .card-bottom { flex-direction: row; align-items: center; } .features { max-width: 46%; line-height: 1.8; } .entry-cta { align-self: auto; } .portal-footer { margin-top: 8px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } .entry-card:hover { transform: none; } }
