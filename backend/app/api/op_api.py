@@ -46,12 +46,17 @@ RESOURCES = {'shops': Shop, 'products': Product, 'orders': Order, 'coupons': Cou
 
 @router.get('/records/{resource}')
 def records(resource: str, q: str = '', status: str = '', shop_id: int | None = None,
+            days: int = Query(7, ge=1, le=365),
             page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
             user: User = Depends(require_operator), db: Session = Depends(get_db)):
     model = RESOURCES.get(resource)
     if model is None:
         raise HTTPException(404, '没有此列表')
+    if resource == 'orders' and shop_id is None and not q.strip():
+        return {'items': [], 'total': 0, 'page': page, 'size': size, 'needs_filter': True}
     query = select(model)
+    if resource == 'orders' and not q.strip():
+        query = query.where(Order.created_at >= utcnow() - timedelta(days=days))
     if shop_id is not None and hasattr(model, 'shop_id'):
         query = query.where(model.shop_id == shop_id)
     if status and hasattr(model, 'status'):
@@ -107,3 +112,7 @@ def moderate(product_id: int, body: ModerateIn, user: User = Depends(require_ope
     db.commit()
     invalidate_catalog_cache()
     return {'id': product.id, 'status': product.status}
+
+
+from app.api.op_management import router as management_router
+router.include_router(management_router)
