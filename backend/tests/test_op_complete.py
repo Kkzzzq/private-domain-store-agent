@@ -191,3 +191,22 @@ def test_platform_cancel_restores_stock_once(client):
     assert client.post(endpoint,headers=h,json={'action':'cancel','reason':'平台取消未付订单'}).status_code==200
     assert client.post(endpoint,headers=h,json={'action':'cancel','reason':'重复取消测试'}).status_code==400
     with SessionLocal() as db: assert db.get(Sku,sku['id']).stock==before
+
+
+def test_create_account_and_explicit_operator_grant(client):
+    h,sid,url=context(client)
+    payload={'username':'managed_staff','nickname':'新员工','password':'staff-password-123','merchant_enabled':True,'reason':'新增平台员工'}
+    r=client.post('/api/v1/op/governance/accounts',headers=h,json=payload)
+    assert r.status_code==200,r.text
+    uid=r.json()['id'];endpoint=f'/api/v1/op/governance/accounts/{uid}'
+    assert client.post('/api/v1/op/governance/accounts',headers=h,json=payload).status_code==409
+    staff=login(client,'managed_staff','staff-password-123')
+    assert client.get('/api/v1/op/me',headers=staff).status_code==403
+    assert client.post(endpoint,headers=h,json={'action':'grant_operator','reason':'明确授予管理权限'}).status_code==200
+    assert client.get('/api/v1/op/me',headers=staff).status_code==200
+    assert client.post(endpoint,headers=h,json={'action':'revoke_operator','reason':'撤销平台权限'}).status_code==200
+    assert client.get('/api/v1/op/me',headers=staff).status_code==403
+    assert client.post(endpoint,headers=h,json={'action':'revoke_operator','reason':'重复撤权幂等'}).status_code==200
+    assert client.post('/api/v1/auth/me/close',headers=h,json={'password':'test-op-password','confirmation':'注销账号'}).status_code==409
+    assert client.post('/api/v1/op/governance/accounts',headers=staff,json={**payload,'username':'illegal_staff'}).status_code==403
+    assert 'staff-password' not in client.get('/api/v1/op/platform/audits',headers=h).text

@@ -12,11 +12,15 @@
       d.addEventListener('close',()=>{if(!done)resolve(false);});
       d.querySelector('form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('[type=submit]');button.disabled=true;try{const values=Object.fromEntries(new FormData(form));await api('/op/governance/accounts/'+id,{method:'POST',body:JSON.stringify({...values,action})});done=true;d.close();resolve(true);}catch(err){form.querySelector('.edit-error').textContent=err.message;}finally{button.disabled=false;}};
     });
-    const names={freeze:'平台封店',unfreeze:'解除封店',disable:'禁用账号',enable:'恢复账号',reset_password:'重置密码',hide:'隐藏评价',show:'恢复评价',ban:'禁售规格',unban:'解除规格禁售'};
+    const names={freeze:'平台封店',unfreeze:'解除封店',disable:'禁用账号',enable:'恢复账号',reset_password:'重置密码',hide:'隐藏评价',show:'恢复评价',ban:'禁售规格',unban:'解除规格禁售',grant_operator:'授予全部平台权限',revoke_operator:'撤销平台权限'};
     const reason=prompt('请填写'+names[action]+'原因（2—200字）');if(reason===null)return false;
     if(reason.trim().length<2||reason.length>200)throw Error('请填写2—200字的原因');
     const body={action,reason};
     await api('/op/governance/'+kind+'/'+id,{method:'POST',body:JSON.stringify(body)});return true;
+  }
+  function createAccount(api,reload){
+    const d=modal('新增平台账号',`<form class="management-edit"><label>登录账号<input name="username" pattern="[A-Za-z0-9_]{3,32}" required autocomplete="off"></label><label>昵称<input name="nickname" maxlength="32"></label><label>初始密码<input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="64" required></label><label><span><input name="merchant_enabled" type="checkbox"> 同时授权开店</span></label><label>操作原因<input name="reason" minlength="2" maxlength="200" required></label><p class="notice">创建普通账号；平台管理权限须在账号列表中单独授予。初始密码请妥善交付给账号使用人。</p><p class="edit-error" role="alert"></p><button type="submit" class="primary">创建账号</button></form>`);
+    d.querySelector('form').onsubmit=async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('[type=submit]');button.disabled=true;try{const data=Object.fromEntries(new FormData(form));data.merchant_enabled=form.querySelector('[name=merchant_enabled]').checked;await api('/op/governance/accounts',{method:'POST',body:JSON.stringify(data)});d.close();reload();}catch(err){form.querySelector('.edit-error').textContent=err.message;}finally{button.disabled=false;}};
   }
   async function customer(id,name,api){
     const d=modal('买家资料 · '+name,`<div class="customer-tabs">${Object.entries({addresses:'收货地址',cart:'购物车',coupons:'已领优惠券',history:'浏览记录',reviews:'购买评价'}).map(([k,v])=>`<button data-kind="${k}">${v}</button>`).join('')}</div><div class="customer-records"></div><p class="notice">查看现有买家资料，不代买家加购、领券、付款或评价。</p>`);
@@ -35,5 +39,5 @@
       root.querySelector('form').onsubmit=event=>{event.preventDefault();currentShop=root.querySelector('[name=shop]').value;currentPage=1;reload();};root.querySelector('[data-prev]').onclick=()=>{currentPage--;reload();};root.querySelector('[data-next]').onclick=()=>{currentPage++;reload();};root.querySelectorAll('[data-review]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{if(await control('reviews',b.dataset.review,b.dataset.action,api))reload();}catch(err){alert(err.message);}finally{b.disabled=false;}});
     }catch(err){if(run===generation)root.innerHTML=`<p class="error">${e(err.message)}</p>`;}
   }
-  window.OPComplete={workspace,control,customer,mount,handles:tab=>['reviews','workspace-audits'].includes(tab),cancel:()=>{generation++;document.querySelectorAll('.complete-workspace').forEach(d=>d.remove());}};
+  window.OPComplete={workspace,control,customer,createAccount,mount,handles:tab=>['reviews','workspace-audits'].includes(tab),cancel:()=>{generation++;document.querySelectorAll('.complete-workspace').forEach(d=>d.remove());}};
 })();

@@ -4,12 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.api.op_api import require_operator
 from app.api.op_management import audit
 from app.core.deps import get_db
 from app.core.security import hash_password
-from app.models.tables import User, Shop, Review, Product, Address, CartItem, UserCoupon, Coupon, Order, Sku, utcnow
+from app.models.tables import User, Shop, Review, Product, Address, CartItem, UserCoupon, Coupon, Order, Sku, AccountClosure, utcnow
 from app.models.governance import AccountRestriction, ShopRestriction, ReviewRestriction, WorkspaceAction
+from app.models.account import MerchantAccess
+from app.models.operations import Operator
 from app.services.catalog import invalidate_catalog_cache
 
 router = APIRouter(prefix='/governance', dependencies=[Depends(require_operator)])
@@ -19,6 +22,30 @@ class Control(BaseModel):
     action: str
     reason: str = Field(min_length=2, max_length=200)
     password: str | None = Field(None, min_length=10, max_length=64)
+
+
+class NewAccount(BaseModel):
+    username: str = Field(min_length=3, max_length=32, pattern=r'^[A-Za-z0-9_]+$')
+    nickname: str = Field(default='', max_length=32)
+    password: str = Field(min_length=10, max_length=64)
+    merchant_enabled: bool = False
+    reason: str = Field(min_length=2, max_length=200)
+
+
+@router.post('/accounts')
+def create_account(body: NewAccount, actor: User = Depends(require_operator), db: Session = Depends(get_db)):
+    if len(body.password.encode())>72 or len(body.reason.strip())<2:
+        raise HTTPException(422,'请检查密码长度和操作原因')
+    user=User(username=body.username,nickname=body.nickname.strip() or body.username,password_hash=hash_password(body.password),role='customer')
+    db.add(user)
+    try:
+        db.flush()
+        if body.merchant_enabled: db.add(MerchantAccess(user_id=user.id,enabled=True))
+        audit(db,actor,'account',user.id,'create_account',body.reason.strip())
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback();raise HTTPException(409,'账号已存在') from exc
+    return {'id':user.id,'username':user.username,'merchant_enabled':body.merchant_enabled}
 
 
 def reason_of(body):
@@ -33,10 +60,25 @@ def control_account(user_id: int, body: Control, actor: User = Depends(require_o
     if user is None:
         raise HTTPException(404, '账号不存在')
     if user_id == actor.id:
-        raise HTTPException(409, '请勿在平台管理中禁用或重置当前登录的运营账号')
-    if body.action not in ('disable', 'enable', 'reset_password'):
+        raise HTTPException(409, '请勿在此变更当前运营账号的登录状态或平台权限')
+    if db.get(AccountClosure,user_id):
+        raise HTTPException(409,'该账号已注销')
+    if body.action not in ('disable', 'enable', 'reset_password', 'grant_operator', 'revoke_operator'):
         raise HTTPException(422, '无效账号操作')
     reason = reason_of(body)
+    if db.get(Operator,user_id) or body.action in ('grant_operator','revoke_operator'):
+        members=db.scalars(select(Operator).order_by(Operator.user_id).with_for_update()).all()
+        active_restriction=db.scalar(select(AccountRestriction).where(AccountRestriction.user_id==actor.id).with_for_update().execution_options(populate_existing=True))
+        if actor.id not in {r.user_id for r in members} or (active_restriction and active_restriction.disabled):
+            raise HTTPException(403,'运营权限已变更，请重新登录')
+    if body.action in ('grant_operator','revoke_operator'):
+        if body.action=='revoke_operator' and len(members)<=1 and any(m.user_id==user_id for m in members):
+            raise HTTPException(409,'至少保留一个平台运营账号')
+        membership=db.get(Operator,user_id)
+        if body.action=='grant_operator' and membership is None: db.add(Operator(user_id=user_id))
+        if body.action=='revoke_operator' and membership is not None: db.delete(membership)
+        audit(db,actor,'account',user_id,body.action,reason);db.commit()
+        return {'id':user_id,'operator':body.action=='grant_operator'}
     if body.action == 'reset_password' and (not body.password or len(body.password.encode()) > 72):
         raise HTTPException(422, '新密码需10—64字符，且不超过72个UTF-8字节')
     row = db.get(AccountRestriction, user_id)

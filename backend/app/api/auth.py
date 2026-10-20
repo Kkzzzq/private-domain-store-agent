@@ -107,6 +107,9 @@ def update_me(body: ProfileIn, user: User = Depends(get_current_user), db: Sessi
 
 @router.post("/me/close")
 def close_me(body: CloseAccountIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from app.models.operations import Operator
+    if db.get(Operator,user.id):
+        raise HTTPException(409,'平台运营账号请先移交平台权限，再注销账号')
     db.refresh(user, with_for_update=True)
     if body.confirmation != "注销账号" or not verify_password(body.password, user.password_hash):
         raise HTTPException(400, "请检查当前密码，并输入“注销账号”确认")
