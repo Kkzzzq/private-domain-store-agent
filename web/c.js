@@ -1153,49 +1153,6 @@ function renderBuyBar(product, ctx) {
   return bar;
 }
 
-let skuParameterTip = null;
-function hideSkuParameterTip() {
-  if (skuParameterTip) skuParameterTip.remove();
-  skuParameterTip = null;
-}
-window.addEventListener("scroll", hideSkuParameterTip, true);
-window.addEventListener("hashchange", hideSkuParameterTip);
-window.addEventListener("keydown", event => { if (event.key === "Escape") hideSkuParameterTip(); });
-function bindSkuParameters(button, sku) {
-  const parameters = [
-    { name: "售价", value: money(sku.price_yuan) },
-    { name: "库存", value: `${sku.stock} 件` },
-    ...(Array.isArray(sku.parameters) ? sku.parameters : []),
-  ];
-  const show = () => {
-    hideSkuParameterTip();
-    if (button.classList.contains("on")) return;
-    const tip = h("div", "sku-parameter-tip");
-    tip.id = `sku-parameters-${sku.id}`;
-    tip.setAttribute("role", "tooltip");
-    tip.append(h("b", "", sku.spec));
-    const list = h("dl");
-    parameters.forEach(item => {
-      const row = h("div");
-      row.append(h("dt", "", item.name), h("dd", "", item.value));
-      list.append(row);
-    });
-    tip.append(list);
-    document.body.append(tip);
-    skuParameterTip = tip;
-    button.setAttribute("aria-describedby", tip.id);
-    const rect = button.getBoundingClientRect();
-    tip.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - tip.offsetWidth - 8))}px`;
-    const above = rect.top - tip.offsetHeight - 8;
-    tip.style.top = `${Math.max(8, above >= 8 ? above : Math.min(rect.bottom + 8, innerHeight - tip.offsetHeight - 8))}px`;
-  };
-  button.addEventListener("mouseenter", show);
-  button.addEventListener("focus", show);
-  const hide = () => { hideSkuParameterTip(); button.removeAttribute("aria-describedby"); };
-  button.addEventListener("mouseleave", hide);
-  button.addEventListener("blur", hide);
-}
-
 function couponCondition(coupon) {
   return coupon.threshold_cents ? `满${coupon.threshold_cents / 100}减${coupon.amount_cents / 100}` : `立减${coupon.amount_cents / 100}`;
 }
@@ -1317,8 +1274,6 @@ function renderProductInfo(product, state) {
 
   function paint() {
     current = state.sku;
-    hideSkuParameterTip();
-    specs.querySelectorAll("[aria-describedby]").forEach(button => button.removeAttribute("aria-describedby"));
     selectedSummary.textContent = current?.spec || "暂无可选规格";
     if (!current) {
       big.replaceChildren(document.createTextNode("暂无规格"));
@@ -1351,7 +1306,6 @@ function renderProductInfo(product, state) {
   product.skus.forEach((sku) => {
     const button = h("button", sku.id === current?.id ? "on" : "", sku.spec);
     button.dataset.skuId = String(sku.id);
-    bindSkuParameters(button, sku);
     if (!sku.purchasable) button.classList.add("dead");
     button.addEventListener("click", () => state.selectSku(sku));
     specs.append(button);
@@ -1362,7 +1316,6 @@ function renderProductInfo(product, state) {
   expandSpecs.hidden = product.skus.length <= 4;
   expandSpecs.setAttribute("aria-expanded", "false");
   expandSpecs.addEventListener("click", () => {
-    hideSkuParameterTip();
     const expanded = specs.classList.toggle("expanded");
     expandSpecs.setAttribute("aria-expanded", String(expanded));
     expandSpecs.textContent = expanded ? "收起规格 ⌃" : `展开全部规格（${product.skus.length}）⌄`;
