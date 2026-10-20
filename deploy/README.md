@@ -4,7 +4,7 @@
 
 正式入口：https://kkzzzq.cyou/ 。买家端 `/c.html?code=nanzhi`，商家端 `/b.html`。
 
-服务：`private-store.service`，使用独立 Python 3.12、SQLite 持久数据库、Redis 第 1 号库。2026-10-20 健康接口实测 SQLite/Redis 正常、agent_mode=auto；助手实际模型能力需另行验收。
+服务：`private-store.service`，使用独立 Python 3.12、服务器本机 MySQL 8.0、Redis 第 2 号库。2026-10-20 已从本机实际 MySQL 迁移 24 张业务表，35 件商品、58 个 SKU、4 个订单；逐表内容和外键校验通过。旧 SQLite 保留备份。`/api/v1/ready` 实测 MySQL/Redis 正常；助手模型参数保留服务器既有配置。
 
 应用监听 `127.0.0.1:8001`，Nginx 对外提供 80/443，HTTP 自动跳转 HTTPS；保留 `127.0.0.1:8081` 预览入口。公网 80/443 已从客户端实际连接成功。
 
@@ -24,7 +24,7 @@ journalctl -u private-store -n 50
 systemctl restart private-store
 ```
 
-备份时同时保存 `backend/data`、`backend/.env` 和 `web/covers/uploads`。SQLite 在运行时应通过 SQLite backup API 备份。
+备份时保存 MySQL 单事务导出、`backend/.env` 和 `web/covers/uploads`。`deploy/backup-database.py` 已安装到 `/usr/local/sbin/private-store-backup-db`，每次自动部署会调用。旧 SQLite 在运行时通过 SQLite backup API 备份。
 
 ## 域名与 HTTPS（2026-10-20）
 
@@ -34,7 +34,7 @@ Let's Encrypt 证书已签发，有效期至 2027-01-18。证书位于 `/etc/let
 
 首页、买家端、商家端通过 `web/site-registration.js` 显示备案链接，独立于店铺装修。Nginx 关闭代理缓冲并使用 300 秒读超时，以支持助手响应。上线前配置及 HTML 备份位于 `/root/private-store-backups/20261020-100331-domain`。
 
-`enable-domain.py` 供已有服务器在证书签发后运行，备份 HTML 和 Nginx 配置后启用域名；先上传 `web/site-registration.js`。它不会部署全部业务代码、迁移数据库或修改 DNS。此次仅接入域名并更新备案信息，服务器业务仍为原部署版本，本地正在开发的业务改动未整体上传。
+`enable-domain.py` 供已有服务器在证书签发后运行，备份 HTML 和 Nginx 配置后启用域名；先上传 `web/site-registration.js`。它不会部署全部业务代码、迁移数据库或修改 DNS。随后已单独完成 MySQL 数据及完整业务代码快照发布，迁移说明见 `docs/server-data-migration.md`。未完成的后续账号功能仍留在本地工作区，未混入本次版本。
 
 如需 www，先在阿里云 DNS 添加 `www` A 记录至服务器，确认生效后扩展证书和 Nginx；不要仅添加解析而遗漏 HTTPS 证书。
 
