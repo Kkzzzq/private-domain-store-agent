@@ -61,6 +61,28 @@ def capabilities(db, user_id):
     return set(grant.capabilities) & CAPABILITIES
 
 
+def provision_operators(db):
+    """平台运营＝平台管理员：确保每个已授权 OP 账号都拥有全部质量能力。
+
+    只补齐、不降级：已有授权取并集，绝不改动商家/买家账号（那些账号不是 Operator）。
+    服务启动时调用，因此新部署的环境不需要手工执行 CLI 就能看到全部质量信息。
+    """
+    granted = 0
+    for operator in db.scalars(select(Operator)):
+        record = db.get(QualityGrant, operator.user_id)
+        if record is None:
+            db.add(QualityGrant(user_id=operator.user_id, capabilities=sorted(CAPABILITIES)))
+            granted += 1
+            continue
+        current = set(record.capabilities or [])
+        if current != set(CAPABILITIES):
+            record.capabilities = sorted(current | set(CAPABILITIES))
+            granted += 1
+    if granted:
+        db.commit()
+    return granted
+
+
 def require_capability(db, user_id, capability):
     if capability not in capabilities(db, user_id):
         raise HTTPException(403, "没有对应的OP质量能力授权")

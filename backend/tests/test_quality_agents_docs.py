@@ -106,6 +106,35 @@ def test_auto_purge_is_idempotent_when_nothing_expired(client):
     assert second["deleted_runs"] == 0
 
 
+def test_platform_operators_get_full_quality_capabilities(client):
+    """平台运营＝平台管理员：启动补齐后必须能看到全部质量信息，且不牵连普通账号。"""
+    from app.models.operations import Operator
+    from app.models.quality import QualityGrant
+    from app.models.tables import User
+    from app.quality.catalog import CAPABILITIES
+    from app.quality.service import provision_operators
+
+    headers, user_id = operator(client, [])
+    with SessionLocal() as db:
+        assert db.get(QualityGrant, user_id).capabilities == []
+        assert provision_operators(db) >= 1
+        assert set(db.get(QualityGrant, user_id).capabilities) == set(CAPABILITIES)
+        buyer = db.scalar(select(User).where(User.username == "alice"))
+        assert db.get(Operator, buyer.id) is None
+        assert db.get(QualityGrant, buyer.id) is None
+        assert provision_operators(db) == 0, "已补齐的账号不应被重复计数"
+    assert client.get("/api/v1/op/qa/agents", headers=headers).status_code == 200
+    assert client.get("/api/v1/op/qa/cases", headers=headers).status_code == 200
+    assert client.get("/api/v1/op/qa/capabilities", headers=headers).json()["capabilities"] == sorted(CAPABILITIES)
+
+
+def test_operator_without_grant_is_still_refused_until_provisioned(client):
+    """补齐只发生在启动/显式调用：运行中新建的受限运营仍按能力位判定（保持分离设计）。"""
+    headers, _ = operator(client, ["qa.view"])
+    assert client.get("/api/v1/op/qa/agents", headers=headers).status_code == 200
+    assert client.post("/api/v1/op/qa/plans", headers=headers, json={"goal": "库存检查", "kind": "assistant", "case_ids": ["A02"]}).status_code == 403
+
+
 def test_plan_still_runs_after_case_docs_are_added(client):
     """文案不该影响执行指纹：文档化之后，原计划仍可批准并建运行。"""
     headers, _ = operator(client)

@@ -35,6 +35,15 @@ window.OPQuality = (() => {
     let data, agents, selectedRun, selectedCase, selectedPlan, pending=false, caseState="active", caseType="all", caseQuery="", checked=new Set(), expanded=new Set(), comparison, flash, receipts=[], failures=[], timer;
     const api=async(path,body,method="POST")=>{if(!valid())throw Error("账号或页面已变化");return options.api(path,body?{method,body:JSON.stringify(body)}:{});};
     const error=message=>{if(valid()){const notice=el("p","qa-error",message);root.prepend(notice);}};
+    const failScreen=(message,detail)=>{
+      if(!valid())return;
+      const card=el("section","qa-card");
+      card.append(el("h3","","无法读取 OP 测试能力"),el("p","qa-error",message));
+      if(detail)card.append(el("p","qa-muted",detail));
+      card.append(el("p","qa-muted","平台运营账号（平台管理员）默认拥有全部质量能力：qa.view / qa.assistant.run / qa.functional.run / qa.approve。若当前账号确实缺失授权，管理员可在 backend 目录执行 .venv/Scripts/python.exe -m app.quality.cli <账号名>，或执行 --all-operators 给所有平台运营补齐；服务重启时也会自动补齐。"));
+      card.append(actions(button("重试",()=>{root.replaceChildren(el("p","qa-muted","正在读取OP测试能力…"));refresh();},true)));
+      root.replaceChildren(card);
+    };
     const can=cap=>data?.capabilities.capabilities.includes(cap);
     const canRun=kind=>kind==="joint"?can("qa.assistant.run")&&can("qa.functional.run"):can(`qa.${kind}.run`);
     const clock=value=>{if(!value)return "—";const text=String(value);const iso=/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)?text:text+"Z";const time=new Date(iso);return isNaN(time.getTime())?String(value):time.toLocaleString("zh-CN",{hour12:false});};
@@ -84,7 +93,15 @@ window.OPQuality = (() => {
         data={capabilities,cases,plans,runs};
         agents=agentsPayload?.agents;
         paint();poll();
-      }catch(err){error(err.message);}
+      }catch(err){
+        if(!data){
+          if(err.status===403)failScreen("当前账号没有 OP 质量能力授权："+err.message,"该账号不是平台运营，或质量能力未授予。");
+          else if(err.status===401)failScreen("登录状态已失效，请重新进入运营台。");
+          else failScreen("请求失败："+err.message,"请检查后端服务与网络后重试。");
+        }else{
+          error(err.message);
+        }
+      }
     }
     const typing=()=>{const node=document.activeElement;return !!node&&root.contains(node)&&["INPUT","TEXTAREA"].includes(node.tagName);};
     function poll(){

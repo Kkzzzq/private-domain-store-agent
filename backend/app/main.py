@@ -134,6 +134,11 @@ async def lifespan(_app: FastAPI):
         upgrade_demo(db)
         from app.services.assistant_identity import initialize_assistant_names
         initialize_assistant_names(db)
+        # 平台运营＝平台管理员：启动时补齐全部质量能力，新环境无需再手工授权。
+        from app.quality.service import provision_operators
+        granted = provision_operators(db)
+        if granted:
+            logger.info("已为 %d 个平台运营账号补齐质量能力授权", granted)
     finally:
         db.close()
     scheduler = None

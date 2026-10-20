@@ -27,12 +27,15 @@
 
 使用既有专用OP账号，不为公开商家演示账号授予质量权限。按用户明确要求，`op.html` 登录页默认预填专用账号 `platform_ops` 及其密码，方便直接进入演示；这意味着该凭据随公开仓库与已部署站点可见，任何拿到站点的人都能以最高权限登录，属于演示取舍，不要在这套账号上放真实经营数据。
 
+**平台运营＝平台管理员**：服务启动时会给所有已授权的 OP 账号自动补齐全部质量能力（`app/quality/service.py::provision_operators`，由 `app/main.py` 的 lifespan 调用），所以新部署的环境不用手工执行 CLI 就能看到全部质量信息。补齐只做并集升级，**绝不改动商家/买家账号**；运行中新建的受限账号仍按能力位判定，保留「仅 OP 身份而无 qa 权限也被拒绝」的验收口径。页面若提示「没有 OP 质量能力授权」，会同时给出修复命令与「重试」按钮，不再停在加载文案。
+
 在backend目录，显式授予已有OP账号质量能力：
 
 ```powershell
 .venv/Scripts/python.exe -m app.quality.cli 专用OP账号
 .venv/Scripts/python.exe -m app.quality.cli 专用OP账号 --capabilities qa.view,qa.assistant.run,qa.approve
 .venv/Scripts/python.exe -m app.quality.cli 专用OP账号 --revoke
+.venv/Scripts/python.exe -m app.quality.cli --all-operators
 ```
 
 CLI不会创建账号、重置密码或给普通用户增加OP权限。`qa.view`、两类run能力、`qa.approve`独立检查。读取报告和下载JSON也必须有OP与质量读取能力。
