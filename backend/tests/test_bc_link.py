@@ -21,8 +21,16 @@ def test_pages_exist(client):
     assert "商家工作台" in client.get("/b.html").text
     portal = client.get("/")
     assert portal.status_code == 200
-    assert '/c.html?code=nanzhi' in portal.text and '/b.html' in portal.text
+    assert '/c.html?code=nanzhi' in portal.text and 'href="/login"' in portal.text
     assert client.get('/portal.css').status_code == 200
+
+
+def test_merchant_login_alias_keeps_legacy_page(client):
+    login_page = client.get('/login')
+    assert login_page.status_code == 200
+    assert login_page.headers['content-type'].startswith('text/html')
+    assert login_page.content == client.get('/b.html').content
+    assert client.get('/login/').content == login_page.content
 
 
 def test_search_matches_category_as_well_as_name(client):

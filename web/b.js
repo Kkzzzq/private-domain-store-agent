@@ -231,6 +231,9 @@ async function render() {
       return;
     }
   }
+  if (location.pathname === "/login" || location.pathname === "/login/") {
+    history.replaceState(null, "", `/b.html${location.search}${location.hash}`);
+  }
   if (!shopInfo) {
     try {
       shopInfo = await api("/api/v1/b/shop");
@@ -285,6 +288,9 @@ function topBar() {
 }
 
 function loginView() {
+  if (location.pathname !== "/login") {
+    history.replaceState(null, "", `/login${location.search}${location.hash}`);
+  }
   const panel = h("form", "panel stack");
   panel.style.maxWidth = "380px";
   panel.style.margin = "80px auto";

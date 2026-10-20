@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy import inspect
 from sqlalchemy.exc import OperationalError
 
@@ -140,6 +141,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router, prefix="/api/v1")
+
+@app.get("/login", include_in_schema=False)
+@app.get("/login/", include_in_schema=False)
+def merchant_login_page():
+    return FileResponse(settings.web_dir / "b.html")
+
 
 if settings.web_dir.exists():
     app.mount("/", StaticFiles(directory=settings.web_dir, html=True), name="web")
