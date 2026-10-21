@@ -56,6 +56,7 @@ window.OPQuality = (() => {
     const CAPABILITY_LABEL={"qa.view":"查看测试中心","qa.assistant.run":"运行助手评测","qa.functional.run":"运行功能测试","qa.approve":"审批计划与历史清理"};
     const artifactLocks=new Map();
     let data, agents, selectedRun, selectedCase, selectedPlan, pending=false, caseState="active", caseType="all", caseQuery="", checked=new Set(), expanded=new Set(), comparison, flash, receipts=[], failures=[], reportDate="", refreshVersion=0, timer;
+    const openHours=new Set();
     const runDownloads=new Map(),runDetails=new Map(),runDownloadErrors=new Map();
     const api=async(path,body,method="POST")=>{
       if(!valid())throw Error("账号或页面已变化");
@@ -305,11 +306,24 @@ window.OPQuality = (() => {
       renderRunsSection("all");
     }
     function renderRunsSection(kind){
-      const section=el("section","qa-card");section.append(el("h3","","最近测试用例报告（最多 100 份）"));
+      const section=el("section","qa-card");section.append(el("h3","","测试用例报告（按小时汇总）"));
       let rows=kind==="all"?data.runs:data.runs.filter(run=>run.kind===kind||run.report_batch&&run.results.some(row=>row.kind===kind));
       if(kind==="all"&&options.tab==="testing-runs")rows=rows.filter(run=>["completed","failed","blocked","cancelled"].includes(run.status));
       if(!rows.length)section.append(el("p","qa-muted",kind==="all"?"尚未运行测试，不展示虚构通过率。需启动独立quality worker处理队列。":"该类型还没有运行记录；全部报告在「测试用例报告」页。"));
-      for(const run of rows.slice(0,100)){
+      section.append(el("p","qa-muted","按北京时间归入每小时一份汇总，默认收起；展示最近 100 个有记录的小时，同一小时内的执行报告完整保留。展开后点击报告才下载详情。"));
+      const hourly=new Map();
+      for(const run of rows){
+        const date=new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(run.created_at)?run.created_at:run.created_at+"Z");
+        const key=Number.isNaN(date.getTime())?"时间未知":new Date(date.getTime()+8*3600000).toISOString().slice(0,13).replace("T"," ")+":00";
+        if(!hourly.has(key))hourly.set(key,[]);hourly.get(key).push(run);
+      }
+      for(const [hour,reports] of hourly){
+        const group=el("details","qa-hour-report");group.dataset.reportHour=hour;group.open=openHours.has(hour);
+        group.addEventListener("toggle",()=>{if(group.isConnected){if(group.open)openHours.add(hour);else openHours.delete(hour);}});
+        const summary=el("summary","qa-hour-summary"),totals=reports.reduce((sum,run)=>{const c=runCounts(run);for(const k of ["passed","failed","blocked"])sum[k]+=c[k]||0;return sum;},{passed:0,failed:0,blocked:0});
+        summary.append(el("strong","",`${hour}—${hour.slice(-5,-3)}:59 测试报告`),el("span","qa-muted",`${reports.length} 次执行 · ${reports.reduce((n,r)=>n+r.results.length,0)} 条用例`),el("span",totals.failed||totals.blocked?"qa-error":"qa-pass",`通过 ${totals.passed} / 失败 ${totals.failed} / 阻塞 ${totals.blocked}`));
+        group.append(summary);section.append(group);
+        for(const run of reports){
         const counts=runCounts(run);
         const broken=run.status==="failed"||counts.failed>0, halted=run.status==="blocked"||counts.blocked>0, stopped=run.status==="cancelled";
         const row=el("div",broken||halted||stopped?"qa-case-row qa-run-failed":"qa-case-row");
@@ -324,8 +338,9 @@ window.OPQuality = (() => {
           el("span","qa-muted",`开始 ${clock(run.started_at||run.created_at)} · 结束 ${clock(run.finished_at)}`),
           el("span","qa-muted",`代码 ${String(run.target?.target_revision||"").slice(0,12)||"—"}`));
         if(broken||halted||stopped)row.append(el("span","qa-error",`失败原因：${runReason(run)}`));
-        row.dataset.runId=run.id;section.append(row);
-        if(selectedRun===run.id)renderRun(run,section);
+        row.dataset.runId=run.id;group.append(row);
+        if(selectedRun===run.id)renderRun(run,group);
+        }
       }root.append(section);
     }
     function renderRun(run,container=root){

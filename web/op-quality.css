@@ -49,3 +49,5 @@
 
 .qa-completed{color:#25845b;background:#e5f4ea}.qa-run-detail{scroll-margin-top:24px}.qa-evidence-column h4{margin:20px 0 8px}
 .qa-tool-list{margin:10px 0 18px}.qa-tool-row{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px;padding:8px 0;border-bottom:1px solid #ebe5dc}.qa-tool-row dt{font-family:inherit;overflow-wrap:anywhere}.qa-tool-row dd{margin:0;color:#686e6a;line-height:1.6}@media(max-width:700px){.qa-tool-row{grid-template-columns:1fr;gap:4px}}
+
+.qa-hour-report{margin:14px 0;border:1px solid #dfe6dc;border-radius:10px;background:#fffdf8;overflow:hidden}.qa-hour-summary{cursor:pointer;padding:18px;line-height:1.7;background:#f1f5ee}.qa-hour-summary strong{margin-right:18px}.qa-hour-summary span{display:inline-block;margin-right:14px}.qa-hour-report>.qa-case-row{margin:0 18px;padding:16px 0}.qa-hour-report>.qa-run-detail{margin:0 18px 18px}.qa-hour-report[open]>.qa-hour-summary{border-bottom:1px solid #dfe6dc}

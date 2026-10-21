@@ -99,9 +99,21 @@ def listing(db,report_date=None):
         start=datetime.combine(report_date,time.min)-timedelta(hours=8);end=start+timedelta(days=1)
         runs=runs.where(QualityRun.created_at>=start,QualityRun.created_at<end)
         batches=batches.where(QualityReportBatch.created_at>=start,QualityReportBatch.created_at<end)
-    rows=[service.run_out(db,r) for r in db.scalars(runs.order_by(QualityRun.created_at.desc()).limit(100))]
-    rows.extend(output(db,b) for b in db.scalars(batches.order_by(QualityReportBatch.created_at.desc()).limit(100)) if any(db.get(QualityRun,m.run_id) for m in members(db,b.id)))
-    return sorted(rows,key=lambda r:r['created_at'],reverse=True)[:100]
+    # Limit occupied hour buckets, never truncate executions inside an hour.
+    timestamps=runs.with_only_columns(QualityRun.created_at).union_all(
+        batches.with_only_columns(QualityReportBatch.created_at)
+    ).order_by("created_at").subquery()
+    hours=set();cutoff=None
+    for stamp in db.scalars(select(timestamps.c.created_at).order_by(timestamps.c.created_at.desc())):
+        hour=stamp.replace(minute=0,second=0,microsecond=0)
+        if hour not in hours and len(hours)>=100:break
+        hours.add(hour);cutoff=hour
+    if cutoff is None:return []
+    runs=runs.where(QualityRun.created_at>=cutoff)
+    batches=batches.where(QualityReportBatch.created_at>=cutoff)
+    rows=[service.run_out(db,r) for r in db.scalars(runs.order_by(QualityRun.created_at.desc()))]
+    rows.extend(output(db,b) for b in db.scalars(batches.order_by(QualityReportBatch.created_at.desc())) if any(db.get(QualityRun,m.run_id) for m in members(db,b.id)))
+    return sorted(rows,key=lambda r:r['created_at'],reverse=True)
 
 
 def artifact(db,rid,aid):
