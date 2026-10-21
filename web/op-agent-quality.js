@@ -43,7 +43,14 @@ window.OPAgentQuality=(()=>{
     const target=select('评测对象',[['business','业务 Agent'],['functional','功能测试 Agent']]);target.value=state.target;
     const source=select('来源运行',[]),list=el('div'),content=el('div');host.append(target,source,list,content);
     const fill=()=>{source.replaceChildren();const kind=target.value==='business'?'assistant':'functional';for(const run of data.runs.filter(r=>['completed','failed','blocked','cancelled'].includes(r.status)&&(r.kind===kind||r.kind==='joint'))){const o=el('option',run.name||run.id);o.value=run.id;source.append(o);}};
+    let selectedEvaluation=null;
     async function show(row){
+      selectedEvaluation=row.id;
+      if(row.brief){
+        const notice=el('p','正在下载报告详情…');notice.setAttribute('role','status');notice.setAttribute('aria-live','polite');content.replaceChildren(notice);
+        try{row=await api(`/agent-quality/evaluations/${row.id}/detail`);}catch(err){if(live())content.replaceChildren(el('p',err.message,'qa-error'),btn('重试下载',()=>show(row)));return;}
+        if(!live()||selectedEvaluation!==row.id)return;
+      }
       content.replaceChildren();content.append(el('h4',`${row.target==='business'?'业务 Agent':'功能测试 Agent'} · ${row.id.slice(0,8)}`),el('p',`程序结论：${labels[row.program.decision]||row.program.decision} · 模型：${labels[row.model_score.status]||'尚未评分'} · 人工复核：${row.reviews.length?'已有记录':'待复核'}`));
       if(row.review_conflict)content.append(el('p','人工意见与程序或模型存在分歧，请查看复核依据。','qa-error'));
       if(row.reviews.length&&!row.review_current)content.append(el('p','已有人工意见针对旧评测版本，请对当前证据重新复核。'));
@@ -93,7 +100,7 @@ window.OPAgentQuality=(()=>{
       paint().catch(error);return box;
     }
     let revision=0,compareHost=null,heldoutHost=null;
-    async function load(){const current=++revision;state.target=target.value;fill();list.replaceChildren();content.replaceChildren();const rows=await api(`/agent-quality/evaluations?target=${target.value}`);if(!live()||current!==revision)return;for(const row of rows)list.append(btn(`${stamp(row.created_at)} · ${row.source_run.slice(0,8)} · ${labels[row.program.decision]||row.program.decision}`,()=>show(row)));
+    async function load(){const current=++revision;selectedEvaluation=null;state.target=target.value;fill();list.replaceChildren();content.replaceChildren();const rows=await api(`/agent-quality/evaluations?target=${target.value}&brief=true`);if(!live()||current!==revision)return;for(const row of rows)list.append(btn(`${stamp(row.created_at)} · ${row.source_run.slice(0,8)} · ${labels[row.program.decision]||row.program.decision}`,()=>show(row)));
       if(!compareHost){compareHost=el('div');host.append(compareHost);}
       compareHost.replaceChildren(comparePanel(rows));
       if(!heldoutHost){heldoutHost=el('div');host.append(heldoutHost);heldoutHost.append(heldoutPanel());}}

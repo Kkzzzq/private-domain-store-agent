@@ -63,6 +63,7 @@ window.OPAgentObservatory = (() => {
     const agent=options.agent;
     if(!states.has(agent))states.set(agent,{view:"replay",turns:[{message:"",expected:"",tool:""}],role:"customer",debug:{}});
     const state=states.get(agent),root=document.createElement("section");root.className="ao-workspace";host.append(root);
+    state.runId=null;state.caseId=null;state.nodeId=null;state.loadingRun=null;
     const valid=()=>root.isConnected&&sessionStorage.getItem("token_op")===identity&&options.alive();
     const el=(tag,cls,text)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text!=null)node.textContent=String(text);return node;};
     const button=(text,callback,disabled=false)=>{const node=el("button","",text);node.type="button";node.disabled=disabled;node.onclick=callback;return node;};
@@ -144,8 +145,8 @@ window.OPAgentObservatory = (() => {
         root.append(el("h3","","先区分配置、记录与判定"),el("p","","业务助手负责回答，评测执行器负责硬断言，功能执行器负责接口/数据库/浏览器验证；同一问题可关联三类证据，但不共享一个虚构的通过率。"),el("p","","本页只读所选报告的执行证据，真实店铺或隔离副本以报告环境为准，不展示模型内部思维链。工具、记忆和知识没有独立时间戳时仅展示记录，不伪造耗时或先后关系。"),el("p","","保存候选不调用模型，明确批准才会创建真实执行。审批或启动失败后重试继续既有回执；已启动任务不会因刷新重复执行。"));return;
       }
       const runs=options.runs.filter(run=>array(run.results).some(result=>result.kind===(agent==="functional"?"functional":"assistant")));
-      const run=runs.find(item=>item.id===state.runId)||runs[0];if(run)state.runId=run.id;
-      const resultRows=array(run?.results).filter(row=>row.kind===(agent==="functional"?"functional":"assistant"));
+      const run=runs.find(item=>item.id===state.runId);
+      const resultRows=array(run?.brief?[]:run?.results).filter(row=>row.kind===(agent==="functional"?"functional":"assistant"));
       const result=resultRows.find(row=>row.id===state.caseId)||resultRows[0];if(result)state.caseId=result.id;
       const projected=buildTimeline(result,agent);
       const selected=projected.nodes.find(node=>node.id===state.nodeId)
@@ -159,15 +160,22 @@ window.OPAgentObservatory = (() => {
       const grid=el("div","ao-grid"),left=el("section","ao-column"),middle=el("section","ao-column"),right=el("section","ao-column");
       left.append(el("h4","","选择报告与测试场景"));
       if(agent==="business")left.append(debugPanel());
-      if(run){
-        left.append(field("历史运行",select(runs.map(item=>({id:item.id,title:(item.name||item.id.slice(0,8))+" · "+label(item.status)})),run.id,value=>{state.runId=value;state.caseId=null;state.nodeId=null;draw();})));
+      left.append(field("历史运行",select([{id:"",title:"请选择报告，点击后下载详情"},...runs.map(item=>({id:item.id,title:(item.name||item.id.slice(0,8))+" · "+label(item.status)}))],state.runId||"",async value=>{
+        state.runId=value;state.caseId=null;state.nodeId=null;state.error="";state.loadingRun=value||null;draw();
+        if(!value)return;
+        try{const full=await (options.loadRun?options.loadRun(value):api(`/runs/${encodeURIComponent(value)}`));const index=options.runs.findIndex(item=>item.id===value);if(index>=0)options.runs[index]={...full,name:options.runs[index].name};}
+        catch(error){if(valid())state.error=error.message;}
+        finally{if(state.loadingRun===value)state.loadingRun=null;if(valid())draw();}
+      })));
+      if(state.loadingRun){const notice=el("p","ao-muted","正在下载报告详情…");notice.setAttribute("role","status");notice.setAttribute("aria-live","polite");left.append(notice);}
+      if(run&&!run.brief&&result){
         left.append(field("用例",select(resultRows.map(row=>({id:row.id,title:row.id+" · "+label(row.status)})),result.id,value=>{state.caseId=value;state.nodeId=null;draw();})));
         const target=run.target||{};left.append(el("p","ao-muted",`环境 ${target.environment_id||"未采集"} · fixture ${target.fixture_version||"未采集"}`));
         const snapshot=array(target.case_snapshots).find(row=>row.id===result.id);
         if(snapshot)left.append(el("p","",snapshot.title));
         if(array(result.doc?.steps).length){left.append(el("h4","","本用例具体做什么"));for(const step of result.doc.steps)left.append(el("p","ao-muted",step));}
         if(array(result.doc?.expected).length){left.append(el("h4","","满足哪些条件才算通过"));for(const expected of result.doc.expected)left.append(el("p","ao-muted",expected));}
-      }else left.append(el("p","ao-muted","暂无对应运行。业务页可创建合成调试；评测/功能页使用下方现有计划入口创建运行。"));
+      }else if(!state.loadingRun)left.append(el("p","ao-muted",runs.length?"报告详情尚未下载，请先选择要查看的报告。":"暂无对应运行。评测/功能页可使用计划入口创建运行。"));
       middle.append(el("h4","","执行步骤（点击查看详情）"),el("p","ao-muted","这里是实际请求和检查记录，不是模型思维过程。按请求记录展开；同一请求内的工具仅有顺序，未采集独立耗时。"));
       for(const node of projected.nodes){
         const item=button(`${Number(node.id)+1}. ${node.title}`,()=>{state.nodeId=node.id;draw();});

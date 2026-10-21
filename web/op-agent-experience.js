@@ -140,9 +140,9 @@ window.OPAgentExperience = (() => {
       } else {
         const selections=Array.from(left.querySelectorAll('select'));
         const runs=rows(ctx.data.runs).filter(run=>rows(run.results).some(row=>row.kind===(ctx.id==='functional'?'functional':'assistant')));
-        const run=runs.find(run=>run.id===selections[0]?.value)||runs[0];
+        const run=runs.find(run=>run.id===selections[0]?.value);
         const results=rows(run?.results).filter(row=>row.kind===(ctx.id==='functional'?'functional':'assistant'));
-        const result=results.find(row=>row.id===selections[1]?.value)||results[0];
+        const result=run?.brief?null:results.find(row=>row.id===selections[1]?.value)||results[0];
         const center=el('section','ae-result-column'),trace=el('details','ae-details');trace.open=ctx.traceOpen;
         trace.append(el('summary','','执行步骤与技术轨迹'),middle);trace.addEventListener('toggle',()=>{ctx.traceOpen=trace.open;});
         center.append(focus(result,run,ctx.id),trace);grid.insertBefore(center,right);

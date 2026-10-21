@@ -56,7 +56,25 @@ window.OPQuality = (() => {
     const CAPABILITY_LABEL={"qa.view":"查看测试中心","qa.assistant.run":"运行助手评测","qa.functional.run":"运行功能测试","qa.approve":"审批计划与历史清理"};
     const artifactLocks=new Map();
     let data, agents, selectedRun, selectedCase, selectedPlan, pending=false, caseState="active", caseType="all", caseQuery="", checked=new Set(), expanded=new Set(), comparison, flash, receipts=[], failures=[], reportDate="", refreshVersion=0, timer;
-    const api=async(path,body,method="POST")=>{if(!valid())throw Error("账号或页面已变化");return options.api(path,body?{method,body:JSON.stringify(body)}:{});};
+    const runDownloads=new Map(),runDetails=new Map(),runDownloadErrors=new Map();
+    const api=async(path,body,method="POST")=>{
+      if(!valid())throw Error("账号或页面已变化");
+      if(body)return options.api(path,{method,body:JSON.stringify(body)});
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),/\/runs\/[^/]+$|\/evaluations\/[^/]+\/detail$/.test(path)?120000:30000);
+      try{return await options.api(path,{signal:controller.signal});}
+      catch(err){if(controller.signal.aborted)throw Error(`读取 ${path.split('?')[0]} 超时，请点击重试。`);throw err;}
+      finally{clearTimeout(timeout);}
+    };
+    function loadRun(id){
+      if(runDetails.has(id))return Promise.resolve(runDetails.get(id));
+      if(runDownloads.has(id))return runDownloads.get(id);
+      runDownloadErrors.delete(id);
+      const request=api(`/runs/${encodeURIComponent(id)}`).then(report=>{
+        if(valid()){runDetails.set(id,report);data.runs=data.runs.map(row=>row.id===id?report:row);}return report;
+      }).catch(err=>{runDownloadErrors.set(id,err.message);throw err;}).finally(()=>runDownloads.delete(id));
+      runDownloads.set(id,request);return request;
+    }
     const error=message=>{if(valid()){const notice=el("p","qa-error",message);root.prepend(notice);}};
     const failScreen=(message,detail)=>{
       if(!valid())return;
@@ -114,11 +132,13 @@ window.OPQuality = (() => {
     async function refresh(){
       const revision=++refreshVersion;
       try{
-        const wanted=["/capabilities","/cases","/plans",reportDate?"/runs?report_date="+encodeURIComponent(reportDate):"/runs"];
+        const runQuery=new URLSearchParams({brief:"true"});if(reportDate)runQuery.set("report_date",reportDate);
+        const wanted=["/capabilities","/cases","/plans","/runs"+(runQuery.size?"?"+runQuery.toString():"")];
         if(AGENT_TABS.includes(options.tab))wanted.push("/agents");
         const [capabilities,cases,plans,runs,agentsPayload]=await Promise.all(wanted.map(path=>api(path)));
         if(!valid()||revision!==refreshVersion)return;
-        data={capabilities,cases,plans,runs};
+        for(const run of runs)if(["queued","running"].includes(run.status)||runDetails.get(run.id)?.status!==run.status)runDetails.delete(run.id);
+        data={capabilities,cases,plans,runs:runs.map(run=>runDetails.get(run.id)||run)};
         RUN_ENVIRONMENT=capabilities.real_shop?"real-nanzhi":"isolated-local";
         agents=agentsPayload?.agents;
         paint();poll();
@@ -203,7 +223,7 @@ window.OPQuality = (() => {
         const visualHost=el("div");root.append(visualHost);
         window.OPAgentObservatory.mount(visualHost,{agent:id,descriptor:row,cases:data.cases,
           runs:data.runs.map(run=>({...run,name:window.OPReportName?window.OPReportName.label(run,data.cases,{status:label(run.status),time:true}):run.name})),
-          capabilities:data.capabilities.capabilities,api,refresh,alive:valid});
+          capabilities:data.capabilities.capabilities,api,loadRun,refresh,alive:valid});
       }
       const reference=el("details","qa-agent-reference");reference.open=true;reference.append(el("summary","","查看能力说明、使用方法与源码"));
       const card=el("section","qa-card");
@@ -293,7 +313,11 @@ window.OPQuality = (() => {
         const counts=runCounts(run);
         const broken=run.status==="failed"||counts.failed>0, halted=run.status==="blocked"||counts.blocked>0, stopped=run.status==="cancelled";
         const row=el("div",broken||halted||stopped?"qa-case-row qa-run-failed":"qa-case-row");
-        const toggle=button(`${reportName(run)} · ${label(run.kind)}`,()=>{selectedRun=selectedRun===run.id?null:run.id;selectedCase=null;const y=window.scrollY;paint();window.scrollTo({top:y,behavior:"instant"});});toggle.setAttribute("aria-expanded",String(selectedRun===run.id));
+        const toggle=button(`${reportName(run)} · ${label(run.kind)}`,async()=>{
+          selectedRun=selectedRun===run.id?null:run.id;selectedCase=null;const y=window.scrollY;
+          const download=selectedRun===run.id?loadRun(run.id):null;paint();window.scrollTo({top:y,behavior:"instant"});
+          if(download){try{await download;}catch{/* Detail panel shows a retry action. */}if(valid())paint();}
+        });toggle.setAttribute("aria-expanded",String(selectedRun===run.id));
         row.append(toggle,badge(run.status),
           el("span","qa-muted",`${run.target?.environment_id==="real-nanzhi"?"线上南枝实店验收":run.diagnostic===false?"正式真实模型测试":"平台诊断/旧记录（非正式验收）"} · ${label(run.mode)} · 用例 ${run.results.length} 条 · 报告 ${String(run.id).slice(0,6)}`),
           el("span",broken||halted?"qa-error":"qa-pass",`通过 ${counts.passed} / 失败 ${counts.failed} / 阻塞 ${counts.blocked}`),
@@ -306,6 +330,12 @@ window.OPQuality = (() => {
     }
     function renderRun(run,container=root){
       if(!run)return;
+      if(run.brief){
+        const panel=el("section","qa-run-detail"),notice=el("p",runDownloadErrors.has(run.id)?"qa-error":"qa-muted",runDownloadErrors.get(run.id)||(runDownloads.has(run.id)?"正在下载报告详情…":"报告详情尚未下载。"));
+        notice.setAttribute("role","status");notice.setAttribute("aria-live","polite");panel.append(notice);
+        if(!runDownloads.has(run.id))panel.append(button(runDownloadErrors.has(run.id)?"重试下载":"下载报告详情",async()=>{const request=loadRun(run.id);paint();try{await request;}catch{}if(valid())paint();}));
+        container.append(panel);return;
+      }
       const section=el("section","qa-run-detail");const head=heading(reportName(run),`${label(run.kind)} · ${label(run.status)} · ${run.summary.decision?label(run.summary.decision):"尚未形成结论"}`);
       const controls=el("div","qa-actions");
       if(["queued","running"].includes(run.status)){const cancel=button(run.cancel_requested?"等待取消确认":"取消运行",()=>action(()=>api(`/runs/${run.id}/cancel`,{})));cancel.disabled=!canRun(run.kind);controls.append(cancel);}

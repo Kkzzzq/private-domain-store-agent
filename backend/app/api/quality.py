@@ -156,8 +156,9 @@ def create_report_batch(body: ReportBatchIn, user=Depends(quality_user), db=Depe
 
 
 @router.get("/runs")
-def list_runs(report_date: date | None = Query(default=None), user=Depends(quality_user), db=Depends(get_db)):
-    return report_batches.listing(db,report_date)
+def list_runs(report_date: date | None = Query(default=None), brief: bool = Query(default=False), user=Depends(quality_user), db=Depends(get_db)):
+    reports = report_batches.listing(db,report_date)
+    return [report_batches.brief_report(report) for report in reports] if brief else reports
 
 
 @router.get("/runs/{run_id}")

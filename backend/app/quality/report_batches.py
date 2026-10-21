@@ -83,6 +83,15 @@ def get(db,rid):
     return service.run_out(db,run)
 
 
+def brief_report(report):
+    """Dashboard metadata only; full immutable evidence stays on the detail endpoint."""
+    result={key:value for key,value in report.items() if key not in ('results','target','planning')}
+    result['brief']=True
+    result['target']={key:report.get('target',{}).get(key) for key in ('environment_id','target_revision','fixture_version','catalog_version')}
+    result['results']=[{'id':row['id'],'kind':row['kind'],'status':row['status']} for row in report['results']]
+    return result
+
+
 def listing(db,report_date=None):
     hidden=select(QualityReportMember.run_id)
     runs=select(QualityRun).where(QualityRun.id.not_in(hidden));batches=select(QualityReportBatch)

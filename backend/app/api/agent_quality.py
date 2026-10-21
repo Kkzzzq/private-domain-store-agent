@@ -61,7 +61,7 @@ def create(body:EvaluationIn,user=Depends(quality_user),db=Depends(get_db)):
 
 
 @router.get('/evaluations')
-def listing(target:Literal['business','functional']='business',user=Depends(quality_user),db=Depends(get_db)):
+def listing(target:Literal['business','functional']='business',brief:bool=False,user=Depends(quality_user),db=Depends(get_db)):
     from datetime import datetime,timedelta
     rows=list(db.scalars(select(AgentEvaluation).where(AgentEvaluation.target==target).order_by(AgentEvaluation.created_at.desc()).limit(30)))
     for row in rows:
@@ -69,7 +69,15 @@ def listing(target:Literal['business','functional']='business',user=Depends(qual
         if row.status=='scoring' and started and datetime.fromisoformat(started)<utcnow()-timedelta(minutes=5):
             row.status='blocked';row.model_score={**row.model_score,'status':'blocked','error':'评测执行中断；没有自动重放付费调用'};row.version+=1
     db.commit()
+    if brief:
+        return [{k:getattr(row,k) for k in ('id','target','source_run','status','version','created_at')}|
+                {'program':{'decision':row.program.get('decision')},'brief':True} for row in rows]
     return [output(r) for r in rows]
+
+
+@router.get('/evaluations/{ident}/detail')
+def evaluation_detail(ident:str,user=Depends(quality_user),db=Depends(get_db)):
+    return output(record(db,ident))
 
 
 @router.post('/evaluations/{ident}/model-score')
