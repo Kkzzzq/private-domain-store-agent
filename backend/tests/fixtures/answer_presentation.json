@@ -1,0 +1,14 @@
+[
+  {"input":"定制品不支持无理由退货。\n来源（关键词检索）：after_sales.md / 售后政策；platform_rules.md / 平台规则","expected":"定制品不支持无理由退货。"},
+  {"input":"商品¥59，有货。\n**参考来源：**\n- after_sales.md / 售后政策\n- platform_rules.md / 平台规则\n\n需要我继续帮您选规格吗？","expected":"商品¥59，有货。\n需要我继续帮您选规格吗？"},
+  {"input":"可以申请售后。（来源：after_sales.md）","expected":"可以申请售后。"},
+  {"input":"【after_sales.md / 售后政策】\n定制品除外。","expected":"定制品除外。"},
+  {"input":"按after_sales.md的规定处理。","expected":"按店铺规则的规定处理。"},
+  {"input":"库存20件。 来源：platform_rules.md / 平台规则","expected":"库存20件。"},
+  {"input":"政策已确认[1]。\nSources:\n[1]: https://example.test/after_sales.md","expected":"政策已确认。"},
+  {"input":"## 参考资料\nhttps://example.test/rules\n\n当前商品价格¥109。","expected":"当前商品价格¥109。"},
+  {"input":"原料来源：本地木材。商品产地：中国。\n[查看商品](/c.html#/product/nanzhi/1)","expected":"原料来源：本地木材。商品产地：中国。\n[查看商品](/c.html#/product/nanzhi/1)"},
+  {"input":"**米白** · `SKU 1` · ¥59\n库存20件，可以在商品页确认。","expected":"**米白** · `SKU 1` · ¥59\n库存20件，可以在商品页确认。"},
+  {"input":"来源：after_sales.md","expected":"请告诉我您想了解的具体问题，我来帮您确认。"},
+  {"input":"知识库语义检索结果已核对。","expected":"店铺资料查询结果已核对。"}
+]

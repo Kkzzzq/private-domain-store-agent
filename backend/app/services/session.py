@@ -1,5 +1,6 @@
 from app.db.redis_client import get_redis
 from app.agent.summarizer import summarize_with_mode
+from app.agent.answer_presentation import present_messages
 
 
 def compact_messages(state: dict, max_chars: int, llm=None) -> tuple[dict, str | None]:
@@ -37,6 +38,7 @@ class SessionService:
             return {"summary": "", "messages": []}
         state.setdefault("summary", "")
         state.setdefault("messages", [])
+        state["messages"] = present_messages(state["messages"])
         return state
 
     def save(self, user_id: int, shop_id: int, session_id: str, state: dict, role="customer") -> None:
@@ -44,7 +46,9 @@ class SessionService:
 
     def recent(self, user_id: int, shop_id: int, role="customer") -> dict:
         saved = self.redis.get_json(f"chat-recent:{role}:{user_id}:{shop_id}")
-        return saved if isinstance(saved, dict) else {"session_id": "", "messages": []}
+        if not isinstance(saved, dict):
+            return {"session_id": "", "messages": []}
+        return {**saved, "messages": present_messages(saved.get("messages", []))}
 
     def record_turn(self, user_id: int, shop_id: int, session_id: str,
                     message: str, answer: str, products: list, role="customer") -> None:

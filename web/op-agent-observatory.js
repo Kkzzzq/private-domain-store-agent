@@ -70,7 +70,7 @@ window.OPAgentObservatory = (() => {
     const text=value=>typeof value==="string"?value:JSON.stringify(value??null,null,2);
     const json=value=>el("pre","ao-json",text(value).slice(0,100000));
     function answer(value){
-      const content=String(value||""),node=el("div","ao-answer");let offset=0;
+      const content=window.AssistantPresentation.clean(value),node=el("div","ao-answer");let offset=0;
       for(const match of content.matchAll(/\*\*([^*\n]+)\*\*|`([^`\n]+)`/g)){
         node.append(document.createTextNode(content.slice(offset,match.index)),el(match[1]?"strong":"code","",match[1]||match[2]));offset=match.index+match[0].length;
       }

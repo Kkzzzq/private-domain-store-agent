@@ -10,13 +10,12 @@ window.OPBusinessObservatory = (() => {
     const json=value=>el("pre","ao-json",JSON.stringify(value??null,null,2).slice(0,100000));
     const api=async(path,body)=>{if(!valid())throw Error("页面或账号已变化");return options.api(path,body);};
     const failure=error=>[404,405].includes(error.status)?"后端尚未加载业务对话接口，需要正常重启8000后端后再刷新。当前未调用模型。":error.message;
-    function answer(text){const content=String(text||""),node=el("div","ao-answer");let offset=0;for(const match of content.matchAll(/\*\*([^*\n]+)\*\*|`([^`\n]+)`/g)){node.append(document.createTextNode(content.slice(offset,match.index)),el(match[1]?"strong":"code","",match[1]||match[2]));offset=match.index+match[0].length;}node.append(document.createTextNode(content.slice(offset)));return node;}
+    function answer(text){const content=window.AssistantPresentation.clean(text),node=el("div","ao-answer");let offset=0;for(const match of content.matchAll(/\*\*([^*\n]+)\*\*|`([^`\n]+)`/g)){node.append(document.createTextNode(content.slice(offset,match.index)),el(match[1]?"strong":"code","",match[1]||match[2]));offset=match.index+match[0].length;}node.append(document.createTextNode(content.slice(offset)));return node;}
     function draw(){
       if(!valid())return;root.replaceChildren();
-      const top=el("div","ao-summary");top.append(el("strong","","业务对话工作台"),button("刷新对话记录",load,state.busy));root.append(top);
-      root.append(el("p","ao-muted","独立合成店铺 · 真实模型对话。每次发送会在新副本重放整段上下文（最多5轮），不操作实际店铺；当前页面不做答案评分。"));
-      root.append(el("p","ao-muted","怎么用：左侧与购物/经营助手对话；中间查看它实际查了哪些接口和工具；点击一步，右侧显示该步的输入与结果。合成买家只能购物和查本人订单，合成商家可查本店经营。这里的商品是测试副本，不等于C端当前真实商品。"));
-      const help=el("details");help.append(el("summary","","轨迹和用量怎么看？"),el("p","ao-muted","POST /api/v1/auth/login是测试身份登录，chat是发送业务问题；HTTP不是商品操作次数。JSON是脱敏后的请求/响应原始记录，不是客服回复。模型调用次数表示真实模型请求，tokens表示模型用量；副本清理完成只表示临时环境已释放。将问题转评测候选只是创建待审核用例，不会自动运行或判为通过。"));root.append(help);
+      const top=el("div","ao-summary");top.append(el("h3","","业务对话工作台"),button("刷新对话记录",load,state.busy));root.append(top);
+      root.append(el("p","ao-muted","独立合成店铺 · 真实模型对话（最多5轮）。每次发送都在新副本里重放上下文，不操作实际店铺，本页不做答案评分。"));
+      const help=el("details","ao-details");help.append(el("summary","","怎么用、轨迹和用量怎么看？"),el("p","ao-muted","怎么用：与购物或经营助手对话，展开轨迹可查看它实际调用了哪些接口和工具；点击某一步，右侧显示该步的输入与结果。合成买家只能购物与查本人订单，合成商家可查本店经营；这里的商品是测试副本，不等于 C 端当前真实商品。"),el("p","ao-muted","轨迹与用量：POST /api/v1/auth/login 是测试身份登录，chat 是发送业务问题；HTTP 不是商品操作次数。JSON 是脱敏后的请求/响应原始记录，不是客服回复。模型调用次数表示真实模型请求，tokens 表示模型用量；副本清理完成只表示临时环境已释放。将问题转评测候选只是创建待审核用例，不会自动运行或判为通过。"));root.append(help);
       if(state.error)root.append(el("p","qa-error",state.error));
       const grid=el("div","ao-grid"),left=el("section","ao-column"),middle=el("section","ao-column"),right=el("section","ao-column");
       const role=el("select");role.setAttribute("aria-label","对话身份");for(const [value,name]of [["customer","合成买家"],["merchant","合成商家"]]){const node=el("option","",name);node.value=value;role.append(node);}role.value=state.role;role.disabled=state.busy||state.messages.length>0;role.onchange=()=>state.role=role.value;

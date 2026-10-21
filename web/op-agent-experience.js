@@ -5,7 +5,7 @@ window.OPAgentExperience = (() => {
   const titles = {business:'业务 Agent',functional:'功能测试 Agent',evaluator:'评测 Agent'};
   const labels = {queued:'排队中',running:'执行中',completed:'执行结束',passed:'通过',failed:'失败',blocked:'阻塞',cancelled:'已取消',draft:'待审批',approved:'已批准',planning:'等待规划',planning_running:'正在规划'};
   const label = value => labels[value] || value || '未记录';
-  const el = (tag,cls,text) => {const node=document.createElement(tag);node.className=cls||'';if(text!=null)node.textContent=String(text);return node;};
+  const el = (tag,cls,text) => {const node=document.createElement(tag);node.className=cls||'';if(text!=null)node.textContent=cls==='ae-response'?window.AssistantPresentation.clean(text):String(text);return node;};
   const button = (text,fn) => {const node=el('button','ae-button',text);node.type='button';node.onclick=fn;return node;};
   const display = value => value===undefined?'未采集':typeof value==='string'?value:JSON.stringify(value,null,2);
   const chip = (text,state='') => el('span','ae-chip ae-'+state,text);
@@ -136,6 +136,7 @@ window.OPAgentExperience = (() => {
         if(raw&&!raw.closest('details')){const technical=el('details','ae-details');technical.append(el('summary','','技术原始记录'));raw.replaceWith(technical);technical.append(raw);}
         /* 业务证据、执行轨迹与所选步骤一起放进主内容区，跟在对话之后；不再挤成一条窄侧栏，也不会压住顶部导航与 tab。 */
         const main=el('section','ae-main'),evidence=el('section','ae-main-evidence');
+        grid.parentElement?.classList.add('ae-business-workspace');
         evidence.append(right);main.append(left,trace,evidence);grid.replaceWith(main);
       } else {
         const selections=Array.from(left.querySelectorAll('select'));

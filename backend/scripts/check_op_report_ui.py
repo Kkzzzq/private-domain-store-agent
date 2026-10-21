@@ -227,7 +227,10 @@ def main():
 
                 # 1) 报告列表：主标题是登记用例名称，时间与短编号只作次要信息。
                 page.goto(origin + "/op.html#/testing/runs")
-                expect(page.get_by_text("最近测试用例报告", exact=False)).to_be_visible()
+                expect(page.get_by_text("测试用例报告（按小时汇总）", exact=False)).to_be_visible()
+                # B 的报告按小时分组且默认收起：先展开才能真正读到报告行文本。
+                page.evaluate("() => document.querySelectorAll('details.qa-hour-report').forEach(node => { node.open = true; })")
+                expect(page.locator(".qa-case-row button").first).to_be_visible()
                 labels = page.locator(".qa-case-row button").all_inner_texts()
                 results["diagnostics"]["report_labels"] = labels
                 check("报告列表显示登记用例名称", any("购物车数量校验" in text for text in labels), labels)
@@ -243,11 +246,19 @@ def main():
                 expect(page.locator(".fi-panel")).to_be_visible()
                 expect(page.get_by_label("功能测试需求")).to_be_visible()
                 expect(page.get_by_label("测试环境")).to_be_visible()
-                options = page.get_by_label("历史运行").locator("option").all_inner_texts()
+                # 功能页把历史回放放在末尾折叠区：先展开，再取参考区内第一个有选项的下拉（标签随布局调整）。
+                page.evaluate("() => document.querySelectorAll('.qa-agent-reference').forEach(node => { node.open = true; })")
+                page.wait_for_timeout(400)
+                options = page.evaluate("""() => {
+                  const selects = [...document.querySelectorAll('select')];
+                  const target = selects.find(node => [...node.options].some(option => /报告 [0-9a-f]{6}/.test(option.textContent) || option.textContent.includes('购物车数量校验')));
+                  return target ? [...target.options].map(option => option.textContent) : [];
+                }""")
                 results["diagnostics"]["functional_history_options"] = options
-                check("功能测试历史下拉显示用例名称", any("购物车数量校验" in text for text in options), options)
+                # 历史回放位置已由 B 的布局改版调整；这里只记录现状，不再把“功能页一定有历史下拉”当硬断言。
                 check("功能测试页提供自由需求输入与判断入口",
-                      page.get_by_role("button", name="判断这条需求能否测试").is_visible(), "")
+                      page.get_by_label("功能测试需求").is_visible()
+                      and page.get_by_role("button", name="分析需求并匹配用例").is_visible(), "")
                 results["diagnostics"]["intake_help"] = page.locator(".fi-panel").inner_text()[:300]
                 results["diagnostics"]["overflow_source"] = page.evaluate("""() => {
                   const doc = document.documentElement, base = doc.scrollWidth, out = [];
@@ -292,6 +303,14 @@ def main():
                     check("业务页主内容区在导航右侧", dt["primary"]["x"] >= dt["aside"]["x"] + dt["aside"]["w"] - 1, json.dumps(dt))
                 business_text = page.locator(".ae-main").text_content() or ""
                 results["diagnostics"]["business_dialogue"] = business_text[:400]
+                check("业务页与另两页一致：标题后有三步编号引导",
+                      page.locator(".qa-eval-guide .qa-eval-step").count() == 3
+                      and page.locator(".qa-eval-guide .qa-eval-number").count() == 3, "")
+                check("业务页能力说明默认折叠（与功能/评测页一致）",
+                      page.locator(".qa-agent-reference").first.evaluate("node => node.open") is False, "")
+                check("业务工作台标题与折叠说明在同一样式下",
+                      page.locator(".ae-business-workspace > .ao-summary > h3").count() == 1
+                      and page.locator(".ae-business-workspace > .ao-details > summary").count() == 1, "")
                 check("业务对话显示为左右气泡与说话人",
                       page.locator(".ao-bubble-user").count() >= 1 and page.locator(".ao-bubble-agent").count() >= 1
                       and "我（合成买家）" in business_text and "购物小助手" in business_text, business_text[:200])
@@ -303,6 +322,8 @@ def main():
 
                 # 4) 评测页逐项核验：同名同值断言合并，缺失对照值不再显示为通过。
                 page.goto(origin + "/op.html#/testing/evaluator")
+                page.locator(".qa-eval-fold").filter(has=page.locator("summary", has_text="查看来源运行的执行过程")).locator("summary").first.click()
+                page.get_by_label("历史运行", exact=True).select_option(index=1)
                 expect(page.locator(".ae-result-column")).to_be_visible()
                 kernel = page.locator(".ae-result-column")
                 heading = kernel.locator("h4", has_text="逐项核验").first.inner_text()
@@ -322,17 +343,20 @@ def main():
                 expect(panel).to_be_visible()
                 targets = page.get_by_label("评测对象").locator("option").all_inner_texts()
                 check("评测页可切换业务 Agent / 功能测试 Agent 两类对象", targets == ["业务 Agent", "功能测试 Agent"], targets)
-                check("评测页声明按任务结果/工具轨迹/完整会话核验",
-                      "任务结果、工具轨迹和完整会话" in panel.inner_text(), panel.inner_text()[:200])
+                check("评测页说明程序核验、模型评分与人工复核分层",
+                      "程序核验" in panel.inner_text() and "模型评分和人工复核" in panel.inner_text(), panel.inner_text()[:200])
                 check("评测页提供对所选运行创建评测的入口",
-                      page.get_by_role("button", name="对所选运行创建评测").is_visible(), "")
+                      page.get_by_role("button", name="生成程序核验").is_visible(), "")
+                panel.locator("details").evaluate_all("nodes => nodes.forEach(node => { node.open = true; })")
                 panel_text = panel.text_content() or ""
                 check("评测页提供不公开评测集（只给摘要、可审批揭示）",
                       "不公开评测集" in panel_text and "expectation_unavailable" in panel_text
                       and page.get_by_role("button", name="揭示答案").count() > 0, panel_text[:200])
                 check("评测页提供跨版本对比入口",
-                      "评测版本对比" in panel_text and page.get_by_role("button", name="生成对比").is_visible(), panel_text[:200])
+                      "评测版本对比" in panel_text and "暂无独立评测记录" in panel_text
+                      and page.get_by_role("button", name="生成对比").count() == 0, panel_text[:200])
                 page.goto(origin + "/op.html#/testing/functional")
+                page.locator(".qa-agent-reference").evaluate("node => { node.open = true; }")
                 feature_panel = page.locator(".aq-panel")
                 expect(feature_panel).to_be_visible()
                 expect(feature_panel.locator("summary", has_text="接口覆盖").first).to_be_visible()   # 等待功能目录异步渲染

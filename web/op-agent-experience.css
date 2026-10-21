@@ -43,3 +43,11 @@
   aside>nav{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
   aside>.sidebar-bottom{position:static;margin-top:14px;flex:0 0 auto}
 }
+
+/* 业务工作台表头与折叠说明：与评测/功能页保持一致（标题 + 一句话 + 折叠细节），仅作用于业务页主内容区。 */
+.ae-business-workspace>.ao-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:10px;margin-bottom:12px;border-bottom:1px solid var(--ae-line)}
+.ae-business-workspace>.ao-summary>h3{font-size:17px;margin:0}
+.ae-business-workspace>.ao-details{margin:2px 0 16px;padding:2px 0}
+.ae-business-workspace>.ao-details>summary{cursor:pointer;font-size:13px;color:var(--ae-accent);padding:4px 0}
+.ae-business-workspace>.ao-details p{margin:6px 0 2px}
+.ae-business-workspace>.ao-muted{margin:0 0 10px}

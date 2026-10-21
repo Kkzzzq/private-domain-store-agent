@@ -7,6 +7,7 @@ class Node{
 const flatten=node=>[node,...(node.children||[]).flatMap(flatten)];
 const text=node=>flatten(node).map(n=>n.textContent||'').join(' ');
 const context=vm.createContext({window:{},document:{createElement:t=>new Node(t)},sessionStorage:{getItem:()=> 'operator'},crypto:{randomUUID:()=> 'key'}});
+vm.runInContext(fs.readFileSync('web/assistant-presentation.js','utf8'),context);
 vm.runInContext(fs.readFileSync('web/op-agent-observatory.js','utf8'),context);
 (async()=>{
   const host=new Node('main');let requests=0,finish;

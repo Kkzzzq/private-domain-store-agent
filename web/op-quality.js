@@ -14,7 +14,7 @@ window.OPQuality = (() => {
   const button = (text, action, primary=false) => { const node=el("button",primary?"qa-primary":"",text); node.type="button"; node.onclick=action; return node; };
   const pre = value => el("pre","qa-json",typeof value==="string"?value:JSON.stringify(value,null,2));
   function answer(text){
-    const node=el("div","qa-answer");const content=String(text||"");let offset=0;
+    const node=el("div","qa-answer");const content=window.AssistantPresentation.clean(text);let offset=0;
     for(const match of content.matchAll(/\*\*([^*\n]+)\*\*|`([^`\n]+)`/g)){
       node.append(document.createTextNode(content.slice(offset,match.index)),el(match[1]?"strong":"code","",match[1]||match[2]));offset=match.index+match[0].length;
     }
@@ -230,6 +230,7 @@ window.OPQuality = (() => {
     }
     function renderEvaluatorWorkspace(){
       root.classList.add('qa-evaluator');
+      window.OPAgentExperience?.context(root,{id:'evaluator',row:agentOf('evaluator'),data});
       const description=document.getElementById('page-description');if(description)description.textContent='评估任务结果、工具使用和会话质量，保留每一种结论的依据。';
       root.append(el('p','qa-eval-intro','从已有运行记录开始，先核验事实，再按需补充模型评分与人工意见。'));
       const guide=el('div','qa-eval-guide');
@@ -261,6 +262,14 @@ window.OPQuality = (() => {
         const flow=el("ol","fi-workflow");
         for(const [title,copy] of [["描述需求","说明要测的操作和预期结果"],["核对并运行","确认用例、范围和预算后批准"],["查看报告","对照步骤、预期与实际结果"]]){const step=el("li");step.append(el("strong","",title),el("span","",copy));flow.append(step);}root.append(flow);
       }
+      // 业务页与另两个 Agent 页对齐：同样先给一句话说明和编号步骤，再进入工作台。
+      if(id==="business"){
+        root.append(el('p','qa-eval-intro','先以合成买家或商家身份提问，再看它实际调用了哪些接口和工具；需要打分时把这一轮交给评测 Agent。'));
+        const guide=el('div','qa-eval-guide');
+        for(const [number,title,copy] of [['01','选择身份提问','合成买家只能购物与查本人订单；合成商家可查本店经营。'],['02','核对实际调用','展开轨迹查看真实请求、工具与用量；副本清理完成不等于用例通过。'],['03','交给评测 Agent','把这一轮问题转成待审核用例，再在评测页独立核验。']]){
+          const step=el('div','qa-eval-step');step.append(el('span','qa-eval-number',number),el('strong','',title),el('p','',copy));guide.append(step);}
+        root.append(guide);
+      }
       if(id==='functional'||id==='evaluator'){
         const kind=id==='functional'?'functional':'assistant',waiting=data.plans.filter(p=>p.payload.kind===kind&&p.status==='draft');
         if(waiting.length){const notice=el('section','qa-approval-banner');notice.append(el('h3','',`待审批计划 ${waiting.length} 项`),el('p','','先核对测试范围、环境与预算，再批准并启动。'),button('立即审核最新计划',()=>reviewPlan(waiting[0].id),true));root.append(notice);}
@@ -276,7 +285,7 @@ window.OPQuality = (() => {
           capabilities:data.capabilities.capabilities,api,loadRun,refresh,alive:valid});
       }
       }
-      const reference=el("details","qa-agent-reference");reference.open=id!=="functional";reference.append(el("summary","",id==="functional"?"功能范围、历史回放与配置说明":"查看能力说明、使用方法与源码"));if(id==="functional")reference.append(supporting);
+      const reference=el("details","qa-agent-reference");reference.open=id!=="functional"&&id!=="business"&&id!=="evaluator";reference.append(el("summary","",id==="functional"?"功能范围、历史回放与配置说明":"查看能力说明、使用方法与源码"));if(id==="functional")reference.append(supporting);
       const card=el("section","qa-card");
       const stats=id==="business"?{}:row.stats||{};
       const strip=el("div","qa-stat");

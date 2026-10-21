@@ -1,6 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 class Node{constructor(tag,cls='',text=''){this.tagName=tag.toUpperCase();this.children=[];this.className=cls;this.textContent=text;this.dataset={};this.classList={add(){}};}append(...nodes){this.children.push(...nodes);}setAttribute(k,v){this[k]=v;}}
 const context=vm.createContext({window:{},document:{createElement:tag=>new Node(tag)},WeakMap,Object});
+vm.runInContext(fs.readFileSync('web/assistant-presentation.js','utf8'),context);
 vm.runInContext(fs.readFileSync('web/op-agent-experience.js','utf8'),context);
 const api=context.window.OPAgentExperience;
 const content=node=>(node.textContent||'')+' '+node.children.map(content).join(' ');

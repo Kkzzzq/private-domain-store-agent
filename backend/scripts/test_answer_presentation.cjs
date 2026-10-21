@@ -1,0 +1,10 @@
+const fs=require('node:fs');
+const vm=require('node:vm');
+const assert=require('node:assert/strict');
+const context=vm.createContext({window:{}});
+vm.runInContext(fs.readFileSync('web/assistant-presentation.js','utf8'),context);
+const cases=JSON.parse(fs.readFileSync('backend/tests/fixtures/answer_presentation.json','utf8'));
+for(const test of cases)assert.equal(context.window.AssistantPresentation.clean(test.input),test.expected,test.input);
+for(const name of ['b','c','op'])assert.ok(fs.readFileSync(`web/${name}.html`,'utf8').includes('/assistant-presentation.js'));
+for(const path of ['web/app.js','web/op-business-observatory.js','web/op-agent-observatory.js','web/op-agent-experience.js','web/op-quality.js','web/op-functional-intake.js'])assert.ok(fs.readFileSync(path,'utf8').includes('AssistantPresentation.clean'),path);
+console.log(`${cases.length} shared answer cases and all agent display entry points passed.`);

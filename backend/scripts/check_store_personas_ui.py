@@ -52,7 +52,7 @@ def main():
                     key = "token_b" if role == "merchant" else "token_c"
                     page.add_init_script(f"sessionStorage.setItem({json.dumps(key)}, {json.dumps(login.json()['access_token'])});")
                     answer = "这是运营建议。" if role == "merchant" else "我可以帮您选购。"
-                    data = {"session_id": "synthetic-ui", "answer": answer, "mode": "llm", "tools": [],
+                    data = {"session_id": "synthetic-ui", "answer": answer + "\n来源（关键词检索）：after_sales.md / 售后政策；platform_rules.md / 平台规则", "mode": "llm", "tools": [],
                             "notices": ["INTERNAL_NOTICE_DO_NOT_SHOW"], "intent": "unclear", "products": [],
                             "sources": [{"source": "INTERNAL_SOURCE_DO_NOT_SHOW.md", "heading_path": "internal"}], "retrieval_mode": "chroma"}
                     body = json.dumps({"type": "result", "data": data}, ensure_ascii=False) + "\n"
@@ -72,6 +72,7 @@ def main():
                     expect(page.get_by_text("运营小助手" if role == "merchant" else "购物小助手", exact=False)).to_be_visible()
                     text = page.locator("body").inner_text()
                     assert "INTERNAL_SOURCE_DO_NOT_SHOW" not in text and "INTERNAL_NOTICE_DO_NOT_SHOW" not in text
+                    assert "after_sales.md" not in text and "platform_rules.md" not in text and "来源（" not in text
                     assert not errors, errors
                     page.screenshot(path=str(artifacts / f"persona-{role}-ui.png"), full_page=True)
                     results.append({"role": role, "status": "passed", "scope": "isolated-mocked-response-ui-not-model-evaluation", "errors": errors})

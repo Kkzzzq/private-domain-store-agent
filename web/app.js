@@ -97,6 +97,7 @@ function assistantWaitingText(shop) {
 }
 
 function renderAssistantMessage(element, text) {
+  text = window.AssistantPresentation.clean(text);
   element.replaceChildren();
   element.classList.add("assistant-markdown");
   const inline = (parent, value, depth = 0) => {

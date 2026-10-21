@@ -8,7 +8,8 @@ class Element {
 }
 const source = fs.readFileSync('web/op-quality.js', 'utf8');
 const document = {createElement: tag => new Element(tag), createTextNode: text => ({tag:'#text',textContent:text})};
-const context = vm.createContext({document});
+const context = vm.createContext({document,window:{}});
+vm.runInContext(fs.readFileSync('web/assistant-presentation.js','utf8'),context);
 vm.runInContext(source.slice(source.indexOf('  const el ='), source.indexOf('  function mount(')), context);
 const output = vm.runInContext('answer("**库存20件**\\n`SKU 1` <img src=x onerror=alert(1)>")', context);
 assert.equal(output.children.find(node => node.tag === 'strong').textContent, '库存20件');
