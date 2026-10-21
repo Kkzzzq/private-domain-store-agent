@@ -14,6 +14,17 @@ from app.agent.model import create_chat_model
 from app.core.logging import logger
 from app.services.session import SessionService, compact_messages
 
+# 运营要求：面向用户（B 端与 C 端）的回答不出现检索来源、检索方式和知识库这类术语。
+ANSWER_TERMS = (("知识库", "店铺资料"), ("关键词检索", "查询"), ("语义检索", "查询"),
+                ("向量检索", "查询"), ("向量索引", "索引"), ("检索", "查询"))
+
+
+def user_facing_answer(text):
+    cleaned = re.sub(r"\n?来源\s*[（(][^）)\n]*[）)][^\n]*", "", text or "")
+    for term, replacement in ANSWER_TERMS:
+        cleaned = cleaned.replace(term, replacement)
+    return cleaned.strip()
+
 
 class ModelOutputError(RuntimeError):
     pass
@@ -191,6 +202,7 @@ class Assistant:
                 answer, traces = fallback_reply(query)
                 mode = "fallback"
                 notices.append("模型暂时不可用，已使用规则查询回复")
+        answer = user_facing_answer(answer)
         state["messages"] = list(state["messages"]) + [
             {"role": "user", "content": message},
             {"role": "assistant", "content": answer},

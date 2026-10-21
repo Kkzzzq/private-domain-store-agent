@@ -12,11 +12,7 @@ const STATUS = {
   cancelled: "已取消",
 };
 
-function knowledgeSourceText(data) {
-  const sources = [...new Set((data.sources || []).map((source) => `${source.source} / ${source.heading_path}`))];
-  if (!sources.length) return "";
-  return `\n来源（${data.retrieval_mode === "chroma" ? "语义检索" : "关键词检索"}）：${sources.join("；")}`;
-}
+/* 面向用户的回答不展示检索来源与知识库术语：这里曾经拼接“来源（关键词检索）…”，已按运营要求移除。 */
 
 function money(value) {
   return `¥${Number(value || 0).toFixed(2)}`;
@@ -194,7 +190,7 @@ async function streamChat(path, tokenKey, body, onProgress, onPreview = () => {}
   const decoder = new TextDecoder();
   let buffer = "";
   const labels = { accepted: "请求已接收", context: "正在读取本次会话", model: "模型正在理解需求与组织回答", model_done: "模型已完成本轮处理", tool: "正在查询实时业务数据", tool_done: "数据查询完成", saving: "正在保存会话" };
-  const tools = { get_store_catalog: "正在了解本店商品", recommend_products: "正在按需求筛选商品和库存", search_products: "正在查询商品和库存", check_inventory: "正在核对库存", search_knowledge: "正在检索店铺知识库", query_orders: "正在查询你有权限查看的订单", merchant_overview: "正在查询本店经营概况", low_inventory: "正在查询库存预警" };
+  const tools = { get_store_catalog: "正在了解本店商品", recommend_products: "正在按需求筛选商品和库存", search_products: "正在查询商品和库存", check_inventory: "正在核对库存", search_knowledge: "正在查询店铺资料", query_orders: "正在查询你有权限查看的订单", merchant_overview: "正在查询本店经营概况", low_inventory: "正在查询库存预警" };
   try {
     while (true) {
       const { done, value } = await reader.read();

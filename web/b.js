@@ -2035,17 +2035,7 @@ function renderSkuPanel(product, reload = render) {
     specInput.maxLength = 40;
     specInput.setAttribute("aria-label", `${sku.spec} 规格名`);
     specCell.append(specInput);
-    const parameterEditor = document.createElement("details");
-    parameterEditor.className = "sku-parameter-editor";
-    parameterEditor.append(h("summary", "", "商品参数（选填）"));
-    const parameterInput = document.createElement("textarea");
-    parameterInput.rows = 4;
-    parameterInput.placeholder = "每行一项，例如：\n容量：350 mL\n材质：陶瓷";
-    parameterInput.setAttribute("aria-label", `${sku.spec} 商品参数（选填）`);
-    parameterInput.value = (sku.parameters || []).map(item => `${item.name}：${item.value}`).join("\n");
-    parameterInput.disabled = !Array.isArray(sku.parameters);
-    parameterEditor.append(parameterInput, h("small", "muted", parameterInput.disabled ? "后端尚未加载参数功能，重启后可配置。" : "可留空，最多12项；买家悬停对应规格时显示。"));
-    specCell.append(parameterEditor);
+    // 规格下的“商品参数（选填）”已按运营要求移除：参数编辑不再暴露在商品页。
 
     // 每个规格一张图，买家端详情页切规格就会换主图
     const imageCell = document.createElement("td");

@@ -13,6 +13,12 @@ window.StoreAuth = (() => {
     } catch {}
   }
   restoreSession();
+  // 演示账号由服务端 /auth/demo-login 提供（仓库不保存任何密码）；拿到后自动填入登录表单。
+  let demoAccount = null;
+  const demoReady = fetch("/api/v1/auth/demo-login", {cache: "no-store"})
+    .then(response => response.ok ? response.json() : null)
+    .then(data => { if (data && data.enabled) demoAccount = {username: data.username, password: data.password}; return demoAccount; })
+    .catch(() => null);
   const el = (tag, cls, text) => {
     const node = document.createElement(tag); if (cls) node.className = cls;
     if (text != null) node.textContent = text; return node;
@@ -20,7 +26,18 @@ window.StoreAuth = (() => {
   function createForm(options = {}) {
     const root = el("section", "auth-card");
     let mode = "login", role = options.role || "customer", username = options.username || "", busy = false, controller;
+    let demoApplied = false;
     root.dispose = () => controller?.abort();
+    demoReady.then(account => {
+      if (!account || demoApplied || busy || mode !== "login" || !root.isConnected) return;
+      const userField = root.querySelector('[name="username"]'), passField = root.querySelector('[name="password"]');
+      if (!userField || !passField) return;
+      if (!userField.value.trim()) { username = account.username; userField.value = account.username; }
+      if (!passField.value) passField.value = account.password;
+      demoApplied = true;
+      const form = root.querySelector(".auth-form");
+      if (form && !form.querySelector(".auth-demo-hint")) form.append(el("p", "auth-footnote auth-demo-hint", "已填入南枝演示账号，直接点「登录并继续」即可；也可以改成自己的账号。"));
+    });
     function paint() {
       root.replaceChildren();
       const eyebrow = el("p", "auth-eyebrow", "A LITTLE STORE, A LOVELY EVERYDAY");
@@ -38,7 +55,7 @@ window.StoreAuth = (() => {
       const field = (label, name, type, placeholder, required = true) => {
         const wrap = el("label", "auth-field"); wrap.append(el("span", "", label));
         const input = el("input"); input.type = type; input.name = name; input.required = required; input.placeholder = placeholder;
-        if (name === "password" && mode === "login" && options.demo) input.value = options.password || "";
+        if (name === "password" && mode === "login" && (options.demo || demoAccount)) input.value = options.demo ? (options.password || "") : demoAccount.password;
         input.maxLength = name === "username" || name === "nickname" ? 32 : 64;
         input.autocomplete = name === "username" ? "username" : name === "password" ? (mode === "login" ? "current-password" : "new-password") : "off";
         if (name === "username") { input.value = username; if (mode === "register") { input.pattern = "[A-Za-z0-9_]{3,32}"; input.title = "3至32位字母、数字或下划线"; } }

@@ -42,11 +42,12 @@ def create(db,user_id,run_ids,request_key,requested_cases=None):
     return output(db,batch)
 
 
-def output(db,batch):
+def output(db,batch,light=False):
+    """light=True 用于列表：子运行按轻量模式聚合，避免每份报告重复携带功能目录与完整证据。"""
     links=members(db,batch.id);children=[];missing=[]
     for link in links:
         run=db.get(QualityRun,link.run_id)
-        if run:children.append(service.run_out(db,run))
+        if run:children.append(service.run_out(db,run,light=light))
         else:missing.append(link.run_id)
     results=[];snapshots=[];seen=set()
     for child in children:
@@ -111,8 +112,8 @@ def listing(db,report_date=None):
     if cutoff is None:return []
     runs=runs.where(QualityRun.created_at>=cutoff)
     batches=batches.where(QualityReportBatch.created_at>=cutoff)
-    rows=[service.run_out(db,r) for r in db.scalars(runs.order_by(QualityRun.created_at.desc()))]
-    rows.extend(output(db,b) for b in db.scalars(batches.order_by(QualityReportBatch.created_at.desc())) if any(db.get(QualityRun,m.run_id) for m in members(db,b.id)))
+    rows=[service.run_out(db,r,light=True) for r in db.scalars(runs.order_by(QualityRun.created_at.desc()))]
+    rows.extend(output(db,b,light=True) for b in db.scalars(batches.order_by(QualityReportBatch.created_at.desc())) if any(db.get(QualityRun,m.run_id) for m in members(db,b.id)))
     return sorted(rows,key=lambda r:r['created_at'],reverse=True)
 
 

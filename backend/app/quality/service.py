@@ -260,15 +260,28 @@ def plan_out(plan):
             "approved_by": plan.approved_by, "created_at": plan.created_at, "evidence": plan.evidence}
 
 
-def run_out(db, run):
+def run_out(db, run, light=False):
+    """light=True 用于列表：每份报告重复携带功能目录与完整证据会把 100 份报告撑到几 MB。
+
+    列表只保留判定与失败原因，展开某份报告时前端再按 /runs/{id} 取完整详情。
+    """
     from datetime import timedelta
     from app.quality.case_docs import doc_for
     results = db.scalars(select(QualityResult).where(QualityResult.run_id == run.id).order_by(QualityResult.id)).all()
     plan = db.get(QualityPlan, run.plan_id)
+    target = {key: plan.payload.get(key) for key in ("target_revision", "environment_id", "fixture_version", "catalog_version", "case_snapshots", "model_profiles", "functional_driver", "unmapped_cases", "case_ids")}
+    if light:
+        target["feature_catalog_version"] = (plan.payload.get("feature_catalog") or {}).get("version")
+        rows = [{"id": row.case_id, "kind": row.kind, "status": row.status,
+                 "doc": plan.payload.get("case_documents", {}).get(row.case_id) or doc_for(row.case_id),
+                 "evidence": {key: (row.evidence or {}).get(key) for key in ("error", "cleanup_ok", "duration_ms", "budget") if (row.evidence or {}).get(key) is not None}}
+                for row in results]
+    else:
+        target["feature_catalog"] = plan.payload.get("feature_catalog")
+        rows = [{"id": row.case_id, "kind": row.kind, "status": row.status, "doc": plan.payload.get("case_documents", {}).get(row.case_id) or doc_for(row.case_id), "evidence": row.evidence} for row in results]
     return {"id": run.id, "name": (run.created_at + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M 测试报告") + f"（{len(results)}条用例） · {run.id[:6]}", "plan_id": run.plan_id, "kind": run.kind, "mode": run.mode, "status": run.status,
             "diagnostic": plan.payload.get("diagnostic", True),
             "planning": {"planner": plan.payload.get("planner"), "budget": plan.evidence.get("budget", {}), "tools": plan.evidence.get("tools", [])},
             "cancel_requested": run.cancel_requested, "created_at": run.created_at,
             "started_at": run.started_at, "finished_at": run.finished_at, "summary": run.summary,
-            "target": {key: plan.payload.get(key) for key in ("target_revision", "environment_id", "fixture_version", "catalog_version", "case_snapshots", "model_profiles", "feature_catalog", "functional_driver", "unmapped_cases", "case_ids")},
-            "results": [{"id": row.case_id, "kind": row.kind, "status": row.status, "doc": plan.payload.get("case_documents", {}).get(row.case_id) or doc_for(row.case_id), "evidence": row.evidence} for row in results]}
+            "target": target, "results": rows}

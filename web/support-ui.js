@@ -6,7 +6,7 @@
   const labels = {requested:'待商家处理',accepted:'已受理',rejected:'已拒绝',resolved:'处理完成',withdrawn:'已撤销',return_shipped:'买家已寄回',shipped:'已发货',transit:'运输中',delivered:'已签收',exception:'物流异常'};
   const kinds = {return:'退货',exchange:'换货',repair:'维修',other:'其他问题'};
   const time = value => new Date(value).toLocaleString('zh-CN', {hour12:false});
-  const trigger = el('button', merchant ? 'support-launch' : 'support-header-launch', merchant ? '客户消息 / 售后' : '联系商家'); trigger.type = 'button';
+  const trigger = el('button', merchant ? 'support-top' : 'support-header-launch', merchant ? '客户消息 / 售后' : '联系商家'); trigger.type = 'button';
   trigger.setAttribute('aria-label',merchant?'客户消息与售后':'联系商家');
   if (!merchant) {
     const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');
@@ -17,12 +17,20 @@
   }
 
   function placeTrigger() {
-    if(merchant) { if(!trigger.isConnected)document.body.append(trigger); return; }
+    // 商家端放到顶栏右侧（挨着“查看买家端”），不再用右下角悬浮入口。
+    if(merchant) {
+      const bar=document.querySelector('header.admin-top .user') || document.querySelector('header.admin-top');
+      if(bar&&trigger.parentElement!==bar) bar.prepend(trigger);
+      else if(!trigger.isConnected) document.body.append(trigger);
+      return;
+    }
     const target=document.querySelector('.store-nav');
     trigger.hidden=!target;
     if(target&&trigger.parentElement!==target)target.append(trigger);
   }
   placeTrigger();
+  // 商家页重绘顶栏后入口会被移除，这里按需重新挂回（只检查是否还在文档里，开销可忽略）。
+  if (merchant) new MutationObserver(() => { if (!trigger.isConnected) placeTrigger(); }).observe(document.body, {childList: true, subtree: true});
   let panel, main, nav, notice, tab = 'chat', token, controller, timer, conversation, cursor = 0, firstId = 0;
   let orders = [], conversations = [], code, polling = false, pendingSend = null, orderContext = '';
   function close() { clearInterval(timer); controller?.abort(); panel?.remove(); panel = null; conversation = null; cursor = 0; firstId = 0; trigger.setAttribute('aria-expanded', 'false'); }
