@@ -1,6 +1,11 @@
 window.OPQuality = (() => {
   const names = {mixed:"接口/UI与Agent组合执行",assistant:"业务 Agent 评测",functional:"业务功能测试",joint:"联合回归",rules:"规则 / 固定回归",live:"真实云端模型",browser:"浏览器用例",candidate:"候选未接入",active:"已接入",revoked:"已撤销",queued:"排队",planning:"AI规划排队",planning_running:"AI规划中",draft:"待批准",approved:"已批准",running:"运行中",completed:"执行完成",passed:"通过",failed:"失败",blocked:"阻塞",cancelled:"已取消",eligible:"满足本次范围门禁",not_eligible:"不满足门禁",not_selected:"未在这侧运行"};
   const label = value => names[value] || value;
+  // Keep downloads alive across workspace mounts, scoped to the current login.
+  let reportsOwner;
+  let reports={details:new Map(),downloads:new Map(),errors:new Map()};
+  function clearReportCache(){reportsOwner=undefined;reports={details:new Map(),downloads:new Map(),errors:new Map()};releaseShots();}
+  window.addEventListener("op-session-ended",clearReportCache);
   const shots = new Map();
   let shotsOwner = null;
   const releaseShots = () => { for(const url of shots.values())URL.revokeObjectURL(url); shots.clear(); };
@@ -57,7 +62,9 @@ window.OPQuality = (() => {
     const artifactLocks=new Map();
     let data, agents, selectedRun, selectedCase, selectedPlan, pending=false, caseState="active", caseType="all", caseQuery="", checked=new Set(), expanded=new Set(), comparison, flash, receipts=[], failures=[], reportDate="", refreshVersion=0, timer;
     const openHours=new Set();
-    const runDownloads=new Map(),runDetails=new Map(),runDownloadErrors=new Map();
+    if(reportsOwner!==identity){clearReportCache();reportsOwner=identity;}
+    const {downloads:runDownloads,details:runDetails,errors:runDownloadErrors}=reports;
+    const cacheSession=reports;
     const api=async(path,body,method="POST")=>{
       if(!valid())throw Error("账号或页面已变化");
       if(body)return options.api(path,{method,body:JSON.stringify(body)});
@@ -69,10 +76,16 @@ window.OPQuality = (() => {
     };
     function loadRun(id){
       if(runDetails.has(id))return Promise.resolve(runDetails.get(id));
-      if(runDownloads.has(id))return runDownloads.get(id);
+      if(runDownloads.has(id))return runDownloads.get(id).then(report=>{
+        if(valid()&&data)data.runs=data.runs.map(row=>row.id===id?report:row);return report;
+      });
       runDownloadErrors.delete(id);
       const request=api(`/runs/${encodeURIComponent(id)}`).then(report=>{
-        if(valid()){runDetails.set(id,report);data.runs=data.runs.map(row=>row.id===id?report:row);}return report;
+        if(sessionStorage.getItem("token_op")===identity&&reports===cacheSession){
+          runDetails.set(id,report);
+          while(runDetails.size>40)runDetails.delete(runDetails.keys().next().value);
+          if(valid()&&data)data.runs=data.runs.map(row=>row.id===id?report:row);
+        }return report;
       }).catch(err=>{runDownloadErrors.set(id,err.message);throw err;}).finally(()=>runDownloads.delete(id));
       runDownloads.set(id,request);return request;
     }

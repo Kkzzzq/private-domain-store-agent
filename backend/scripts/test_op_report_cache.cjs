@@ -1,0 +1,18 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+let token='operator',listeners={};
+const context=vm.createContext({window:{addEventListener:(name,fn)=>listeners[name]=fn},sessionStorage:{getItem:()=>token},document:{createElement:()=>({isConnected:true,replaceChildren(){}})},URL:{revokeObjectURL(){}},setTimeout,clearTimeout,AbortController});
+let source=fs.readFileSync('web/op-quality.js','utf8');
+source=source.replace('    const error=message=>','    window.cacheTest={loadRun,root,runDetails};return;\n    const error=message=>');
+vm.runInContext(source,context);
+const mount=api=>{context.window.OPQuality.mount({replaceChildren(){}},{api});return context.window.cacheTest;};
+(async()=>{
+ let requests=0,finish;
+ const api=()=>{requests++;return new Promise(resolve=>finish=resolve);};
+ const a=mount(api),first=a.loadRun('r1');a.root.isConnected=false;
+ const b=mount(api),second=b.loadRun('r1');assert.equal(requests,1,'navigation must share in-flight request');
+ finish({id:'r1',status:'completed'});await Promise.all([first,second]);
+ b.root.isConnected=false;const c=mount(api);assert.equal((await c.loadRun('r1')).id,'r1');assert.equal(requests,1,'return navigation must reuse download');
+ const stale=c.loadRun('r2');listeners['op-session-ended']();token='another';const d=mount(api);finish({id:'r2'});await stale;assert.equal(d.runDetails.size,0,'old account response must not populate new cache');
+ let fresh=0;const e=mount(async()=>{fresh++;return {id:'r1'};});await e.loadRun('r1');assert.equal(fresh,1,'new login must download its own report');
+ console.log('Cross-page cache: completed reuse, in-flight reuse, logout and stale-account isolation passed.');
+})().catch(err=>{console.error(err);process.exitCode=1;});

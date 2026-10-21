@@ -5,14 +5,20 @@ window.OPAgentQuality=(()=>{
   const detail=(title,value)=>{const d=el('details');d.append(el('summary',title),el('pre',typeof value==='string'?value:JSON.stringify(value,null,2)));return d;};
   const select=(label,values)=>{const n=el('select');n.setAttribute('aria-label',label);for(const [value,text] of values){const o=el('option',text);o.value=value;n.append(o);}return n;};
   const states=new WeakMap();
+  let cacheOwner,details=new Map(),downloads=new Map();
+  function clearCache(){cacheOwner=undefined;details=new Map();downloads=new Map();}
+  window.addEventListener('op-session-ended',clearCache);
   const labels={passed:'通过',failed:'未通过',incomplete:'证据待补充',completed:'已评分',blocked:'阻塞',scoring:'执行中',not_scored:'尚未评分',needs_review:'待人工核验'};
   const dimensionNames={task_success:'任务完成',factual_grounding:'事实依据',tool_use:'工具使用',conversation:'完整会话',permissions:'权限边界',recovery:'异常恢复',efficiency:'效率与成本',feature_grounding:'真实功能依据',plan_coverage:'计划覆盖',tool_execution:'工具执行',assertion_quality:'断言质量',defect_detection:'缺陷检出',failure_attribution:'失败归因',cleanup:'数据清理'};
   const stamp=value=>new Date(/[Z+]|\d-\d\d:\d\d$/.test(value)?value:value+'Z').toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false});
   function mount(root,{id,data,api,refresh}){
     if(!['functional','evaluator'].includes(id))return;
+    const identity=sessionStorage.getItem('token_op');
+    if(cacheOwner!==identity){clearCache();cacheOwner=identity;}
+    const sessionDetails=details,sessionDownloads=downloads;
     const host=el('section',null,'aq-panel qa-card');root.append(host);
     const state=states.get(root)||{target:'business'};states.set(root,state);
-    const live=()=>host.isConnected;
+    const live=()=>host.isConnected&&sessionStorage.getItem('token_op')===identity;
     const error=err=>{if(live())host.append(el('p',err.message||String(err),'qa-error'));};
     const job=async(button,fn)=>{button.disabled=true;try{await fn();}catch(err){error(err);}finally{button.disabled=false;}};
     if(id==='functional'){
@@ -46,11 +52,22 @@ window.OPAgentQuality=(()=>{
     let selectedEvaluation=null;
     async function show(row){
       selectedEvaluation=row.id;
+      if(row.brief&&sessionDetails.get(row.id)?.version===row.version)row=sessionDetails.get(row.id);
       if(row.brief){
         const notice=el('p','正在下载报告详情…');notice.setAttribute('role','status');notice.setAttribute('aria-live','polite');content.replaceChildren(notice);
-        try{row=await api(`/agent-quality/evaluations/${row.id}/detail`);}catch(err){if(live())content.replaceChildren(el('p',err.message,'qa-error'),btn('重试下载',()=>show(row)));return;}
+        try{
+          const reportId=row.id;
+          if(!sessionDownloads.has(reportId)){
+            const request=api(`/agent-quality/evaluations/${reportId}/detail`).then(full=>{
+              if(details===sessionDetails&&sessionStorage.getItem('token_op')===identity){sessionDetails.set(reportId,full);while(sessionDetails.size>40)sessionDetails.delete(sessionDetails.keys().next().value);}return full;
+            }).finally(()=>sessionDownloads.delete(reportId));
+            sessionDownloads.set(reportId,request);
+          }
+          row=await sessionDownloads.get(reportId);
+        }catch(err){if(live())content.replaceChildren(el('p',err.message,'qa-error'),btn('重试下载',()=>show(row)));return;}
         if(!live()||selectedEvaluation!==row.id)return;
       }
+      if(details===sessionDetails&&sessionStorage.getItem('token_op')===identity)sessionDetails.set(row.id,row);
       content.replaceChildren();content.append(el('h4',`${row.target==='business'?'业务 Agent':'功能测试 Agent'} · ${row.id.slice(0,8)}`),el('p',`程序结论：${labels[row.program.decision]||row.program.decision} · 模型：${labels[row.model_score.status]||'尚未评分'} · 人工复核：${row.reviews.length?'已有记录':'待复核'}`));
       if(row.review_conflict)content.append(el('p','人工意见与程序或模型存在分歧，请查看复核依据。','qa-error'));
       if(row.reviews.length&&!row.review_current)content.append(el('p','已有人工意见针对旧评测版本，请对当前证据重新复核。'));
