@@ -9,8 +9,8 @@ window.OPFunctionalIntake = (() => {
     const { api, refresh, data } = options;
     if (!data?.capabilities?.capabilities?.includes('qa.functional.run')) return;
     const panel = el('section', 'qa-card fi-panel');
-    panel.append(el('h3', '', '自由需求受理（功能测试 Agent）'),
-      el('p', 'qa-muted', '直接写下你想验证的需求。Agent 先读真实 B/C 功能目录与当前环境的已登记工具，判断这条需求能否被实现和测试：能对应到真实功能域且有执行工具的才判为可实现，并给出用例；只有接口清单、功能未覆盖或没有工具时明确判为不可测，不会凭一句话就编造测试。'));
+    panel.append(el('h3', '', '1. 描述你要验证的功能'),
+      el('p', 'qa-muted', '写清「在哪一端、做什么、期望怎样」。Agent 会匹配可执行用例；确认可测试后，再由你创建计划。'));
     const form = el('div', 'fi-form');
     const input = el('textarea', 'fi-input'); input.rows = 3; input.maxLength = 600;
     input.setAttribute('aria-label', '功能测试需求');
@@ -21,8 +21,8 @@ window.OPFunctionalIntake = (() => {
     const result = el('div', 'fi-result');
     const history = el('div', 'fi-history');
     let historyRows = [];
-    const submit = button('判断这条需求能否测试', async () => {
-      message.textContent = ''; result.replaceChildren(el('p', 'qa-muted', '正在读取真实功能目录，由独立测试模型判断…'));
+    const submit = button('分析需求并匹配用例', async () => {
+      message.textContent = ''; result.replaceChildren(el('p', 'qa-muted', '正在分析需求并查找可执行用例，请稍候…'));
       submit.disabled = true;
       try {
         const record = await api('/functional-intake', { requirement: input.value.trim(), environment_id: environment.value });
@@ -32,19 +32,22 @@ window.OPFunctionalIntake = (() => {
     }, true);
     submit.disabled = !input.value.trim();
     input.oninput = () => { submit.disabled = input.value.trim().length < 4; };
-    form.append(input, environment, submit, message);
+    const examples=el('div','fi-examples');examples.append(el('span','qa-muted','试试这些需求：'));
+    for(const text of ['购物车数量超过库存时应拒绝修改','B 端修改商品价格后，C 端应显示新价格','OP 修改商品后，B/C 端数据与数据库应一致'])examples.append(button(text,()=>{input.value=text;input.oninput();input.focus();}));
+    const toolbar=el('div','fi-toolbar'),envLabel=el('label','fi-environment');envLabel.append(el('span','','测试环境'),environment);toolbar.append(envLabel,submit);
+    form.append(input,examples,toolbar,message);
     panel.append(form, result, history);
     root.append(panel);
 
     function planButton(record) {
       const payload = record.plan;
-      const create = button('生成功能测试计划（需审批）', async () => {
+      const create = button('创建计划，下一步核对并批准', async () => {
         create.disabled = true;
         try {
           await api('/plans', payload);
           await refresh();
           message.textContent = '';
-          result.append(el('p', 'qa-notice', '已提交计划，请在下方「测试计划与审批」中核对用例与预算后批准；批准后由功能测试 Agent 读取功能目录并调用对应工具执行。'));
+          result.append(el('p', 'qa-notice', '已提交计划，请在下方「计划与审批」中核对用例与预算后批准；批准后由功能测试 Agent 读取功能目录并调用对应工具执行。'));
         } catch (err) { message.textContent = err.message; create.disabled = false; }
       }, true);
       return create;
@@ -52,10 +55,10 @@ window.OPFunctionalIntake = (() => {
     function render(record) {
       const verdict = record.verdict || {};
       const item = el('section', 'fi-verdict');
-      item.append(chip(verdict.feasible ? '可实现且可测试' : '当前不可测', verdict.feasible ? 'passed' : 'blocked'),
+      item.append(chip(verdict.feasible ? '已匹配可执行用例' : '暂时无法执行', verdict.feasible ? 'passed' : 'blocked'),
         el('p', 'fi-reason', verdict.reason || '未给出判断理由'));
       if (verdict.feature_ids?.length) item.append(el('p', 'qa-muted', `匹配功能域：${verdict.feature_ids.join('、')}`));
-      if (verdict.case_ids?.length) item.append(el('p', 'qa-muted', `可执行已登记用例：${verdict.case_ids.join('、')}${window.OPReportName ? '（' + verdict.case_ids.map(id => OPReportName.titleOf({ results: [] }, id, data.cases) || id).join('、') + '）' : ''}`));
+      if (verdict.case_ids?.length) item.append(el('p', 'qa-muted', `匹配用例：${verdict.case_ids.join('、')}${window.OPReportName ? '（' + verdict.case_ids.map(id => OPReportName.titleOf({ results: [] }, id, data.cases) || id).join('、') + '）' : ''}`));
       if (verdict.missing?.length) item.append(el('p', 'qa-error', `缺少依据：${verdict.missing.join('；')}`));
       item.append(el('p', 'qa-muted', `环境 ${record.environment_id} · 功能目录 ${String(record.catalog_version || '').slice(0, 12)} · 受理记录 ${String(record.id).slice(0, 8)} · ${record.status === 'completed' ? '判断已形成' : '判断未完成'}`));
       if (record.plan) {
@@ -71,13 +74,13 @@ window.OPFunctionalIntake = (() => {
     function paintHistory() {
       history.replaceChildren();
       if (!historyRows.length) return;
-      history.append(el('h4', '', '最近受理记录（本账号）'));
+      const previous=el('details','fi-previous');previous.append(el('summary','',`我的需求记录（${historyRows.length} 条）`));history.append(previous);
       for (const record of historyRows) {
         const line = el('div', 'fi-line');
         line.append(chip(record.verdict?.feasible ? '可实现' : '不可测', record.verdict?.feasible ? 'passed' : 'blocked'),
           el('span', 'fi-requirement', record.requirement),
-          button('查看', () => { input.value = record.requirement; environment.value = record.environment_id; render(record); }));
-        history.append(line);
+          button('查看', () => { input.value = record.requirement; environment.value = record.environment_id; input.oninput(); render(record); }));
+        previous.append(line);
       }
     }
     api('/functional-intake').then(list => { if (!panel.isConnected) return; historyRows = rows(list); environment.value = data.capabilities.environments.find(row => row.id === environment.value)?.id || environment.value; paintHistory(); }).catch(() => {});

@@ -228,18 +228,23 @@ window.OPQuality = (() => {
     function renderAgentPage(id){
       const row=agentOf(id);
       if(!row){root.append(heading("Agent 说明",agents?"后端未返回该 Agent 的说明，请刷新重试。":"正在读取该 Agent 的说明…"));return;}
-      root.append(heading(AGENT_TITLE[id]||row.name,row.role));
+      root.append(heading(AGENT_TITLE[id]||row.name,id==="functional"?"验证 B/C 端的接口、页面与数据库是否符合预期。从描述需求开始，核对计划后再运行。":row.role));
+      if(id==="functional"){
+        const flow=el("ol","fi-workflow");
+        for(const [title,copy] of [["描述需求","说明要测的操作和预期结果"],["核对并运行","确认用例、范围和预算后批准"],["查看报告","对照步骤、预期与实际结果"]]){const step=el("li");step.append(el("strong","",title),el("span","",copy));flow.append(step);}root.append(flow);
+      }
+      const supporting=id==="functional"?el("div"):root;
       // 功能测试页：先让运营用自己的话输入需求，Agent 判断可否实现，再走批准的既有执行链。
       if(id==="functional")window.OPFunctionalIntake?.mount(root,{api,refresh,data});
-      window.OPAgentExperience?.context(root,{id,row,data});
-      window.OPAgentQuality?.mount(root,{id,data,api,refresh});
+      if(id!=="functional")window.OPAgentExperience?.context(root,{id,row,data});
+      window.OPAgentQuality?.mount(supporting,{id,data,api,refresh});
       if(window.OPAgentObservatory){
-        const visualHost=el("div");root.append(visualHost);
+        const visualHost=el("div");supporting.append(visualHost);
         window.OPAgentObservatory.mount(visualHost,{agent:id,descriptor:row,cases:data.cases,
           runs:data.runs.map(run=>({...run,name:window.OPReportName?window.OPReportName.label(run,data.cases,{status:label(run.status),time:true}):run.name})),
           capabilities:data.capabilities.capabilities,api,loadRun,refresh,alive:valid});
       }
-      const reference=el("details","qa-agent-reference");reference.open=true;reference.append(el("summary","","查看能力说明、使用方法与源码"));
+      const reference=el("details","qa-agent-reference");reference.open=id!=="functional";reference.append(el("summary","",id==="functional"?"功能范围、历史回放与配置说明":"查看能力说明、使用方法与源码"));if(id==="functional")reference.append(supporting);
       const card=el("section","qa-card");
       const stats=id==="business"?{}:row.stats||{};
       const strip=el("div","qa-stat");
@@ -255,6 +260,7 @@ window.OPQuality = (() => {
       reference.append(card);return reference;
     }
     function renderEvaluation(kind){
+      if(kind==="functional")root.append(heading("2. 核对计划并运行","也可以直接选择已接入用例创建计划；批准后才开始执行。"));
       const controls=el("div","qa-actions");
       const create=button(kind==="assistant"?"新建评测计划":"新建功能测试计划",()=>compose(kind),true);
       create.disabled=!can(`qa.${kind}.run`);
@@ -263,11 +269,13 @@ window.OPQuality = (() => {
       if(data.runs.length>=2)controls.append(button("版本报告对比",compareDialog));
       if(can('qa.approve'))controls.append(button("历史保留与清理",retentionDialog));
       root.append(controls);
-      root.append(el("p","qa-muted",kind==="assistant"?"本页只列 kind=assistant 的计划与运行；批准绑定 digest，改动后必须重新批准。":"本页只列 kind=functional 的计划与运行；功能回归走固定执行器，不消耗被测模型。"));
+      if(kind!=="functional")root.append(el("p","qa-muted",kind==="assistant"?"本页只列 kind=assistant 的计划与运行；批准绑定 digest，改动后必须重新批准。":"本页只列 kind=functional 的计划与运行；功能回归走固定执行器，不消耗被测模型。"));
       root.append(envNote());
       if(comparison)renderComparison();
-      renderPlans(kind);renderRunsSection(kind);
+      renderPlans(kind);
       if(selectedPlan)renderPlan(data.plans.find(plan=>plan.id===selectedPlan));
+      if(kind==="functional")root.append(heading("3. 查看测试结果","按小时展开报告，点击某次执行后查看用例步骤、实际结果与失败原因。"));
+      renderRunsSection(kind);
     }
     function renderComparison(){
       const dimension={environment_id:"测试环境",fixture_version:"fixture版本",mode:"执行模式",unfinished_run:"运行未结束"};
