@@ -62,6 +62,7 @@ window.OPQuality = (() => {
     const artifactLocks=new Map();
     let data, agents, selectedRun, selectedCase, selectedPlan, pending=false, caseState="active", caseType="all", caseQuery="", checked=new Set(), expanded=new Set(), comparison, flash, receipts=[], failures=[], reportDate="", refreshVersion=0, timer;
     const openHours=new Set();
+    let evaluatorToolsOpen=false,evaluatorTraceOpen=false;
     if(reportsOwner!==identity){clearReportCache();reportsOwner=identity;}
     const {downloads:runDownloads,details:runDetails,errors:runDownloadErrors}=reports;
     const cacheSession=reports;
@@ -222,19 +223,44 @@ window.OPQuality = (() => {
     }
     async function reviewPlan(id){selectedPlan=id;await refresh();const detail=root.querySelector('.qa-plan-detail');for(let node=detail?.parentElement;node&&node!==root;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;detail?.scrollIntoView({behavior:'smooth',block:'start'});}
     function renderAgentWorkspace(id,kind){
+      if(id==="evaluator")return renderEvaluatorWorkspace();
       const reference=renderAgentPage(id);
       if(kind)renderEvaluation(kind);
       if(reference)root.append(reference);
     }
-    function renderAgentPage(id){
+    function renderEvaluatorWorkspace(){
+      root.classList.add('qa-evaluator');
+      const description=document.getElementById('page-description');if(description)description.textContent='评估任务结果、工具使用和会话质量，保留每一种结论的依据。';
+      root.append(el('p','qa-eval-intro','从已有运行记录开始，先核验事实，再按需补充模型评分与人工意见。'));
+      const guide=el('div','qa-eval-guide');
+      [['01','选择评测来源','业务 Agent 或功能测试 Agent 的已结束运行。'],['02','核对评测结果','先查看程序核验，再按需补充模型评分。'],['03','人工确认','记录复核意见；不同结论各自保留。']].forEach(([number,title,copy])=>{
+        const step=el('div','qa-eval-step');step.append(el('span','qa-eval-number',number),el('strong','',title),el('p','',copy));guide.append(step);
+      });root.append(guide);
+      window.OPAgentQuality?.mount(root,{id:'evaluator',data,api,refresh});
+      const secondary=el('section','qa-eval-secondary');
+      const trace=el('details','qa-eval-fold'),traceBody=el('div','qa-eval-fold-body');trace.open=evaluatorTraceOpen;
+      trace.append(el('summary','','查看来源运行的执行过程'),el('p','qa-muted','需要追查问题时，查看原始任务、工具调用和步骤证据。这里不会重新执行任务。'),traceBody);
+      let mounted=false;
+      const mountTrace=()=>{if(mounted||!trace.open)return;mounted=true;const row=agentOf('evaluator');window.OPAgentObservatory?.mount(traceBody,{agent:'evaluator',descriptor:row,cases:data.cases,runs:data.runs,capabilities:data.capabilities.capabilities,api,loadRun,refresh,alive:valid});};
+      trace.addEventListener('toggle',()=>{evaluatorTraceOpen=trace.open;mountTrace();});mountTrace();secondary.append(trace);
+      const batch=el('details','qa-eval-fold'),batchBody=el('div','qa-eval-fold-body');batch.open=evaluatorToolsOpen;
+      const waiting=data.plans.filter(plan=>plan.payload.kind==='assistant'&&plan.status==='draft').length;
+      batch.append(el('summary','',`重新执行助手测试${waiting?` · ${waiting} 项计划待审批`:''}`),el('p','qa-muted','想验证修改后的表现？在这里创建测试计划、批准执行，再将新的运行记录用于评测。'),batchBody);
+      const before=new Set(root.children);renderEvaluation('assistant');
+      for(const node of Array.from(root.children))if(!before.has(node))batchBody.append(node);
+      batch.addEventListener('toggle',()=>{evaluatorToolsOpen=batch.open;});secondary.append(batch);root.append(secondary);
+      const reference=renderAgentPage('evaluator',true);if(reference){reference.open=false;root.append(reference);}
+    }
+    function renderAgentPage(id,referenceOnly=false){
       const row=agentOf(id);
       if(!row){root.append(heading("Agent 说明",agents?"后端未返回该 Agent 的说明，请刷新重试。":"正在读取该 Agent 的说明…"));return;}
+      const supporting=id==="functional"?el("div"):root;
+      if(!referenceOnly){
       root.append(heading(AGENT_TITLE[id]||row.name,id==="functional"?"验证 B/C 端的接口、页面与数据库是否符合预期。从描述需求开始，核对计划后再运行。":row.role));
       if(id==="functional"){
         const flow=el("ol","fi-workflow");
         for(const [title,copy] of [["描述需求","说明要测的操作和预期结果"],["核对并运行","确认用例、范围和预算后批准"],["查看报告","对照步骤、预期与实际结果"]]){const step=el("li");step.append(el("strong","",title),el("span","",copy));flow.append(step);}root.append(flow);
       }
-      const supporting=id==="functional"?el("div"):root;
       if(id==='functional'||id==='evaluator'){
         const kind=id==='functional'?'functional':'assistant',waiting=data.plans.filter(p=>p.payload.kind===kind&&p.status==='draft');
         if(waiting.length){const notice=el('section','qa-approval-banner');notice.append(el('h3','',`待审批计划 ${waiting.length} 项`),el('p','','先核对测试范围、环境与预算，再批准并启动。'),button('立即审核最新计划',()=>reviewPlan(waiting[0].id),true));root.append(notice);}
@@ -248,6 +274,7 @@ window.OPQuality = (() => {
         window.OPAgentObservatory.mount(visualHost,{agent:id,descriptor:row,cases:data.cases,
           runs:data.runs.map(run=>({...run,name:window.OPReportName?window.OPReportName.label(run,data.cases,{status:label(run.status),time:true}):run.name})),
           capabilities:data.capabilities.capabilities,api,loadRun,refresh,alive:valid});
+      }
       }
       const reference=el("details","qa-agent-reference");reference.open=id!=="functional";reference.append(el("summary","",id==="functional"?"功能范围、历史回放与配置说明":"查看能力说明、使用方法与源码"));if(id==="functional")reference.append(supporting);
       const card=el("section","qa-card");
@@ -274,7 +301,7 @@ window.OPQuality = (() => {
       if(data.runs.length>=2)controls.append(button("版本报告对比",compareDialog));
       if(can('qa.approve'))controls.append(button("历史保留与清理",retentionDialog));
       root.append(controls);
-      if(kind!=="functional")root.append(el("p","qa-muted",kind==="assistant"?"本页只列 kind=assistant 的计划与运行；批准绑定 digest，改动后必须重新批准。":"本页只列 kind=functional 的计划与运行；功能回归走固定执行器，不消耗被测模型。"));
+      if(kind!=="functional")root.append(el("p","qa-muted",kind==="assistant"?"管理助手测试计划与执行报告；修改计划后需要重新核对并批准，再开始新的运行。":"本页只列 kind=functional 的计划与运行；功能回归走固定执行器，不消耗被测模型。"));
       root.append(envNote());
       if(comparison)renderComparison();
       renderPlans(kind);
