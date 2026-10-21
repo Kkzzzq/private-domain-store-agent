@@ -155,7 +155,7 @@ window.OPAgentExperience = (() => {
         const create=Array.from(root.querySelectorAll('button')).find(node=>node.textContent===(ctx.id==='functional'?'新建功能测试计划':'新建评测计划'));
         const commands=create?.closest('.qa-actions');
         if(commands&&!commands.classList.contains('ae-command-bar')){commands.classList.add('ae-command-bar');root.insertBefore(commands,host);}
-        const planTitle=Array.from(root.querySelectorAll('h3')).find(node=>node.textContent==='计划与审批');
+        const planTitle=Array.from(root.querySelectorAll('h3')).find(node=>node.textContent.startsWith('计划与审批'));
         const plan=planTitle?.closest('.qa-card');
         if(plan&&!root.querySelector('.ae-plans')){const details=el('details','ae-plans');
           const plans=rows(ctx.data.plans).filter(row=>row.payload?.kind===(ctx.id==='functional'?'functional':'assistant'));

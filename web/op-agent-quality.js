@@ -11,7 +11,7 @@ window.OPAgentQuality=(()=>{
   const labels={passed:'通过',failed:'未通过',incomplete:'证据待补充',completed:'已评分',blocked:'阻塞',scoring:'执行中',not_scored:'尚未评分',needs_review:'待人工核验'};
   const dimensionNames={task_success:'任务完成',factual_grounding:'事实依据',tool_use:'工具使用',conversation:'完整会话',permissions:'权限边界',recovery:'异常恢复',efficiency:'效率与成本',feature_grounding:'真实功能依据',plan_coverage:'计划覆盖',tool_execution:'工具执行',assertion_quality:'断言质量',defect_detection:'缺陷检出',failure_attribution:'失败归因',cleanup:'数据清理'};
   const stamp=value=>new Date(/[Z+]|\d-\d\d:\d\d$/.test(value)?value:value+'Z').toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false});
-  function mount(root,{id,data,api,refresh}){
+  function mount(root,{id,data,api,refresh,reviewPlan}){
     if(!['functional','evaluator'].includes(id))return;
     const identity=sessionStorage.getItem('token_op');
     if(cacheOwner!==identity){clearCache();cacheOwner=identity;}
@@ -35,13 +35,13 @@ window.OPAgentQuality=(()=>{
           const summary=split.api||split.page?`接口覆盖 ${counts('api')} 条 · 页面覆盖 ${counts('page')} 条${statusText?' · '+statusText:''}`:(feature.tools.length?'部分场景已接入':'未覆盖');
           const card=el('details',null,'aq-feature');card.append(el('summary',`${feature.sides.join('/')} · ${feature.name} · ${summary}`),el('p',feature.rule),el('p',feature.coverage_note));
           card.append(detail(`正常/异常/权限/边界场景（${sceneText||'未采集'}）`,{status:scenes.status,status_note:scenes.status_note,coverage:scenes.coverage,reviewed:scenes.reviewed,unconfirmed_case_ids:scenes.unconfirmed_case_ids}),detail(`可复用点击工具（${(feature.ui_actions?.ready||[]).length} 个可用）`,feature.ui_actions),detail('测试数据要求与清理方式',feature.cleanup),detail('接口覆盖与页面覆盖（分别记录）',split),detail('真实入口、参数、权限依赖与源码',feature.endpoints),detail('前置条件与验证目标',{preconditions:feature.preconditions,verification:feature.verification}),detail('当前环境可用复合工具',feature.tools));
-          if(feature.tools.length){const create=btn('生成工具执行计划（需审批）',()=>job(create,async()=>{
+          if(feature.tools.length){const create=btn('生成计划并前往审批 →',()=>job(create,async()=>{
             const env=data.capabilities.environments[0]?.id;
             const caseIds=feature.tools.filter(t=>!t.environments?.length||t.environments.includes(env)).map(t=>t.case_id).slice(0,20);
             if(!caseIds.length)throw Error('所选环境没有可执行工具');
-            await api('/plans',{kind:'functional',goal:`检查${feature.sides.join('/')}端的${feature.name}。依据功能目录${catalog.version}：${feature.rule}。执行所有批准场景并保留实际工具证据。`,case_ids:caseIds,environment_id:env,mode:'rules',diagnostic:env==='real-nanzhi',planner:env==='real-nanzhi'?'fixed':'model',functional_driver:true,max_calls:30,max_tokens:60000,timeout_seconds:1200});
-            await refresh();
-          }));card.append(create);}list.append(card);
+            const plan=await api('/plans',{kind:'functional',goal:`检查${feature.sides.join('/')}端的${feature.name}。依据功能目录${catalog.version}：${feature.rule}。执行所有批准场景并保留实际工具证据。`,case_ids:caseIds,environment_id:env,mode:'rules',diagnostic:env==='real-nanzhi',planner:env==='real-nanzhi'?'fixed':'model',functional_driver:true,max_calls:30,max_tokens:60000,timeout_seconds:1200});
+            if(reviewPlan)await reviewPlan(plan.id);else await refresh();
+          }));create.className='qa-primary aq-approval-button';card.append(el('p','生成后进入审批，核对范围与预算并批准后才能执行。'),create);}list.append(card);
         }};side.onchange=paint;paint();
       }).catch(error);return;
     }
@@ -94,15 +94,22 @@ window.OPAgentQuality=(()=>{
       if(row.program.decision!=='passed')content.append(el('p','存在失败或未观察项；人工意见不会改写原始断言。'));
     }
     function comparePanel(rows){
-      const box=el('div'),a=select('基线评测',[]),b=select('候选评测',[]),out=el('div');
+      const box=el('div',null,'aq-compare');
+      box.append(el('h4','评测版本对比'));
+      if(rows.length<2){box.append(el('p',rows.length===0?'暂无独立评测记录。先在上方选择已结束运行，点击「生成程序核验」。':'当前只有 1 份独立评测。请再选择一次已结束运行创建评测，至少两份才能对比。','qa-notice'));return box;}
+      const a=select('基线评测',[]),b=select('候选评测',[]),out=el('div');
       for(const row of rows){for(const node of [a,b]){const option=el('option',`${stamp(row.created_at)} · ${row.id.slice(0,8)} · ${labels[row.program.decision]||row.program.decision}`);option.value=row.id;node.append(option);}}
       if(rows.length>1)b.selectedIndex=1;
-      box.append(el('h4','评测版本对比'),a,b,btn('生成对比',()=>job(box,async()=>{const result=await api(`/agent-quality/evaluations/compare?baseline=${encodeURIComponent(a.value)}&candidate=${encodeURIComponent(b.value)}`);
+      const compare=btn('生成对比',()=>job(compare,async()=>{const result=await api(`/agent-quality/evaluations/compare?baseline=${encodeURIComponent(a.value)}&candidate=${encodeURIComponent(b.value)}`);
         const nodes=[el('p',result.comparable?'两份评测可比。':`不可比：${result.incompatible_reasons.join('、')}`)];
         for(const item of result.program.filter(row=>row.changed))nodes.push(el('p',`${item.name}：${labels[item.before]||item.before} → ${labels[item.after]||item.after} · ${item.transition}`));
         for(const item of result.dimensions)nodes.push(el('p',`${dimensionNames[item.dimension]||item.dimension}：${item.before==null?'未观察':item.before} → ${item.after==null?'未观察':item.after}${item.delta==null?'':'（'+(item.delta>0?'+':'')+item.delta+'）'}`));
         nodes.push(el('p','人工复核：基线 '+result.reviews.baseline+' 条 / 候选 '+result.reviews.candidate+' 条；'+result.note));
-        out.replaceChildren(...nodes);})),out);
+        out.replaceChildren(...nodes);}));
+      const update=()=>{compare.disabled=!a.value||!b.value||a.value===b.value;};a.onchange=update;b.onchange=update;update();
+      const fields=el('div',null,'aq-compare-fields');
+      for(const [title,node] of [['基线评测',a],['候选评测',b]]){const field=el('label',title);field.append(node);fields.append(field);}
+      box.append(fields,compare,out);
       return box;
     }
     function heldoutPanel(){

@@ -1,12 +1,12 @@
 /* 功能测试 Agent 的自由需求受理：先判断需求能否由真实功能工具实现，再产出需审批的执行计划。 */
 window.OPFunctionalIntake = (() => {
-  const el = (tag, cls, text) => { const node = document.createElement(tag); node.className = cls || ''; if (text != null) node.textContent = String(text); return node; };
+  const el = (tag, cls, text) => { const node = document.createElement(tag); node.className = cls || ''; if (text != null) node.textContent = cls === 'fi-reason' ? window.AssistantPresentation.clean(text) : String(text); return node; };
   const button = (text, fn, primary = false) => { const node = el('button', primary ? 'qa-primary' : '', text); node.type = 'button'; node.onclick = fn; return node; };
   const pre = value => el('pre', 'qa-json', typeof value === 'string' ? value : JSON.stringify(value, null, 2));
   const chip = (text, state) => el('span', `qa-badge ${state ? 'qa-' + state : ''}`, text);
   const rows = value => Array.isArray(value) ? value : [];
   function mount(root, options) {
-    const { api, refresh, data } = options;
+    const { api, refresh, data, reviewPlan } = options;
     if (!data?.capabilities?.capabilities?.includes('qa.functional.run')) return;
     const panel = el('section', 'qa-card fi-panel');
     panel.append(el('h3', '', '1. 描述你要验证的功能'),
@@ -22,7 +22,7 @@ window.OPFunctionalIntake = (() => {
     const history = el('div', 'fi-history');
     let historyRows = [];
     const submit = button('分析需求并匹配用例', async () => {
-      message.textContent = ''; result.replaceChildren(el('p', 'qa-muted', '正在分析需求并查找可执行用例，请稍候…'));
+      message.textContent = ''; result.replaceChildren(el('p', 'qa-muted', '正在读取真实功能目录，由 DeepSeek-Flash 判断…'));
       submit.disabled = true;
       try {
         const record = await api('/functional-intake', { requirement: input.value.trim(), environment_id: environment.value });
@@ -44,8 +44,8 @@ window.OPFunctionalIntake = (() => {
       const create = button('创建计划，下一步核对并批准', async () => {
         create.disabled = true;
         try {
-          await api('/plans', payload);
-          await refresh();
+          const plan=await api('/plans', payload);
+          if(reviewPlan)await reviewPlan(plan.id);else await refresh();
           message.textContent = '';
           result.append(el('p', 'qa-notice', '已提交计划，请在下方「计划与审批」中核对用例与预算后批准；批准后由功能测试 Agent 读取功能目录并调用对应工具执行。'));
         } catch (err) { message.textContent = err.message; create.disabled = false; }
@@ -55,8 +55,9 @@ window.OPFunctionalIntake = (() => {
     function render(record) {
       const verdict = record.verdict || {};
       const item = el('section', 'fi-verdict');
-      item.append(chip(verdict.feasible ? '已匹配可执行用例' : '暂时无法执行', verdict.feasible ? 'passed' : 'blocked'),
-        el('p', 'fi-reason', verdict.reason || '未给出判断理由'));
+      const failed=record.status!=='completed';
+      item.append(chip(failed?'判断未完成':verdict.feasible?'已匹配可执行用例':'暂时无法执行',failed?'blocked':verdict.feasible?'passed':'blocked'),
+        el('p','fi-reason',failed?(record.error||record.evidence?.error||'受理服务未完成，请重试；本次不代表功能不可测。'):(verdict.reason||'未给出判断理由')));
       if (verdict.feature_ids?.length) item.append(el('p', 'qa-muted', `匹配功能域：${verdict.feature_ids.join('、')}`));
       if (verdict.case_ids?.length) item.append(el('p', 'qa-muted', `匹配用例：${verdict.case_ids.join('、')}${window.OPReportName ? '（' + verdict.case_ids.map(id => OPReportName.titleOf({ results: [] }, id, data.cases) || id).join('、') + '）' : ''}`));
       if (verdict.missing?.length) item.append(el('p', 'qa-error', `缺少依据：${verdict.missing.join('；')}`));
@@ -65,7 +66,7 @@ window.OPFunctionalIntake = (() => {
         item.append(el('p', '', `计划目标：${record.plan.goal}`),
           el('p', 'qa-muted', `用例 ${record.plan.case_ids.length} 条 · 上限 ${record.plan.max_calls} 次模型调用 / ${record.plan.max_tokens} tokens · 规划 ${record.plan.planner === 'model' ? '真实模型' : '固定'} · 执行 ${record.plan.functional_driver ? '读取功能目录后调用已登记工具' : '实店固定执行器'}`),
           planButton(record));
-      } else item.append(el('p', 'qa-muted', '没有可提交的执行计划：需要先补齐功能目录中的工具或被测功能。'));
+      } else item.append(el('p', 'qa-muted', failed?'本次没有生成计划。请重试需求判断；若仍失败，请查看下方错误详情。':'没有可提交的执行计划：需要先补齐功能目录中的工具或被测功能。'));
       const evidence = el('details', 'fi-details');
       evidence.append(el('summary', '', '受理依据、工具调用与模型用量'), pre({ catalog_version: record.catalog_version, verdict, tools: record.evidence?.tools, budget: record.evidence?.budget, conversation: record.evidence?.conversation, error: record.evidence?.error }));
       item.append(evidence);

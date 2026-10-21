@@ -220,6 +220,7 @@ window.OPQuality = (() => {
       root.append(limits);
       if(receipts.length)renderReceipts();
     }
+    async function reviewPlan(id){selectedPlan=id;await refresh();const detail=root.querySelector('.qa-plan-detail');for(let node=detail?.parentElement;node&&node!==root;node=node.parentElement)if(node.tagName==='DETAILS')node.open=true;detail?.scrollIntoView({behavior:'smooth',block:'start'});}
     function renderAgentWorkspace(id,kind){
       const reference=renderAgentPage(id);
       if(kind)renderEvaluation(kind);
@@ -234,10 +235,14 @@ window.OPQuality = (() => {
         for(const [title,copy] of [["描述需求","说明要测的操作和预期结果"],["核对并运行","确认用例、范围和预算后批准"],["查看报告","对照步骤、预期与实际结果"]]){const step=el("li");step.append(el("strong","",title),el("span","",copy));flow.append(step);}root.append(flow);
       }
       const supporting=id==="functional"?el("div"):root;
+      if(id==='functional'||id==='evaluator'){
+        const kind=id==='functional'?'functional':'assistant',waiting=data.plans.filter(p=>p.payload.kind===kind&&p.status==='draft');
+        if(waiting.length){const notice=el('section','qa-approval-banner');notice.append(el('h3','',`待审批计划 ${waiting.length} 项`),el('p','','先核对测试范围、环境与预算，再批准并启动。'),button('立即审核最新计划',()=>reviewPlan(waiting[0].id),true));root.append(notice);}
+      }
       // 功能测试页：先让运营用自己的话输入需求，Agent 判断可否实现，再走批准的既有执行链。
-      if(id==="functional")window.OPFunctionalIntake?.mount(root,{api,refresh,data});
+      if(id==="functional")window.OPFunctionalIntake?.mount(root,{api,refresh,data,reviewPlan});
       if(id!=="functional")window.OPAgentExperience?.context(root,{id,row,data});
-      window.OPAgentQuality?.mount(supporting,{id,data,api,refresh});
+      window.OPAgentQuality?.mount(supporting,{id,data,api,refresh,reviewPlan});
       if(window.OPAgentObservatory){
         const visualHost=el("div");supporting.append(visualHost);
         window.OPAgentObservatory.mount(visualHost,{agent:id,descriptor:row,cases:data.cases,
@@ -294,10 +299,10 @@ window.OPQuality = (() => {
     }
     function renderPlans(kind){
       const plans=data.plans.filter(plan=>plan.payload.kind===kind);
-      const section=el("section","qa-card");section.append(el("h3","","计划与审批"));
+      const section=el("section","qa-card");section.append(el("h3","",`计划与审批 · ${plans.filter(p=>p.status==='draft').length} 项待审批`));
       if(!plans.length)section.append(el("p","qa-muted","尚无该类型的计划。选择已接入用例，先生成并审核，再启动运行。"));
       for(const plan of plans.slice(0,6)){
-        const row=el("div","qa-case-row");row.append(button(plan.payload.goal,()=>{selectedPlan=plan.id;paint();}),badge(plan.status),el("span","qa-muted",`${label(plan.payload.kind)} · ${plan.payload.case_ids.length}条 · ${label(plan.payload.mode)}`));section.append(row);
+        const row=el("div","qa-case-row");row.append(button(plan.payload.goal,()=>{selectedPlan=plan.id;paint();}),badge(plan.status),el("span","qa-muted",`${label(plan.payload.kind)} · ${plan.payload.case_ids.length}条 · ${label(plan.payload.mode)}`));if(plan.status==='draft')row.append(button('审核计划 →',()=>reviewPlan(plan.id),true));section.append(row);
       }root.append(section);
     }
     function renderPlan(plan){
@@ -307,7 +312,7 @@ window.OPQuality = (() => {
       if(plan.evidence&&Object.keys(plan.evidence).length)section.append(pre(plan.evidence));
       const controls=el("div","qa-actions");
       if(plan.status==="draft"){
-        const approve=button("批准此版本",()=>action(()=>api(`/plans/${plan.id}/approve`,{digest:plan.digest})),true);approve.disabled=!can("qa.approve");controls.append(approve);
+        const approve=button("确认审批 · 批准此版本",()=>action(()=>api(`/plans/${plan.id}/approve`,{digest:plan.digest})),true);approve.disabled=!can("qa.approve");controls.append(approve);
       }
       if(plan.status==="approved"){const start=button("启动已批准计划",()=>action(async()=>{const run=await api("/runs",{plan_id:plan.id,request_key:crypto.randomUUID()});selectedRun=run.id;}),true);start.disabled=!canRun(plan.payload.kind);controls.append(start);}
       controls.append(button("收起",()=>{selectedPlan=null;paint();}));section.append(controls);root.append(section);
