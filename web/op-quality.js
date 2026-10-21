@@ -1,5 +1,5 @@
 window.OPQuality = (() => {
-  const names = {assistant:"业务 Agent 评测",functional:"业务功能测试",joint:"联合回归",rules:"规则 / 固定回归",live:"真实云端模型",browser:"浏览器用例",candidate:"候选未接入",active:"已接入",revoked:"已撤销",queued:"排队",planning:"AI规划排队",planning_running:"AI规划中",draft:"待批准",approved:"已批准",running:"运行中",completed:"执行完成",passed:"通过",failed:"失败",blocked:"阻塞",cancelled:"已取消",eligible:"满足本次范围门禁",not_eligible:"不满足门禁",not_selected:"未在这侧运行"};
+  const names = {mixed:"接口/UI与Agent组合执行",assistant:"业务 Agent 评测",functional:"业务功能测试",joint:"联合回归",rules:"规则 / 固定回归",live:"真实云端模型",browser:"浏览器用例",candidate:"候选未接入",active:"已接入",revoked:"已撤销",queued:"排队",planning:"AI规划排队",planning_running:"AI规划中",draft:"待批准",approved:"已批准",running:"运行中",completed:"执行完成",passed:"通过",failed:"失败",blocked:"阻塞",cancelled:"已取消",eligible:"满足本次范围门禁",not_eligible:"不满足门禁",not_selected:"未在这侧运行"};
   const label = value => names[value] || value;
   const shots = new Map();
   let shotsOwner = null;
@@ -238,7 +238,7 @@ window.OPQuality = (() => {
     }
     function renderRunsSection(kind){
       const section=el("section","qa-card");section.append(el("h3","","最近测试用例报告（最多 100 份）"));
-      let rows=kind==="all"?data.runs:data.runs.filter(run=>run.kind===kind);
+      let rows=kind==="all"?data.runs:data.runs.filter(run=>run.kind===kind||run.report_batch&&run.results.some(row=>row.kind===kind));
       if(kind==="all"&&options.tab==="testing-runs")rows=rows.filter(run=>["completed","failed","blocked","cancelled"].includes(run.status));
       if(!rows.length)section.append(el("p","qa-muted",kind==="all"?"尚未运行测试，不展示虚构通过率。需启动独立quality worker处理队列。":"该类型还没有运行记录；全部报告在「测试用例报告」页。"));
       for(const run of rows.slice(0,100)){
@@ -392,7 +392,7 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       const rows=data.cases.filter(canRunRow),groups=runGroups(rows);
       const planned=groups.reduce((total,group)=>total+Math.ceil(group.ids.length/batchLimit(group)),0);
       const dialog=el("dialog","qa-dialog"),form=el("div","qa-form");
-      form.append(el("h2","","一键运行全部已接入用例"),el("p","qa-muted",`共 ${rows.length} 条已接入用例，按类型与模式拆成 ${planned} 个计划，功能每个计划最多 ${BATCH_LIMIT} 条，助手每条独立计划与预算；助手与功能用例不会混在同一计划里。`));
+      form.append(el("h2","","一键运行全部已接入用例"),el("p","qa-muted",`共 ${rows.length} 条用例，本次运行汇总为一份报告。报告左侧选择用例，查看各自的中文步骤、预期、实际结果及截图。`));
       form.append(table(["用例类型","模式","用例数","计划数"],groups.map(group=>[TYPE_LABEL[group.kind]||label(group.kind),label(group.mode),String(group.ids.length),String(Math.ceil(group.ids.length/batchLimit(group)))])));
       form.append(el("p","","点击下方按钮即完成「批准并启动」（本次点击即批准并启动）；预算 max_calls=20 / max_tokens=60000 / timeout=600s，环境 "+RUN_ENVIRONMENT+"。"));
       const message=el("p","qa-error");
@@ -413,7 +413,12 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
           }catch(err){failed.push({kind:group.kind,mode:group.mode,ids:batch.slice(),error:err.message});}
         }
       }
-      return {started,failed};
+      let report=null;
+      if(started.length){
+        try{report=await api("/report-batches",{run_ids:started.map(item=>item.run),requested_cases:rows.map(item=>item.id),request_key:crypto.randomUUID()});}
+        catch(err){failed.push({kind:"joint",ids:rows.map(item=>item.id),error:"执行已启动，但报告汇总失败："+err.message});}
+      }
+      return {started,failed,report};
     }
     async function runCases(rows){
       if(pending)return;
@@ -422,10 +427,10 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       pending=true;
       try{
         const outcome=await startRows(runnable);
-        receipts=outcome.started;failures=outcome.failed;
-        if(receipts.length)selectedRun=receipts[receipts.length-1].run;
-        const total=receipts.reduce((sum,item)=>sum+item.count,0);
-        flash=`已启动 ${receipts.length} 个计划 / ${total} 条用例（批准与启动在同一次点击内完成）。${blocked.length?`另有 ${blocked.length} 条不属于已接入用例，已跳过。`:""}${failures.length?`${failures.length} 批未启动：${failures[0].error}`:""}`;
+        receipts=outcome.report?[{run:outcome.report.id,plan:"批次汇总",kind:outcome.report.kind,mode:outcome.report.mode,count:outcome.report.results.length,ids:outcome.report.results.map(row=>row.id)}]:outcome.started;failures=outcome.failed;
+        if(outcome.report)selectedRun=outcome.report.id;else if(receipts.length)selectedRun=receipts[receipts.length-1].run;
+        const total=outcome.started.reduce((sum,item)=>sum+item.count,0);
+        flash=`已启动 ${total} 条用例，汇总为 ${outcome.report?1:0} 份报告（批准与启动在同一次点击内完成）。${blocked.length?`另有 ${blocked.length} 条不属于已接入用例，已跳过。`:""}${failures.length?`${failures.length} 批未启动：${failures[0].error}`:""}`;
         await refresh();
       }catch(err){error(err.message);}finally{pending=false;}
     }

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from app.api.op_api import require_operator
 from app.core.deps import get_db
 from app.models.quality import QualityPlan, QualityRun, QualityCaseVersion
+from app.quality import report_batches
 from app.quality.case_versions import CaseIn
 from app.quality import service
 from app.quality.catalog import CATALOG_VERSION, environments, cases
@@ -122,24 +123,32 @@ def create_run(body: RunIn, user=Depends(quality_user), db=Depends(get_db)):
     return service.run_out(db, service.create_run(db, plan, user.id, body.request_key))
 
 
+class ReportBatchIn(BaseModel):
+    run_ids: list[str] = Field(min_length=1,max_length=200)
+    requested_cases: list[str] = Field(default_factory=list,max_length=500)
+    request_key: str = Field(min_length=8,max_length=80)
+
+
+@router.post("/report-batches", status_code=201)
+def create_report_batch(body: ReportBatchIn, user=Depends(quality_user), db=Depends(get_db)):
+    return report_batches.create(db,user.id,body.run_ids,body.request_key,body.requested_cases)
+
+
 @router.get("/runs")
 def list_runs(report_date: date | None = Query(default=None), user=Depends(quality_user), db=Depends(get_db)):
-    query = select(QualityRun)
-    if report_date:
-        # 数据库存 UTC；日期查询固定按北京时间，避免浏览器所在时区改变结果。
-        start = datetime.combine(report_date, time.min) - timedelta(hours=8)
-        query = query.where(QualityRun.created_at >= start, QualityRun.created_at < start + timedelta(days=1))
-    return [service.run_out(db, row) for row in db.scalars(query.order_by(QualityRun.created_at.desc()).limit(100))]
+    return report_batches.listing(db,report_date)
 
 
 @router.get("/runs/{run_id}")
 @router.get("/runs/{run_id}/report")
 def get_run(run_id: str, user=Depends(quality_user), db=Depends(get_db)):
-    return service.run_out(db, get_record(db, QualityRun, run_id))
+    return report_batches.get(db,run_id)
 
 
 @router.post("/runs/{run_id}/cancel")
 def cancel_run(run_id: str, user=Depends(quality_user), db=Depends(get_db)):
+    batch = report_batches.cancel(db,run_id,user.id)
+    if batch is not None:return batch
     run = get_record(db, QualityRun, run_id)
     service.require_execution(db, user.id, run.kind)
     if run.status in ("queued", "running"):
@@ -150,6 +159,8 @@ def cancel_run(run_id: str, user=Depends(quality_user), db=Depends(get_db)):
 
 @router.post("/runs/{run_id}/rerun", status_code=201)
 def rerun(run_id: str, user=Depends(quality_user), db=Depends(get_db)):
+    batch = report_batches.rerun(db,run_id,user.id)
+    if batch is not None:return batch
     previous = get_record(db, QualityRun, run_id)
     return service.run_out(db, service.create_run(db, get_record(db, QualityPlan, previous.plan_id), user.id, uuid4().hex))
 
@@ -157,13 +168,13 @@ def rerun(run_id: str, user=Depends(quality_user), db=Depends(get_db)):
 @router.get("/compare")
 def compare_runs(baseline: str, candidate: str, user=Depends(quality_user), db=Depends(get_db)):
     from app.quality.reporting import compare
-    return compare(db, get_record(db, QualityRun, baseline), get_record(db, QualityRun, candidate))
+    return report_batches.compare(db,baseline,candidate)
 
 
 @router.get("/runs/{run_id}/artifacts/{artifact_id}")
 def artifact(run_id: str, artifact_id: str, user=Depends(quality_user), db=Depends(get_db)):
     from app.quality.reporting import owned_artifact
-    return FileResponse(owned_artifact(db, run_id, artifact_id), media_type="image/png")
+    return FileResponse(report_batches.artifact(db,run_id,artifact_id), media_type="image/png")
 
 
 class RetentionIn(BaseModel):

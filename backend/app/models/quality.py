@@ -66,3 +66,20 @@ class QualityResult(Base):
     kind: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(24), default="queued")
     evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class QualityReportBatch(Base):
+    __tablename__ = 'qa_report_batches'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey('users.id'))
+    request_key: Mapped[str] = mapped_column(String(80), unique=True)
+    requested_cases: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class QualityReportMember(Base):
+    __tablename__ = 'qa_report_members'
+    # 不外键绑定run：原始执行仍按已有保留策略清理，汇总明确显示缺失证据。
+    run_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    batch_id: Mapped[str] = mapped_column(ForeignKey('qa_report_batches.id'), index=True)
+    position: Mapped[int] = mapped_column(default=0)
