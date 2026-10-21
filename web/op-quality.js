@@ -131,6 +131,7 @@ window.OPQuality = (() => {
       return renderOverview();
     }
     function renderOverview(){
+      if(window.OPAgentExperience)return window.OPAgentExperience.overview(root,{agents,data,go});
       root.append(heading("Agent总览","三类 Agent 的职责、实时统计与入口；接入用例数与通过数量分开统计，本页只展示单次运行结果，不计算全量完成率。"));
       root.append(el("p","qa-notice",`报告与截图保留 ${data.capabilities.retention?.days||"—"} 天后自动删除；计划与活动任务保留。手动清理入口在「测试用例报告」页。`));
       if(!agents)root.append(el("p","qa-muted","正在读取三类 Agent 说明…"));
@@ -158,6 +159,7 @@ window.OPQuality = (() => {
       const row=agentOf(id);
       if(!row){root.append(heading("Agent 说明",agents?"后端未返回该 Agent 的说明，请刷新重试。":"正在读取该 Agent 的说明…"));return;}
       root.append(heading(AGENT_TITLE[id]||row.name,row.role));
+      window.OPAgentExperience?.context(root,{id,row,data});
       const card=el("section","qa-card");
       const stats=row.stats||{};
       const strip=el("div","qa-stat");
