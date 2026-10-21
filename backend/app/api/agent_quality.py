@@ -7,13 +7,15 @@ from app.api.quality import quality_user
 from app.core.deps import get_db
 from app.db.redis_client import get_redis
 from app.models.agent_evaluation import AgentEvaluation
-from app.models.quality import QualityPlan, QualityRun
+from app.models.quality import QualityPlan, QualityReportBatch, QualityRun
 from app.models.tables import utcnow
 from app.quality import service
 from app.quality.agent_evaluation import snapshot_for,program_checks
 from app.quality.feature_catalog import catalog
 
 router=APIRouter(prefix='/agent-quality',tags=['Agent evaluation'])
+EVALUATION_LIST_LIMIT=30
+EVALUATION_ENDED=('completed','failed','blocked','cancelled')
 
 
 def output(row):
@@ -27,6 +29,51 @@ def record(db,ident):
     row=db.get(AgentEvaluation,ident)
     if not row: raise HTTPException(404,'评测不存在')
     return row
+
+
+def recent_ids(db,target):
+    """先只排 id：snapshot 单行可达数百 KB，排序整行会在 MySQL 触发 1038。"""
+    return list(db.scalars(select(AgentEvaluation.id).where(AgentEvaluation.target==target).order_by(AgentEvaluation.created_at.desc()).limit(EVALUATION_LIST_LIMIT)))
+
+
+def expire_stale_scores(db,target):
+    """只给卡住的 scoring 记录收尾；单独查，避免列表主查询带上大列。"""
+    from datetime import datetime,timedelta
+    cutoff=utcnow()-timedelta(minutes=5)
+    rows=list(db.scalars(select(AgentEvaluation).where(AgentEvaluation.target==target,AgentEvaluation.status=='scoring')))
+    changed=False
+    for row in rows:
+        started=row.model_score.get('started_at')
+        if not started: continue
+        try: started_at=datetime.fromisoformat(started)
+        except (TypeError,ValueError): continue
+        if started_at<cutoff:
+            row.status='blocked';row.model_score={**row.model_score,'status':'blocked','error':'评测执行中断；没有自动重放付费调用'};row.version+=1;changed=True
+    if changed: db.commit()
+
+
+def rows_by_ids(db,ids,light=False):
+    """按 id 取行再按列表顺序还原；light=True 时不读取 snapshot 等大列。"""
+    if not ids: return []
+    from sqlalchemy.orm import defer
+    query=select(AgentEvaluation).where(AgentEvaluation.id.in_(ids))
+    if light: query=query.options(defer(AgentEvaluation.snapshot),defer(AgentEvaluation.model_score),defer(AgentEvaluation.reviews))
+    found={row.id:row for row in db.scalars(query)}
+    return [found[ident] for ident in ids if ident in found]
+
+
+def source_report(db,ident):
+    """评测来源既可以是单次运行，也可以是多用例汇总报告。"""
+    from app.quality import report_batches
+    batch=db.get(QualityReportBatch,ident)
+    if batch:
+        runs=[db.get(QualityRun,link.run_id) for link in report_batches.members(db,batch.id)]
+        runs=[run for run in runs if run]
+        if not runs: raise HTTPException(404,'汇总报告的原始运行已清理，不能评测')
+        return report_batches.output(db,batch),runs
+    run=db.get(QualityRun,ident)
+    if not run: raise HTTPException(404,'来源运行不存在')
+    return service.run_out(db,run),[run]
 
 
 @router.get('/features')
@@ -44,35 +91,43 @@ class EvaluationIn(BaseModel):
 @router.post('/evaluations',status_code=201)
 def create(body:EvaluationIn,user=Depends(quality_user),db=Depends(get_db)):
     service.require_execution(db,user.id,'assistant' if body.target=='business' else 'functional')
-    run=db.get(QualityRun,body.run_id)
-    if not run: raise HTTPException(404,'来源运行不存在')
-    if run.status not in ('completed','failed','blocked','cancelled'): raise HTTPException(409,'请等待运行结束')
+    report,runs=source_report(db,body.run_id)
+    if report['status'] not in EVALUATION_ENDED: raise HTTPException(409,'请等待运行结束')
     from fastapi.encoders import jsonable_encoder
-    report=jsonable_encoder(service.run_out(db,run))
-    from app.models.quality import QualityPlan
-    plan=db.get(QualityPlan,run.plan_id)
-    report['planning']={'goal':plan.payload['goal'],'planner':plan.payload.get('planner'),'evidence':plan.evidence}
+    report=jsonable_encoder(report)
+    planning={}
+    for run in runs:
+        plan=db.get(QualityPlan,run.plan_id)
+        if plan and not planning:
+            planning={'goal':plan.payload.get('goal'),'planner':plan.payload.get('planner'),'evidence':plan.evidence}
+    if report.get('report_batch') or len(runs)>1:
+        # 汇总报告包含多个子运行的用例；按所有计划并集核验，否则“范围完整”会误判。
+        case_ids=[]
+        for run in runs:
+            plan=db.get(QualityPlan,run.plan_id)
+            for case_id in (plan.payload.get('case_ids') or []) if plan else []:
+                if case_id not in case_ids: case_ids.append(case_id)
+        report['target']['case_ids']=case_ids or [row['id'] for row in report['target'].get('case_snapshots') or []]
+        planning['report_batch']=True
+        planning['run_ids']=[run.id for run in runs]
+    report['planning']=planning
     # Persist redacted server evidence; never accept caller-provided scores or transcripts.
     try: snapshot=snapshot_for(report,body.target)
     except ValueError as exc: raise HTTPException(422,str(exc)) from exc
-    row=AgentEvaluation(id=uuid4().hex,created_by=user.id,target=body.target,source_run=run.id,
+    row=AgentEvaluation(id=uuid4().hex,created_by=user.id,target=body.target,source_run=body.run_id,
         snapshot=jsonable_encoder(snapshot),program=program_checks(report,body.target))
     db.add(row);db.commit();return output(row)
 
 
 @router.get('/evaluations')
 def listing(target:Literal['business','functional']='business',brief:bool=False,user=Depends(quality_user),db=Depends(get_db)):
-    from datetime import datetime,timedelta
-    rows=list(db.scalars(select(AgentEvaluation).where(AgentEvaluation.target==target).order_by(AgentEvaluation.created_at.desc()).limit(30)))
-    for row in rows:
-        started=row.model_score.get('started_at')
-        if row.status=='scoring' and started and datetime.fromisoformat(started)<utcnow()-timedelta(minutes=5):
-            row.status='blocked';row.model_score={**row.model_score,'status':'blocked','error':'评测执行中断；没有自动重放付费调用'};row.version+=1
-    db.commit()
+    ids=recent_ids(db,target)
+    expire_stale_scores(db,target)
+    rows=rows_by_ids(db,ids,light=brief)
     if brief:
-        return [{k:getattr(row,k) for k in ('id','target','source_run','status','version','created_at')}|
-                {'program':{'decision':row.program.get('decision')},'brief':True} for row in rows]
-    return [output(r) for r in rows]
+        return [{'id':row.id,'target':row.target,'source_run':row.source_run,'status':row.status,'version':row.version,
+                 'created_at':row.created_at,'program':{'decision':(row.program or {}).get('decision')},'brief':True} for row in rows]
+    return [output(row) for row in rows]
 
 
 @router.get('/evaluations/{ident}/detail')

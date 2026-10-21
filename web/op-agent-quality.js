@@ -19,7 +19,16 @@ window.OPAgentQuality=(()=>{
     const host=el('section',null,'aq-panel qa-card');root.append(host);
     const state=states.get(root)||{target:'business'};states.set(root,state);
     const live=()=>host.isConnected&&sessionStorage.getItem('token_op')===identity;
-    const error=err=>{if(live())host.append(el('p',err.message||String(err),'qa-error'));};
+    let errorNode=null;
+    const error=err=>{
+      if(!live()||err?.handled)return;
+      const text=err?.message||String(err);
+      if(errorNode?.isConnected&&errorNode.textContent===text)return;
+      errorNode?.remove();
+      errorNode=el('p',text,'qa-error');
+      host.append(errorNode);
+    };
+    const clearError=()=>{errorNode?.remove();errorNode=null;};
     const job=async(button,fn)=>{button.disabled=true;try{await fn();}catch(err){error(err);}finally{button.disabled=false;}};
     if(id==='functional'){
       host.append(el('h3','B/C 功能依据与执行工具'),el('p','目录来自实际代码。已关联场景不代表全部分支覆盖；模型必须先读功能目录，再调用批准的复合测试工具。'));
@@ -140,7 +149,16 @@ window.OPAgentQuality=(()=>{
     }
     let revision=0,compareHost=null,heldoutHost=null;
     const advanced=el('details',null,'aq-advanced');advanced.append(el('summary','更多评测工具：版本对比与独立评测集'));host.append(advanced);
-    async function load(){const current=++revision;selectedEvaluation=null;state.target=target.value;fill();list.replaceChildren(el('p','正在读取评测记录…','qa-muted'));emptyDetail();const rows=await api(`/agent-quality/evaluations?target=${target.value}&brief=true`);if(!live()||current!==revision)return;
+    async function load(){const current=++revision;selectedEvaluation=null;state.target=target.value;clearError();fill();list.replaceChildren(el('p','正在读取评测记录…','qa-muted'));emptyDetail();historyCount.textContent='—';
+      let rows;
+      try{rows=await api(`/agent-quality/evaluations?target=${target.value}&brief=true`);}
+      catch(err){
+        if(!live()||current!==revision)return;
+        const failure=Error(`读取评测记录失败：${err.message}`);failure.handled=true;
+        if(current===revision){list.replaceChildren(el('p',failure.message,'qa-error'),btn('重新读取',()=>load().catch(error)));}
+        throw failure;
+      }
+      if(!live()||current!==revision)return;
       list.replaceChildren();historyCount.textContent=`${rows.length} 份`;
       if(!rows.length)list.append(el('p','暂无历史评测。选择上方运行记录生成第一份。','aq-empty-list'));
       for(const row of rows){const item=btn('',()=>show(row));item.dataset.evaluationId=row.id;item.setAttribute('aria-pressed','false');const sourceRun=data.runs.find(run=>run.id===row.source_run);const title=sourceRun&&window.OPReportName?window.OPReportName.brief(sourceRun,data.cases):`${row.target==='business'?'业务 Agent':'功能测试 Agent'}评测`;item.append(el('strong',title),el('span',labels[row.program.decision]||row.program.decision,'aq-list-status'),el('small',`${stamp(row.created_at)} · 来源 ${row.source_run.slice(0,8)}`));list.append(item);}

@@ -169,3 +169,29 @@ def test_api_permissions_snapshots_reviews_and_target_filter(client):
     assert client.post(path+'/'+ev['id']+'/reviews',headers=headers,json=review).status_code==409
     assert client.get(path+'?target=business',headers=headers).json()==[]
     assert len(client.get(path+'?target=functional',headers=headers).json())==1
+
+
+def test_evaluation_accepts_multi_case_report_batch(client):
+    from uuid import uuid4
+    from test_quality import operator
+    from test_quality_report_batches import fixture_run
+    from app.db.session import SessionLocal
+    headers,uid=operator(client)
+    with SessionLocal() as db: run_ids=[fixture_run(db,uid,'RF01'),fixture_run(db,uid,'RF02')]
+    batch=client.post('/api/v1/op/qa/report-batches',headers=headers,json={'run_ids':run_ids,'requested_cases':['RF01','RF02'],'request_key':uuid4().hex})
+    assert batch.status_code==201,batch.text
+    report_id=batch.json()['id']
+    path='/api/v1/op/qa/agent-quality/evaluations'
+    # 列表把多用例汇总报告作为可选来源；评测必须接受该 id，而不是误报“来源运行不存在”。
+    created=client.post(path,headers=headers,json={'target':'functional','run_id':report_id})
+    assert created.status_code==201,created.text
+    evaluation=created.json()
+    assert evaluation['source_run']==report_id
+    assert evaluation['snapshot']['source']['report_batch'] is True
+    assert [row['id'] for row in evaluation['snapshot']['source']['results']]==['RF01','RF02']
+    assert evaluation['program']['decision'] in ('failed','incomplete')
+    check_names=[check['name'] for check in evaluation['program']['checks']]
+    assert any(name.startswith('RF01 ') for name in check_names) and any(name.startswith('RF02 ') for name in check_names)
+    listed=client.get(path+'?target=functional&brief=true',headers=headers)
+    assert listed.status_code==200 and [row['source_run'] for row in listed.json()]==[report_id]
+    assert 'snapshot' not in listed.json()[0]

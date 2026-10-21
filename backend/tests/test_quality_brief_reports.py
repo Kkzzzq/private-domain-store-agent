@@ -38,7 +38,11 @@ def test_evaluation_brief_list_does_not_include_snapshot_and_detail_is_protected
     from types import SimpleNamespace
     from app.api import agent_quality
     row=SimpleNamespace(id='e',target='business',source_run='r',status='completed',version=1,created_at='2026-10-21',program={'decision':'incomplete'},snapshot={'evidence':'large'},model_score={},reviews=[])
-    db=SimpleNamespace(scalars=lambda _: [row],commit=lambda:None)
+    class FakeDB:
+        # 列表先只取 id 排序，再按主键取行；模拟这两类结果，避免把整行当成 id。
+        def scalars(self,statement):return [row] if statement.column_descriptions[0]['name']=='AgentEvaluation' else [row.id]
+        def commit(self):pass
+    db=FakeDB()
     result=agent_quality.listing(target='business',brief=True,db=db)
     assert result[0]['brief'] and 'snapshot' not in result[0]
     monkeypatch.setattr(agent_quality,'record',lambda db,ident:row)
