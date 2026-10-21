@@ -51,6 +51,12 @@ def child_module(spec, planner, functional_agent):
     return "app.quality.case_runner"
 
 
+def child_python():
+    # API-triggered intake/scoring must use the same installed runtime as the worker.
+    candidate = settings.backend_root.parent / "qa-venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return str(candidate) if candidate.is_file() and os.access(candidate, os.X_OK) else sys.executable
+
+
 def subprocess_job(spec, cancelled, planner=False):
     root = settings.backend_root / "data" / "quality-workspaces"
     root.mkdir(parents=True, exist_ok=True)
@@ -81,7 +87,7 @@ def subprocess_job(spec, cancelled, planner=False):
                 environment.update(native.prepare())
             functional_agent = spec.get("functional_driver") and any(r["id"] == spec.get("case_id") and r["kind"] == "functional" for r in spec.get("case_snapshots", []))
             module = child_module(spec, planner, functional_agent)
-            arguments = [sys.executable, "-m", module,
+            arguments = [child_python(), "-m", module,
                          "--request", str(request), "--output", str(result)]
             produced = False
             with (workspace / "process.log").open("w", encoding="utf-8") as log:
