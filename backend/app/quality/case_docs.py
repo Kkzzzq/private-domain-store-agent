@@ -29,6 +29,8 @@ def _load():
         except ModuleNotFoundError:
             continue
         docs.update(loaded)
+    from app.quality.real_cases import enabled, SPECS, doc_for as real_doc
+    if enabled():docs.update({key:real_doc(key) for key in SPECS})
     return docs
 
 
@@ -36,6 +38,8 @@ CASE_DOCS = _load()
 
 
 def doc_for(case_id):
+    from app.quality.real_cases import SPECS, doc_for as real_doc
+    if case_id in SPECS:return real_doc(case_id)
     """返回该用例的步骤/预期/代码入口；没有登记文案时给结构化兜底，绝不返回空壳。"""
     row = case_by_id(case_id) or {}
     doc = CASE_DOCS.get(case_id) or {}

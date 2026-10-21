@@ -142,4 +142,6 @@ def _functional():
 
 
 def descriptors():
+    from app.quality.real_cases import enabled, descriptors as real_descriptors
+    if enabled():return real_descriptors()
     return [_business(), _evaluator(), _functional()]

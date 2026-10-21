@@ -133,7 +133,7 @@ def main():
         target_shop_id=shop.id
         result=seed(db,target_shop_id);db.commit()
     from app.services.catalog import invalidate_catalog_cache
-    invalidate_catalog_cache(target_shop_id)
+    invalidate_catalog_cache()
     print(json.dumps(result,ensure_ascii=False))
 
 

@@ -24,12 +24,12 @@ window.OPQuality = (() => {
     const BATCH_LIMIT=10;
     const batchLimit=group=>group.kind==="assistant"?1:BATCH_LIMIT;
     const RUN_BUDGET={max_calls:20,max_tokens:60000,timeout_seconds:600};
-    const RUN_ENVIRONMENT="isolated-local";
+    let RUN_ENVIRONMENT="isolated-local";
     const AGENT_ROUTE={business:"testing-business",evaluator:"testing-evaluator",functional:"testing-functional"};
     const AGENT_TITLE={business:"业务Agent",evaluator:"评测Agent",functional:"功能测试Agent"};
     const TYPE_LABEL={assistant:"Agent 测试用例",functional:"接口测试用例",browser:"UI 测试用例"};
-    const TYPE_OF=row=>row.adapter==="registered_browser"?"browser":row.kind;
-    const ADAPTER_LABEL={isolated_assistant_api:"隔离子进程 · 助手接口",registered_pytest:"固定 pytest 节点",registered_browser:"隔离浏览器（Edge/Chromium + 截图）",declarative_assistant:"声明式自定义用例"};
+    const TYPE_OF=row=>["registered_browser","real_shop_browser"].includes(row.adapter)?"browser":row.kind;
+    const ADAPTER_LABEL={isolated_assistant_api:"隔离子进程 · 助手接口",registered_pytest:"固定 pytest 节点",registered_browser:"隔离浏览器（Edge/Chromium + 截图）",real_shop_browser:"实店 UI 自动化",real_shop_agent:"实店 Agent 真实模型",real_shop_api:"实店接口与数据库断言",declarative_assistant:"声明式自定义用例"};
     const MODEL_FIELD={provider:"供应商标识",cloud_style:"云端协议",cloud_model:"云端模型",ollama_model:"本地模型",role:"被测角色",model:"模型",note:"说明",kind:"类型"};
     const CAPABILITY_LABEL={"qa.view":"查看测试中心","qa.assistant.run":"运行助手评测","qa.functional.run":"运行功能测试","qa.approve":"审批计划与历史清理"};
     const artifactLocks=new Map();
@@ -79,6 +79,7 @@ window.OPQuality = (() => {
       return Array.from(groups.values());
     };
     function runBlock(row){
+      if(RUN_ENVIRONMENT==="real-nanzhi"&&!String(row.adapter).startsWith("real_shop_"))return "此用例是历史隔离诊断，尚未接入实店执行器。";
       if(row.state!=="active")return "候选用例未接入，不能运行；先在「测试用例管理」里审核启用。";
       if(row.kind==="assistant"&&!can("qa.assistant.run"))return "缺少 qa.assistant.run 能力，不能运行助手评测。";
       if(row.kind!=="assistant"&&!can("qa.functional.run"))return "缺少 qa.functional.run 能力，不能运行功能测试。";
@@ -94,6 +95,7 @@ window.OPQuality = (() => {
         const [capabilities,cases,plans,runs,agentsPayload]=await Promise.all(wanted.map(path=>api(path)));
         if(!valid()||revision!==refreshVersion)return;
         data={capabilities,cases,plans,runs};
+        RUN_ENVIRONMENT=capabilities.real_shop?"real-nanzhi":"isolated-local";
         agents=agentsPayload?.agents;
         paint();poll();
       }catch(err){
@@ -116,7 +118,7 @@ window.OPQuality = (() => {
     async function action(callback){if(pending)return;pending=true;try{await callback();await refresh();}catch(err){error(err.message);}finally{pending=false;}}
     function badge(value){return el("span",`qa-badge qa-${value}`,label(value));}
     function heading(title,description){const node=el("div","qa-heading");const copy=el("div");copy.append(el("h2","",title),el("p","",description));node.append(copy);return node;}
-    const envNote=()=>el("p","qa-environment","业务数据：独立合成SQLite / 内存Redis，每条用例单独子进程。真实模式使用云端聊天模型；RAG用例使用独立Embedding与Chroma。原生MySQL/Redis业务联调和浏览器E2E仍另行验收。");
+    const envNote=()=>el("p","qa-environment",RUN_ENVIRONMENT==="real-nanzhi"?"测试目标：线上南枝小店真实数据库。接口、Agent、UI均访问真实站点；仅修改本轮新增测试记录，订单与审计保留。演示支付和物流不调用外部服务。":"业务数据：独立合成SQLite / 内存Redis，每条用例单独子进程。真实模式使用云端聊天模型；RAG用例使用独立Embedding与Chroma。");
     function paint(){
       if(!valid())return;root.replaceChildren();
       if(flash){root.append(el("p","qa-notice",flash));flash=null;}
@@ -243,7 +245,7 @@ window.OPQuality = (() => {
         const row=el("div",broken||halted||stopped?"qa-case-row qa-run-failed":"qa-case-row");
         const toggle=button(`${reportName(run)} · ${label(run.kind)}`,()=>{selectedRun=selectedRun===run.id?null:run.id;selectedCase=null;const y=window.scrollY;paint();window.scrollTo({top:y,behavior:"instant"});});toggle.setAttribute("aria-expanded",String(selectedRun===run.id));
         row.append(toggle,badge(run.status),
-          el("span","qa-muted",`${label(run.mode)} · 用例 ${run.results.length} 条`),
+          el("span","qa-muted",`${run.target?.environment_id==="real-nanzhi"?"线上南枝实店验收 · ":""}${label(run.mode)} · 用例 ${run.results.length} 条`),
           el("span",broken||halted?"qa-error":"qa-pass",`通过 ${counts.passed} / 失败 ${counts.failed} / 阻塞 ${counts.blocked}`),
           el("span","qa-muted",`开始 ${clock(run.started_at||run.created_at)} · 结束 ${clock(run.finished_at)}`),
           el("span","qa-muted",`代码 ${String(run.target?.target_revision||"").slice(0,12)||"—"}`));
@@ -289,7 +291,8 @@ window.OPQuality = (() => {
       for(const check of evidence.assertions||[]){const item=el("div",check.passed?"qa-assert qa-pass":"qa-assert qa-error");item.append(el("strong","",`${check.passed?"通过":"失败"} · ${check.name}`));if(check.expected!=null||check.actual!=null)item.append(el("h5","","预期结果"),pre(check.expected??"断言条件成立"),el("h5","","实际结果"),pre(check.actual??(check.passed?"条件成立":"条件不成立")));right.append(item);}
       if(!evidence.assertions?.length)right.append(el("p","qa-muted","尚无有效断言结果，不算通过。"));
       if(evidence.budget)right.append(el("h4","","模型预算 / 实际来源"),pre(evidence.budget));
-      right.append(el("p","qa-muted",`隔离清理：${evidence.cleanup_ok===true?"已确认":evidence.cleanup_ok===false?"未确认":"尚未执行"}`));
+      right.append(el("p","qa-muted",`${run.target?.environment_id==="real-nanzhi"?"本轮记录归档":"隔离清理"}：${evidence.cleanup_ok===true?"已确认":evidence.cleanup_ok===false?"未确认":"尚未执行"}`));
+      if(evidence.cleanup)right.append(pre(evidence.cleanup));
       layout.append(cases,middle,right);section.append(layout);container.append(section);
     }
     async function shotUrl(runId,artifactId){
@@ -312,7 +315,7 @@ window.OPQuality = (() => {
       return holder;
     }
     async function showArtifact(runId,artifactId){
-      try{const url=await shotUrl(runId,artifactId);if(!valid())return;const dialog=el('dialog','qa-dialog qa-wide'),picture=el('img','qa-full');picture.src=url;picture.alt='隔离浏览器测试截图';dialog.append(button('关闭',()=>dialog.close()),picture);dialog.addEventListener('close',()=>dialog.remove(),{once:true});root.append(dialog);dialog.showModal();}catch(err){error(err.message);}
+      try{const url=await shotUrl(runId,artifactId);if(!valid())return;const dialog=el('dialog','qa-dialog qa-wide'),picture=el('img','qa-full');picture.src=url;picture.alt='UI自动化测试截图';dialog.append(button('关闭',()=>dialog.close()),picture);dialog.addEventListener('close',()=>dialog.remove(),{once:true});root.append(dialog);dialog.showModal();}catch(err){error(err.message);}
     }
     function compareDialog(){
       const dialog=el('dialog','qa-dialog'),form=el('form','qa-form'),baseline=el('select'),candidate=el('select'),message=el('p','qa-error');
@@ -358,7 +361,7 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       search.append(input,stateSelect);
       const execution=el("div","qa-case-execution");execution.append(actions(runSelected,runAll,button("清空选择",()=>{checked.clear();paint();})));
       const creation=el("div","qa-actions");
-      if(can('qa.assistant.run'))creation.append(button('新增 Agent 用例',()=>caseDialog()));
+      if(RUN_ENVIRONMENT!=="real-nanzhi"&&can('qa.assistant.run'))creation.append(button('新增 Agent 用例',()=>caseDialog()));
       execution.append(creation);root.append(search,execution);
       const advanced=el("details","qa-execution-note");advanced.append(el("summary","","执行环境与预算说明"),el("p","qa-muted",`同类型每批最多 ${BATCH_LIMIT} 条，共享预算；超出时分批。Agent 使用 live，接口与 UI 使用固定断言；环境 ${RUN_ENVIRONMENT}。预算 ${RUN_BUDGET.max_calls} 次调用 / ${RUN_BUDGET.max_tokens} tokens / ${RUN_BUDGET.timeout_seconds}s，耗尽明确阻塞。`));root.append(advanced);
       if(receipts.length||failures.length)renderReceipts();
@@ -377,7 +380,7 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       const docs=el("details","qa-case-docs");docs.open=expanded.has(row.id);docs.addEventListener("toggle",()=>{if(docs.open)expanded.add(row.id);else expanded.delete(row.id);});
       docs.append(el("summary","","执行步骤 / 预期结果 / 代码入口 / 风险"));
       const doc=row.doc||{},body=el("div","qa-case-docs-body"),codeLine=el("p");codeLine.append(mono(`${doc.code_file||"—"} :: ${doc.code_node||"—"}`));
-      body.append(el("h4","","执行步骤"),steps(doc.steps||[]),el("h4","","预期结果"),list(doc.expected||[]),el("h4","","对应代码文件与入口"),codeLine,el("h4","","风险标记"),el("p",doc.risk==="writes"?"qa-error":"qa-pass",doc.risk==="writes"?"会写入（writes）：该用例会创建或修改隔离数据，执行后必须确认清理成功。":"只读（read-only）：只读取业务数据并断言结果。"),el("h4","","适配器与支持模式"),el("p","",`${ADAPTER_LABEL[row.adapter]||row.adapter}；适配器 ${row.adapter}；支持模式 ${(row.modes||[]).map(label).join("、")||"—"}；v${row.version}；状态 ${label(row.state)}${row.state==="active"?"":"（不能运行）"}`));
+      body.append(el("h4","","执行步骤"),steps(doc.steps||[]),el("h4","","预期结果"),list(doc.expected||[]),el("h4","","对应代码文件与入口"),codeLine,el("h4","","风险标记"),el("p",doc.risk==="writes"?"qa-error":"qa-pass",doc.risk==="writes"?"会写入（writes）：该用例会创建或修改测试记录，执行后必须确认归档或清理成功。":"只读（read-only）：只读取业务数据并断言结果。"),el("h4","","适配器与支持模式"),el("p","",`${ADAPTER_LABEL[row.adapter]||row.adapter}；适配器 ${row.adapter}；支持模式 ${(row.modes||[]).map(label).join("、")||"—"}；v${row.version}；状态 ${label(row.state)}${row.state==="active"?"":"（不能运行）"}`));
       if(row.environments)body.append(el("p","qa-muted",`支持环境：${row.environments.join("、")}`));
       if(row.definition){const raw=el("details","qa-step");raw.append(el("summary","","自定义用例定义（只读）"),pre(row.definition));body.append(raw);}
       docs.append(body);item.append(docs);
@@ -428,18 +431,18 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       const dialog=el("dialog","qa-dialog");const form=el("form","qa-form");form.append(el("h2","",`新建${label(kind)}`));
       const goal=el("textarea");goal.name="goal";goal.required=true;goal.maxLength=2000;goal.value=kind==="functional"?"验证商品与订单的关键业务约束":kind==="assistant"?"验证业务助手商品查询、预算推荐与越权保护":"分别验证业务助手与业务功能；保持用例数据隔离";form.append(el("label","","测试目标"),goal);
       const mode=el("select"),planner=el("select");
-      for(const value of kind==="functional"?["rules"]:["rules","live"]){const option=el("option","",label(value));option.value=value;mode.append(option);}
-      for(const [value,text]of [["fixed","固定计划（不调用规划模型）"],["model","AI工具规划（消耗云端模型额度）"]]){const option=el("option","",text);option.value=value;planner.append(option);}
+      for(const value of kind==="functional"?["rules"]:RUN_ENVIRONMENT==="real-nanzhi"?["live"]:["rules","live"]){const option=el("option","",label(value));option.value=value;mode.append(option);}
+      for(const [value,text]of RUN_ENVIRONMENT==="real-nanzhi"?[["fixed","南枝实店固定步骤与数据库断言"]]:[["fixed","固定计划（不调用规划模型）"],["model","AI工具规划（消耗云端模型额度）"]]){const option=el("option","",text);option.value=value;planner.append(option);}
       form.append(el("label","","执行模式"),mode,el("label","","规划方式"),planner,el("p","qa-muted","只运行勾选且已接入的用例；AI仅能在此集合内选择。每条用例独立数据。"));
       const environment=el("select");
       for(const row of data.capabilities.environments){const option=el("option","",row.name);option.value=row.id;environment.append(option);}
       form.append(el("label","","执行环境"),environment);
       const choices=el("div","qa-choices");const counters={assistant:0,functional:0};
-      for(const row of data.cases.filter(entry=>entry.state==="active"&&(kind==="joint"||entry.kind===kind))){const wrap=el("label");const check=el("input");check.type="checkbox";check.value=row.id;check.checked=counters[row.kind]++<2;wrap.append(check,document.createTextNode(`${row.id} ${row.title}`));choices.append(wrap);}form.append(choices);
+      for(const row of data.cases.filter(entry=>entry.state==="active"&&(kind==="joint"||entry.kind===kind))){const wrap=el("label");const check=el("input");check.type="checkbox";check.value=row.id;check.checked=counters[row.kind]++<(RUN_ENVIRONMENT==="real-nanzhi"&&row.kind==="assistant"?1:2);wrap.append(check,document.createTextNode(`${row.id} ${row.title}`));choices.append(wrap);}form.append(choices);
       const updateModes=()=>{for(const check of choices.querySelectorAll('input')){const row=data.cases.find(item=>item.id===check.value);check.disabled=row.kind==='assistant'&&!row.modes.includes(mode.value);if(check.disabled)check.checked=false;check.parentElement.title=check.disabled?'此用例需要真实模型模式':'';}};
       mode.onchange=updateModes;updateModes();
       const budget=el("input");budget.type="number";budget.min="2000";budget.max="60000";budget.value="60000";form.append(el("label","","共享模型Token预算（含规划、重试与被测助手）"),budget);
-      const consent=el("label","qa-consent"),check=el("input");check.type="checkbox";check.required=true;consent.append(check,document.createTextNode("确认只在已登记合成环境运行；真实模式/AI规划会消耗配置的模型额度"));form.append(consent);
+      const consent=el("label","qa-consent"),check=el("input");check.type="checkbox";check.required=true;consent.append(check,document.createTextNode("确认在已登记环境运行；线上实店只修改本轮测试记录，Agent调用会消耗模型额度"));form.append(consent);
       const message=el("p","qa-error");const submit=el("button","qa-primary","生成待审批计划");submit.type="submit";
       const labels=Array.from(form.querySelectorAll('label')).filter(node=>!node.querySelector('input'));
       Array.from(form.querySelectorAll('textarea,select,input[type=number]')).forEach((field,index)=>{field.id='qa-field-'+crypto.randomUUID();labels[index].htmlFor=field.id;});

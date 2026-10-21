@@ -67,10 +67,14 @@ NATIVE_ENVIRONMENT = {"id": "native-local", "name": "独立合成数据 / 真实
 
 def environments():
     from app.core.config import settings
+    from app.quality.real_cases import enabled, ENVIRONMENT as REAL_ENVIRONMENT
+    if enabled():return [REAL_ENVIRONMENT]
     return [ENVIRONMENT, NATIVE_ENVIRONMENT] if settings.qa_native_enabled else [ENVIRONMENT]
 
 
 def cases():
+    from app.quality.real_cases import enabled, cases as real_cases
+    if enabled():return real_cases()
     rows = []
     for kind, titles, prefix in (("assistant", ASSISTANT_TITLES, "A"), ("functional", FUNCTIONAL_TITLES, "F")):
         for index, title in enumerate(titles, 1):

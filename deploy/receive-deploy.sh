@@ -65,6 +65,8 @@ if test "$quality_enabled" = 1; then
 fi
 rsync -a --delete --exclude='covers/uploads/' "$stage/web/" "$app/web/"
 "$app/venv/bin/pip" install -r "$stage/backend/requirements-server.txt" > "$backup/pip.log" 2>&1
+chgrp -R storeapp "$app/venv"
+chmod -R g+rX "$app/venv"
 chown -R storeapp:storeapp "$app/backend/app" "$app/backend/knowledge" "$app/web"
 systemctl start private-store
 healthy=0

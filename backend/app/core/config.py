@@ -8,6 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    qa_real_shop_enabled: bool = False
+    qa_real_shop_origin: str = "https://shop.kkzzzq.cyou"
     database_url: str = "sqlite:///./data/store.db"
     redis_url: str = "redis://127.0.0.1:6379/0"
     jwt_secret: str = "dev-secret-change-me-please-use-32b"

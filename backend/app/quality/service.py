@@ -20,14 +20,26 @@ class PlanIn(BaseModel):
     kind: str = Field(pattern="^(assistant|functional|joint)$")
     mode: str = Field(default="rules", pattern="^(rules|live)$")
     planner: str = Field(default="fixed", pattern="^(fixed|model)$")
-    environment_id: str = Field(default="isolated-local", pattern="^(isolated-local|native-local)$")
+    environment_id: str = Field(default_factory=lambda: "real-nanzhi" if settings.qa_real_shop_enabled else "isolated-local", pattern="^(isolated-local|native-local|real-nanzhi)$")
     case_ids: list[str] = Field(min_length=1, max_length=20)
     max_calls: int = Field(default=20, ge=1, le=50)
     max_tokens: int = Field(default=30000, ge=2000, le=60000)
     timeout_seconds: int = Field(default=600, ge=30, le=1200)
 
+    diagnostic: bool = False
+
     @model_validator(mode="after")
     def validate_cases(self):
+        if self.environment_id == "real-nanzhi":
+            from app.quality.real_cases import SPECS
+            if any(case_id not in SPECS for case_id in self.case_ids):raise ValueError("实店执行只接受已登记的实店用例，不执行历史隔离/自定义代码")
+            self.diagnostic = True
+            self.planner = "fixed"
+            if self.kind in ("assistant","joint"):
+                if "mode" in self.model_fields_set and self.mode!="live":raise ValueError("实店Agent必须使用live真实模型模式")
+                self.mode="live"
+                if sum(case_id.startswith("RA") for case_id in self.case_ids)>1:
+                    raise ValueError("实店Agent每份计划只执行1条，避免远端模型共享预算不可观测")
         if self.environment_id not in {row["id"] for row in environments()}:
             raise ValueError("测试环境尚未授权启用")
         if len(set(self.case_ids)) != len(self.case_ids):
@@ -118,8 +130,9 @@ def new_plan(db, user_id, body):
         raise HTTPException(422, "只能选择已审核启用的用例")
     validate_snapshots(db, snapshots)
     payload = body.model_dump()
+    if body.environment_id == "real-nanzhi":payload["real_operator_id"] = user_id
     payload.update(catalog_version=CATALOG_VERSION, target_revision=fingerprint(),
-                   fixture_version="seed-isolated-v1", environment=next(row for row in environments() if row["id"] == body.environment_id))
+                   fixture_version="real-nanzhi-owned-records-v1" if body.environment_id == "real-nanzhi" else "seed-isolated-v1", environment=next(row for row in environments() if row["id"] == body.environment_id))
     payload["case_snapshots"] = snapshots
     from app.quality.case_docs import doc_for
     payload["case_documents"] = {row["id"]: (

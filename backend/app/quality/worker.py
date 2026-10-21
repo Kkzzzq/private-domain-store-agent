@@ -53,7 +53,8 @@ def subprocess_job(spec, cancelled, planner=False):
                 from app.quality.native import NativeWorkspace
                 native = NativeWorkspace()
                 environment.update(native.prepare())
-            arguments = [sys.executable, "-m", "app.quality.planner" if planner else "app.quality.case_runner",
+            module = "app.quality.planner" if planner else "app.quality.real_runner" if spec.get("environment_id") == "real-nanzhi" else "app.quality.case_runner"
+            arguments = [sys.executable, "-m", module,
                          "--request", str(request), "--output", str(result)]
             produced = False
             with (workspace / "process.log").open("w", encoding="utf-8") as log:
@@ -80,7 +81,13 @@ def subprocess_job(spec, cancelled, planner=False):
                 may_call_model = planner or spec.get("mode") == "live"
                 output["budget"] = {"calls": max(0, spec.get("max_calls", 0)) if may_call_model else 0, "tokens": max(0, spec.get("max_tokens", 0)) if may_call_model else 0,
                                     "estimated": may_call_model, "uncertain": may_call_model, "scope": "子进程中断；模型模式按剩余额度保守占用，非实际计费；规则模式无模型调用"}
-        output["cleanup_ok"] = True
+        if spec.get("environment_id") == "real-nanzhi" and not planner:
+            from app.quality.real_cleanup import recover
+            recovery = recover(environment["QA_CHILD_RUN"])
+            output["cleanup_ok"] = recovery["ok"] and output.get("cleanup_ok", False)
+            if not recovery["ok"]:output.update(status="blocked", error="实店中断归档未完成："+str(recovery.get("errors")))
+        else:
+            output["cleanup_ok"] = True
     except Exception as exc:
         output = {"status": "blocked", "error": safe(type(exc).__name__ + ": " + str(exc)), "cleanup_ok": False}
     finally:
@@ -241,6 +248,9 @@ _last_retention = 0.0
 
 
 def tick():
+    if settings.qa_real_shop_enabled:
+        from app.quality.real_cleanup import recover_stale
+        recover_stale()
     global _last_retention
     with SessionLocal() as db:
         for plan in db.scalars(select(QualityPlan).where(QualityPlan.status == "planning_running", QualityPlan.started_at < utcnow() - timedelta(seconds=110))):

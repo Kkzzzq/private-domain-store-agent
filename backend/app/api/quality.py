@@ -32,12 +32,13 @@ def get_record(db, model, record_id):
 @router.get("/capabilities")
 def capabilities(user=Depends(quality_user), db=Depends(get_db)):
     from app.quality.reporting import RETENTION_DAYS
-    return {"capabilities": sorted(service.capabilities(db, user.id)), "environments": environments(),
+    from app.quality.real_cases import enabled
+    return {"capabilities": sorted(service.capabilities(db, user.id)), "environments": environments(), "real_shop": enabled(),
             "catalog_version": CATALOG_VERSION, "case_counts": {kind: sum(row["kind"] == kind and row["state"] == "active" for row in cases()) for kind in ("assistant", "functional")},
             "limits": {"max_cases": 20, "max_calls": 50, "max_tokens": 60000},
             "retention": {"days": RETENTION_DAYS, "auto": True,
                           "notice": f"运行报告与截图保留 {RETENTION_DAYS} 天后自动删除；计划与活动任务保留。"},
-            "limitations": ["所有执行档仅合成数据，不对真实店铺写测试", "接入数量与运行通过数量分开", "浏览器适配需requirements-e2e及浏览器运行时，缺依赖记阻塞"]}
+            "limitations": ["所有执行档访问线上南枝店，只修改本轮专属记录；历史隔离诊断不作为实店通过证据" if enabled() else "所有执行档仅合成数据，不对真实店铺写测试", "接入数量与运行通过数量分开", "浏览器适配需requirements-e2e及浏览器运行时，缺依赖记阻塞"]}
 
 
 CUSTOM_CASE_DOC = {
