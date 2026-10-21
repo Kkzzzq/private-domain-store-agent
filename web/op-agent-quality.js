@@ -141,9 +141,25 @@ window.OPAgentQuality=(()=>{
       box.append(el('h4','不公开评测集'),el('p','期望答案不随代码发布，只给摘要；没有本地答案文件时标记 expectation_unavailable，不计通过。揭示答案需要审批权限并留痕。'),out,logs);
       const paint=async()=>{const view=await api('/agent-quality/heldout');if(!live())return;
         out.replaceChildren(el('p',`答案文件：${view.available?'已提供（摘要 '+String(view.sealed_digest).slice(0,12)+'）':'未提供'} · ${view.note}`));
-        for(const item of view.entries){const line=el('p',`${item.status==='sealed'?'已封存':'无答案'} · ${item.id} · 用例 ${item.case_id} · ${item.goal} · 摘要 ${item.expect_hash?item.expect_hash.slice(0,12):'无'}`);
-          line.append(btn('揭示答案',()=>job(line,async()=>{const reason=window.prompt('揭示期望答案需要理由（会留痕）');if(!reason)throw Error('需要填写理由');
-            const result=await api('/agent-quality/heldout/reveal',{entry_id:item.id,reason});out.append(el('p',`已揭示 ${item.id}：${JSON.stringify(result.answer.expect)}`));const rows=await api('/agent-quality/heldout/reveals');logs.replaceChildren(el('p',`揭示记录 ${rows.length} 条，最近：${rows[0]?rows[0].entry_id+'（'+rows[0].reason+'）':'无'}`));})));out.append(line);}
+        for(const item of view.entries){
+          const line=el('section',null,'aq-heldout-entry');
+          line.append(el('p',`${item.status==='sealed'?'已封存':'无答案'} · ${item.id} · 用例 ${item.case_id} · ${item.goal} · 摘要 ${item.expect_hash?item.expect_hash.slice(0,12):'无'}`));
+          if(item.status==='sealed'){
+            // 内嵌浏览器/沙箱 iframe 会禁用 prompt()，所以用页面内输入框留痕，不依赖弹窗。
+            const reason=el('input');reason.placeholder='填写揭示理由（至少 3 字，会留痕）';reason.setAttribute('aria-label','揭示理由');
+            const form=el('div',null,'aq-heldout-form');form.hidden=true;
+            const submit=btn('提交揭示',()=>job(submit,async()=>{
+              const text=reason.value.trim();if(text.length<3)throw Error('请填写至少 3 个字的揭示理由');
+              const result=await api('/agent-quality/heldout/reveal',{entry_id:item.id,reason:text});
+              form.hidden=true;reason.value='';
+              line.append(el('p',`已揭示 ${item.id}：${JSON.stringify(result.answer.expect)}`,'aq-heldout-result'));
+              const rows=await api('/agent-quality/heldout/reveals');logs.replaceChildren(el('p',`揭示记录 ${rows.length} 条，最近：${rows[0]?rows[0].entry_id+'（'+rows[0].reason+'）':'无'}`));
+            }));
+            form.append(reason,submit,btn('取消',()=>{form.hidden=true;reason.value='';}));
+            line.append(btn('揭示答案',()=>{form.hidden=false;reason.focus();}),form);
+          }else line.append(el('p','没有本地答案文件，无法揭示。','qa-muted'));
+          out.append(line);
+        }
         const rows=await api('/agent-quality/heldout/reveals');logs.replaceChildren(el('p',`揭示记录 ${rows.length} 条`));};
       paint().catch(error);return box;
     }

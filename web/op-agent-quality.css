@@ -13,3 +13,12 @@
 .aq-result-head{display:block!important;position:static!important;padding:0!important;margin:0!important;background:transparent!important;border:0!important;height:auto!important}.qa-eval-intro{font-size:14px;color:#738270;margin:4px 0 20px;line-height:1.7}
 
 .aq-review-layout{overflow:clip;align-items:start}.aq-history{position:sticky;top:16px;align-self:start;border-radius:12px 0 0 12px;max-height:calc(100vh - 32px);overflow:auto}@media(max-width:760px){.aq-history{position:static;max-height:none;border-radius:12px 12px 0 0}}
+
+/* 不公开评测集：页面内填写揭示理由，兼容禁用 prompt() 的内嵌浏览器 */
+.aq-heldout-entry{margin:10px 0;padding:12px 14px;background:#fff;border:1px solid #e5ecdf;border-radius:9px}
+.aq-heldout-entry>p{margin:0 0 8px}
+.aq-heldout-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.aq-heldout-form[hidden]{display:none}
+.aq-heldout-form input{flex:1 1 260px;min-width:200px;min-height:40px;box-sizing:border-box;border:1px solid #d7e0d5;border-radius:8px;padding:9px 12px;background:#fff;font-family:inherit;font-size:13px;color:#344b3b}
+.aq-heldout-result{margin:10px 0 0!important;padding:10px 12px;background:#f2f6ee;border:1px solid #d9e5d4;border-radius:8px;font-size:12px;overflow-wrap:anywhere}
+@media(max-width:760px){.aq-heldout-form input{flex-basis:100%}}
