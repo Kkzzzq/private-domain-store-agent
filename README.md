@@ -1,173 +1,177 @@
-# 私域电商智能运营平台
+# AI-Powered Private-Domain E-Commerce Platform
 
-本机已补齐[无虚拟化真实环境](docs/native-live.md)：MySQL、Redis、智谱聊天及Embedding-3、Chroma的七组严格验收通过，演示服务在127.0.0.1:8000运行。原Ollama和Docker方案保留；当前真实运行组合以该文档为准，不将云端服务称为Ollama。
+A merchant dashboard and buyer storefront backed by shared product, inventory, and order data, with store-scoped AI assistants for shopping and operations.
 
-真实服务联调的需求与通过标准见 [联调 PRD](docs/prd-live-acceptance.md)，运行方式见 [真实联调手册](docs/live-acceptance.md)。使用独立 MySQL/Redis/Ollama 环境，严格区分代码实现、模拟测试与真实模型验收，报告自动落入 `backend/data/acceptance/`。
+The [native setup without virtualization](docs/native-live.md) has passed seven strict acceptance test groups covering MySQL, Redis, Zhipu chat and Embedding-3, and Chroma. The local demo runs at `127.0.0.1:8000`. The original Ollama and Docker options remain available; refer to that guide for the validated native configuration. Cloud-hosted models are identified separately from Ollama.
 
-## 双端智能助手
+Requirements and pass criteria for live integration are documented in the [live acceptance PRD](docs/prd-live-acceptance.md), with setup instructions in the [live integration guide](docs/live-acceptance.md). The independent MySQL/Redis/Ollama setup distinguishes implemented functionality, mocked tests, and real-model acceptance. Reports are written to `backend/data/acceptance/`.
 
-需求与验收见 [PRD](docs/prd.md)。商家后台右下角的「智能助手」悬浮入口可查询本店商品、全部订单、经营概览和库存预警；买家右下角助手可搜索/推荐商品、查本人订单及政策。两端支持多轮对话、新对话、商品卡与明确的降级提示。
+## AI Assistants for Buyers and Merchants
 
-查询工具只读；商家可生成商品配置提案，预览确认后保存为新草稿，现有商品不会被覆盖。买家推荐卡可选规格加购或进入结算。完整流程见[Agent操作PRD](docs/prd-agent-actions.md)。身份与店铺在服务器确定。默认每用户每分钟 30 次请求，工具调用写入脱敏审计表 `agent_tool_logs`。推荐支持热销、浏览偏好、相似商品及预算，Redis 保存独立会话与限流计数。真实模型通过 LangChain/Ollama Function Calling，知识库使用标题分块与 Chroma；模型离线使用规则查询，界面明确标注。
+See the [assistant PRD](docs/prd.md) for requirements and acceptance criteria. The floating assistant in the merchant dashboard can query the current store's products, orders, business overview, and low-stock alerts. The buyer assistant supports product search and recommendations, the buyer's own orders, and store policies. Both support multi-turn conversations, new conversations, product cards, and explicit fallback notices.
 
-需求驱动推荐见 [推荐PRD](docs/prd-recommendation-agent.md)：模型先调用本店商品概览，再提取预算、数量、分类、必含/排除条件，筛选具体有货SKU并解释理由。预算按数量小计，不含运费；没有匹配时不擅自放宽条件。当前也支持智谱云模型，操作及完整验收边界见 [真实联调手册](docs/live-acceptance.md)。
+Query tools are read-only. Merchants can generate product proposals, preview and confirm them, and save them as new drafts without overwriting existing products. Buyer recommendation cards support variant selection, adding to cart, and checkout. See the [agent actions PRD](docs/prd-agent-actions.md) for the full flow. Identity and store scope are resolved on the server. The default rate limit is 30 requests per user per minute, and tool calls are recorded in the redacted `agent_tool_logs` audit table. Recommendations support best sellers, browsing preferences, similar products, and budget constraints. Redis stores separate conversation contexts and rate-limit counters. Real-model integration uses LangChain/Ollama function calling; the knowledge base uses heading-based chunking and Chroma. When the model is unavailable, rule-based queries are used and clearly labeled in the interface.
 
-买家示例：「有没有抱枕」「SKU 1 还有货吗」「预算 40 元推荐商品」「我的订单」「这个订单发货了吗」「定制品能退吗」。商家示例：「经营概览」「库存预警」「本店订单」「搜索抱枕」。模型和基础设施的验证边界、Wireshark 排障步骤见 [验收与排障](docs/troubleshooting.md)。
+The [requirement-driven recommendation PRD](docs/prd-recommendation-agent.md) describes how the model first retrieves the store's product overview, extracts budget, quantity, category, inclusion, and exclusion constraints, and selects specific in-stock SKUs with explanations. Budget checks use quantity-adjusted subtotals and exclude shipping. Constraints are not silently relaxed when no products match. Zhipu cloud models are also supported; see the [live integration guide](docs/live-acceptance.md) for operation and acceptance boundaries.
 
-商家后台和买家店铺读的是同一套店铺、商品和订单。买家只能从分享链接进入对应的那一家店。
+Buyer queries include product discovery, SKU availability, budget-based recommendations, personal orders, shipping status, and return policies for custom products. Merchant queries include business summaries, inventory alerts, store orders, and product searches. See [acceptance and troubleshooting](docs/troubleshooting.md) for model and infrastructure validation boundaries and Wireshark troubleshooting steps.
 
-## 界面
+The merchant dashboard and buyer storefront use the same stores, products, and orders. Buyers access a particular store through its share link.
 
-商品图用的是 Unsplash 的免费照片，已经下载到 `web/covers`，本地跑不依赖外网。
-按钮高光、下划线展开、卡片描边这些悬停效果抄自 [Hover.css](https://github.com/IanLunn/Hover)（MIT），只取了用到的几条，没有整份引入。
+## User Interface
 
-最上面只有一行：店铺名、购物车、订单中心、浏览记录。
+Product photos from Unsplash are stored in `web/covers`, so the local demo does not require external image requests. Selected button highlights, expanding underlines, and card-border hover effects are adapted from [Hover.css](https://github.com/IanLunn/Hover) under the MIT license; the full library is not included.
 
-![买家首页](docs/screenshots/buyer-home.png)
+The top navigation contains the store name, cart, order center, and browsing history.
 
-首页从上到下：轮播主视觉 → 店主推荐 → 畅销榜 → 自定义栏目 → 全部商品 → 用户评价 → 售后保障。
+![Buyer storefront home](docs/screenshots/buyer-home.png)
 
-**轮播主视觉**：横屏大图，宽度和下面的商品行一致，高度由商家在后台选（默认 640px），上方留了 22px 空白。主图占中间 93.4%，两边露出的窄条是同一张图糊掉的那层（`blur(34px)` + 90° 遮罩在 5% / 95% 处淡出），所以两侧是图片自己的模糊渐变，而不是一条生硬的边。点图直接进对应的商品详情，左右箭头浮在图片两侧、垂直居中（圆钮 38px、符号 27px、底色只有 7% 不透明度），也能点下面的小横条或等它自动走。
+The homepage is organized into a hero carousel, merchant recommendations, best sellers, custom sections, all products, customer reviews, and after-sales assurances.
 
-顶部一行用主题色兑出来的浅底，商家可以关掉换回纯白；这层浅色会越过下面那条主题色边框继续往下淡出，但**画在页面背景层上**，所以不会压住购物车、订单页签、浏览记录这些紧跟着的内容，线本身也照旧可见。
+**Hero carousel:** A landscape image spans the same width as the product rows. Merchants choose its height, which defaults to 640px, with 22px of space above it. The main image occupies the middle 93.4%; narrow side strips use a blurred copy of the same image with `blur(34px)` and a 90-degree mask fading at 5% and 95%. Clicking the image opens the linked product. Vertically centered arrows use 38px circular buttons, 27px symbols, and a 7%-opacity background. Navigation indicators and automatic advancement are also supported.
 
-![轮播第二张](docs/screenshots/buyer-hero-2.png)
+The top bar can use a light tint derived from the store theme or a plain white background. The tint fades below the theme-colored border on the page background layer, keeping the border and adjacent cart, order, and history content visible.
 
-**商品栏目**：一行三个（图片 397px，比之前的四列更大更好看），每行标题右边有「查看全部 ›」，点了进这一行的合集页。左右箭头浮在图片两侧、垂直居中，一次往前翻一张，到头箭头会淡出。推荐位和畅销榜都是这个形式，最多各放 6 件。
+![Second hero slide](docs/screenshots/buyer-hero-2.png)
 
-**商品卡**：只展示图片，卡片上不放名称和价格。左上角是商家自定义的标签（促销 / 爆款 / 新上线…），左下角一个小购物车；鼠标移到图片上时，名称和价格（含划线价）一起从顶部浮出来，文字会避开角标不会重叠。标签用商家配的颜色推出一套「浅底 + 同色字」，不是一律白字；角标和购物车都用容器查询按卡片宽度缩，小卡片上是小角标。
+**Product sections:** Each row displays three products with 397px images. A "View all" link opens the section's collection page. Vertically centered arrows advance one item at a time and fade at either end. Recommendations and best sellers each support up to six products.
 
-**全部商品**：默认给两行（8 件），还有剩下的就出现「展开更多」，点一次再给一行；拉到没有更多商品时按钮变成「收回」，点一下折回两行。
+**Product cards:** Cards display an image, a merchant-defined badge in the top-left corner, and a small cart button in the bottom-left corner. The name and price, including the comparison price, appear in a top hover overlay that avoids the badge. Badge colors use a light background with matching text. Container queries scale badges and cart buttons to the card width.
 
-**用户评价**：两排反向流动的短评，鼠标停上去会暂停。**售后保障**（正品保障、7 天无理由这些）放在页面最后，文案也是商家在后台写的。
+**All products:** The initial view shows two rows, or eight products. "Show more" adds one row at a time. Once all products are visible, "Collapse" restores the initial two rows.
 
-任何一张商品卡点进去都是同一家店的详情页，进去之后滚动位置在最顶上（换页会重置滚动，同页内的筛选不会）。
+**Customer reviews:** Two rows of short reviews move in opposite directions and pause on hover. **After-sales assurances** appear at the bottom of the page, with copy configured by the merchant.
 
-### 合集页
+Every product card opens the product detail page in the same store. Navigation resets scrolling to the top; filtering within the current page does not.
 
-首页每一行的「查看全部」都会进到对应的合集页：左边是筛选栏（按类目筛 + 排序），右边上面一个搜索框，下面是这一行的全部商品。合集页给的是这个栏目的全量，不受首页只展示 6 件的限制。
+### Collection Pages
 
-![合集页](docs/screenshots/buyer-collection.png)
+Each homepage section's "View all" link opens a collection page with category filters and sorting on the left, and a search box and product grid on the right. Collections show the full section rather than the homepage's six-product limit.
 
-左侧那一排类目标签是店主自己定的，顺序也在后台调；改名字时挂在旧类目下的商品会一起跟过来。
+![Collection page](docs/screenshots/buyer-collection.png)
 
-点左侧类目立刻筛选，右侧商品和计数跟着变：
+Merchants define and reorder category labels in the dashboard. Renaming a category also updates the products assigned to it.
 
-![筛选后的合集页](docs/screenshots/buyer-collection-filtered.png)
+Selecting a category immediately updates the product list and count.
 
-「全部商品」的查看全部进的是全店合集，搜索框也在这个页面里。首页「全部商品」标题旁边的搜索框，填完也是落到这个页面。
+![Filtered collection](docs/screenshots/buyer-collection-filtered.png)
 
-![全部商品合集](docs/screenshots/buyer-collection-all.png)
+The "All products" link opens the store-wide collection. Searches submitted beside the homepage's "All products" heading also open this page.
 
-### 商品卡
+![Store-wide collection](docs/screenshots/buyer-collection-all.png)
 
-首页、合集页、浏览记录用的是同一套卡片：只有图片、左上角一个标签、左下角一个小购物车。名称和价格（含划线价）都在悬停浮层里，鼠标移到图上才浮出来，所以卡片上永远是干净的图。点购物车会在当前页面弹出小窗，选好 SPU / SKU 后可以直接加购或下单，不会离开首页。
+### Product Cards and Quick Buy
 
-![快速购买小窗](docs/screenshots/buyer-quickbuy.png)
+The homepage, collections, and browsing history share the same card design. Names and prices remain in the hover overlay, leaving the default view focused on imagery. The cart button opens a quick-buy dialog on the current page, where buyers can select an SPU/SKU and add it to the cart or place an order without leaving the homepage.
 
-标签用商家在后台「商品标签」里配的颜色推出一套「浅底 + 同色字」（底色只有 9% 的色量，不是一律白字），一件商品可以挂 4 个，卡片显示排最前的那个；没挂标签就退回显示折扣或热销。角标和购物车都用容器查询按卡片宽度缩：一行三个（397px）时角标 12px、购物车 40px，全部商品四列（294px）时缩到 11.5px / 35px。
+![Quick-buy dialog](docs/screenshots/buyer-quickbuy.png)
 
-### 浏览记录是跨店铺的
+Badges use merchant-configured colors with a 9%-intensity background and matching text. A product can have up to four tags; the first is shown on its card. Products without tags fall back to a discount or best-seller badge. On 397px cards, badges use 12px text and cart buttons are 40px; on the 294px cards in the four-column grid, these scale to 11.5px and 35px.
 
-浏览记录不按店铺分：在哪家店看过的商品，进的都是同一个列表（放 Redis，不落库）。卡片和首页完全一致，只是悬停浮层里多一行店铺名，点击指向商品自己那家店。
+### Cross-Store Browsing History
 
-![浏览记录](docs/screenshots/buyer-history.png)
+Browsing history combines products viewed across stores in a single Redis-backed list rather than a database table. Cards match the homepage design, with the store name added to the hover overlay. Each card links to the product's own store.
 
-只保留最近 7 天看过的商品，同一个商品再看一次会回到最前面。列表右上角可以一键清空。
+![Browsing history](docs/screenshots/buyer-history.png)
 
-**下架和禁售的商品不会被删掉**：小店首页和商品详情页不再展示它们，但浏览记录里仍然保留，卡片会置灰、压上「已下架」「已禁售」的标注，价格还看得见，只是点不进详情也不能加购。
+Only the last seven days are retained. Viewing a product again moves it to the front, and the list can be cleared with one action.
 
-### 商品详情
+**Unlisted and banned products remain in history.** They are hidden from storefront listings and detail pages, but history cards remain visible in a disabled style with "Unlisted" or "Banned" labels. Prices remain visible; opening details and adding to cart are disabled.
 
-按「竖向缩略图 / 大图 / 商品信息」三栏铺开：中间大图最大，右边 400px 放价格块（带划线价和折扣）、规格、数量和两个大按钮，下面是详情、参数、评价三个页签。窗口变窄时信息栏会先收到 340px、300px，把地方让给大图。
+### Product Details
 
-![商品详情](docs/screenshots/buyer-detail.png)
+The detail page has three columns: vertical thumbnails, a large image, and product information. The 400px information column contains prices, the comparison price and discount, variants, quantity, and two primary actions. Details, specifications, and reviews appear in tabs below. On narrower windows, the information column shrinks to 340px and then 300px to preserve image space.
 
-**图片和规格是绑在一起的**：商家给每个规格单独传一张图，缩略图列里一张对应一个规格（图下沿标着规格名）。点缩略图、点大图两侧的左右箭头、或者点规格按钮，三边都会同步 —— 选「雾蓝」大图就换成雾蓝那张，翻到雾蓝那张规格也自动选中，价格和库存跟着变；只有一张图的商品箭头会自动藏起来。
+![Product details](docs/screenshots/buyer-detail.png)
 
-![切到雾蓝规格](docs/screenshots/buyer-detail-sku.png)
+**Images and variants stay synchronized.** Merchants upload a separate image for each variant, and each thumbnail is labeled with its variant name. Selecting a thumbnail, using the main-image arrows, or selecting a variant updates the image, selected variant, price, and stock together. Products with only one image hide the arrows.
 
-往下滑，两个主按钮滚出视野后购买栏从顶部吸顶滑出，规格和价格跟着当前选择走。详情页下方也有同样的推荐位。
+![Variant selection](docs/screenshots/buyer-detail-sku.png)
 
-![吸顶购买栏](docs/screenshots/buyer-detail-buybar.png)
+A sticky purchase bar slides into view at the top after the primary action buttons scroll out of view. It follows the current variant and price. Recommendations also appear below the detail page.
 
-### 购物车与订单
+![Sticky purchase bar](docs/screenshots/buyer-detail-buybar.png)
 
-购物车支持全选和批量删除，底部结算栏实时算运费；结算页左边填收货信息，右边是订单金额。
+### Cart and Orders
 
-![购物车](docs/screenshots/buyer-cart.png)
+The cart supports select-all and bulk deletion, with shipping calculated in the checkout bar. Checkout places shipping information on the left and the order summary on the right.
 
-![确认订单](docs/screenshots/buyer-checkout.png)
+![Shopping cart](docs/screenshots/buyer-cart.png)
 
-待支付订单带倒计时，超过 30 分钟没付款会被定时任务自动取消并把库存退回去。订单卡片分三段配色：台头是主题色浅底 + 主题色下边框，中间商品明细白底（多件商品一深一浅），底部是灰色操作区。
+![Checkout](docs/screenshots/buyer-checkout.png)
 
-![我的订单](docs/screenshots/buyer-orders.png)
+Unpaid orders display a countdown. A scheduled task cancels orders that remain unpaid for more than 30 minutes and restores their inventory. Order cards have a lightly tinted, theme-bordered header, a white item area with alternating item backgrounds, and a gray action area.
 
-### 商家后台
+![Buyer orders](docs/screenshots/buyer-orders.png)
 
-工作台样式：顶部深色条、左侧菜单，概览页给四项关键指标，另有最近订单、商品销量排行和库存预警。
+### Merchant Dashboard
 
-![经营概览](docs/screenshots/admin-dashboard.png)
+The dashboard uses a dark top bar and left navigation. Its overview includes four key metrics, recent orders, product sales rankings, and low-stock alerts.
 
-**首页装修**分四个页签，买家端首页看到的东西都在这里改：
+![Business overview](docs/screenshots/admin-dashboard.png)
 
-轮播图可以上传本地图片（也可以填已有路径），设标题、副标题，选跳商品还是跳栏目，还能上移下移调顺序。
+**Homepage customization** has four tabs for managing storefront content.
 
-![轮播图管理](docs/screenshots/admin-banners.png)
+Merchants can upload carousel images or supply existing paths, set titles and subtitles, link to products or sections, and reorder slides.
 
-商品栏目可以新建、改名、选「手选商品」或「按销量自动取前 6」；手选的勾选具体商品，超过 6 件会拦下来（买家端一行只放 6 件），栏目也能上移下移改首页顺序。
+![Carousel management](docs/screenshots/admin-banners.png)
 
-![栏目管理](docs/screenshots/admin-sections.png)
+Product sections can be created, renamed, reordered, and configured for manual selection or automatic selection of the six best sellers. Manual selections are limited to six products.
 
-**分类标签**单独一个页面：新增、改名、上下移、删除，改名的同时改掉挂在这个类目下的商品，名字重复或者类目下还有商品都会拦住。
+![Section management](docs/screenshots/admin-sections.png)
 
-![分类标签](docs/screenshots/admin-categories.png)
+**Categories** have a dedicated page for creation, renaming, reordering, and deletion. Renaming updates assigned products. Duplicate names and deletion of nonempty categories are rejected.
 
-**商品标签**是买家端卡片左上角那个角标：可以改名字和底色，列表右侧直接预览买家端的样子。改名字不动关联表（关联存的是标签 id），删掉一个标签会把挂过它的商品一起摘干净。
+![Category management](docs/screenshots/admin-categories.png)
 
-![商品标签](docs/screenshots/admin-tags.png)
+**Product tags** control the badges on buyer-facing cards. Merchants can edit names and colors with a live preview. Renaming preserves associations because links store tag IDs; deleting a tag removes its product associations.
 
-**首页样式**：轮播主视觉高度（矮 / 标准 / 高 / 很高）、顶栏要不要主题色浅底，以及首页最下面那条售后保障条的文案，都在这里改。
+![Product tag management](docs/screenshots/admin-tags.png)
 
-![首页样式](docs/screenshots/admin-appearance.png)
+**Homepage appearance** controls hero height, the tinted top-bar background, and after-sales assurance copy.
 
-商品表格带缩略图、库存和低库存提示，上下架、禁售都在行内完成。订单可以按状态筛选、勾选后批量发货。
+![Homepage appearance settings](docs/screenshots/admin-appearance.png)
 
-商品编辑页下半部分是**规格与库存**：每个规格一行，规格名、划线价、售价、库存都能直接改，也能单独换这个规格的图（买家端详情页切规格时主图就换这张）。划线价低于售价、价格填 0 或者规格名留空都在前端就拦下来，不会拿英文的接口报错给商家看。
+The product table includes thumbnails, stock, and low-stock warnings, with inline listing and banning actions. Orders support status filtering and bulk shipping.
 
-![规格与库存](docs/screenshots/admin-product-editor.png)
+The **Variants and Inventory** area in the product editor provides editable variant names, comparison prices, selling prices, stock, and individual images. The frontend rejects comparison prices below the selling price, zero prices, and empty variant names with merchant-facing validation messages.
 
-**删掉就找不回来的操作都会先弹一次确认**（轮播图、栏目、评价、分类、标签），点「先不删」不做任何改动。栏目、评价、分类、标签都能上下移调顺序，顺序按 1..n 整份写回，不会出现两张序号相同、点了没反应的情况。
+![Variant and inventory editor](docs/screenshots/admin-product-editor.png)
 
-## 数据怎么连在一起
+Destructive actions require confirmation, including deletion of slides, sections, reviews, categories, and tags. Canceling leaves data unchanged. Sections, reviews, categories, and tags support reordering; the complete sequence is written back as `1..n` to avoid duplicate positions.
+
+## Data Model and Consistency
 
 ```text
-商家用户 1 —— 1 店铺（分享码）1 —— n 分类标签 / 商品标签
-店铺     1 —— n 商品 SPU
-商品     1 —— n SKU
-商品     n —— n 商品标签（product_tag_links）
-买家用户 1 —— n 订单
-订单     n —— 1 店铺
-订单     1 —— n 明细
-明细     n —— 1 商品 / SKU，并记下当时的名称、规格、单价
+Merchant user  1 -- 1 Store (share code)
+Store          1 -- n Categories / Product tags
+Store          1 -- n Products (SPUs)
+Product        1 -- n SKUs
+Product        n -- n Product tags (product_tag_links)
+Buyer user     1 -- n Orders
+Order          n -- 1 Store
+Order          1 -- n Order items
+Order item     n -- 1 Product / SKU, with name, variant, and unit-price snapshots
 ```
 
-商品和标签是多对多：关联表存的是标签 id，所以后台改标签名字时，挂过它的商品自动跟着改，不用去翻商品表。分类标签（合集页左侧的筛选项）也走同一套思路，只是商品表里存的是类目名，改名时要顺手把商品一起改掉。
+Products and tags have a many-to-many relationship. The link table stores tag IDs, so name changes automatically appear on associated products. Categories use names stored on products, so renaming a category also updates those product records.
 
-C 端没有单独的商品副本。商品列表、下单和店内助手都读 `products`、`skus` 这两张表，再用状态决定能不能看、能不能买。
+The buyer storefront has no separate product copy. Listings, checkout, and assistants read the shared `products` and `skus` tables, with status determining visibility and purchase eligibility.
 
-| 状态 | 商家后台 | 买家店铺 | 浏览记录 |
+| Status | Merchant dashboard | Buyer storefront | Browsing history |
 | --- | --- | --- | --- |
-| 在售 | 可下架、禁售 | 可见，库存足够就能买 | 正常展示，可加购 |
-| 下架 | 可上架、禁售 | 不可见，详情页也打不开 | 保留，标注「已下架」，不能加购 |
-| 禁售 | 只能先解禁，回到下架 | 不可见，详情页也打不开 | 保留，标注「已禁售」，不能加购 |
-| 店铺停业 | 可改回营业 | 看得到公告，商品列表为空 | 保留，标注「店铺停业」，不能加购 |
+| Listed | Can unlist or ban | Visible; purchasable with sufficient stock | Normal display; can add to cart |
+| Unlisted | Can list or ban | Hidden; details unavailable | Retained as "Unlisted"; cannot add to cart |
+| Banned | Must unban first, returning to unlisted | Hidden; details unavailable | Retained as "Banned"; cannot add to cart |
+| Store closed | Can reopen | Announcement visible; product list empty | Retained as "Store closed"; cannot add to cart |
 
-浏览记录按用户放在 Redis 里（只存商品 id + 时间，7 天过期），所以下架商品在记录里仍然留着 id，渲染时再去查商品表拿名称和价格，顺手就能标上「已下架」。
+Browsing history stores product IDs and timestamps per user in Redis with a seven-day expiry. Rendering retrieves current names, prices, and statuses from the product tables, allowing unavailable products to remain in history with the correct label.
 
-买家下单后，订单挂在这家店和这个买家名下，商家后台能看到并发货。之后商家改价或改名，已有订单仍用下单时的快照。
+Orders belong to both the buyer and the store and can be fulfilled from the merchant dashboard. Later changes to product names or prices do not change existing order snapshots.
 
-## 本地运行
+## Run Locally
+
+From the parent workspace:
 
 ```powershell
 cd Project\private-domain-store-agent\backend
@@ -176,72 +180,96 @@ python -m venv .venv
 .\.venv\Scripts\uvicorn app.main:app --reload
 ```
 
-打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)。买家端按店铺页来做：搜索（商品名和类目都能搜）、分类筛选、销量/价格排序、规格、购物车、收货地址、满 99 元包邮、待支付/待发货/待收货。商家后台对应管理同一批商品和订单。
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The storefront supports product and category search, category filtering, sales and price sorting, variants, a cart, shipping addresses, free shipping on orders of CNY 99 or more, and unpaid, awaiting-shipment, and awaiting-receipt order states. The dashboard manages the same products and orders.
 
-- 商家：`merchant` / `merchant123`，后台在 `/b.html`
-- 买家：`alice` / `alice123`，进店链接 `/c.html?code=nanzhi`
-- 另一位买家：`bob` / `bob123`，用来对照不能看别人的订单
+Demo accounts:
 
-没装 MySQL 和 Redis 时，接口用 SQLite，会话先放在进程内存里。和简历一致的 MySQL + Redis 用项目根目录的 `docker compose up --build`。
+- Merchant: `merchant` / `merchant123`; dashboard at `/b.html`.
+- Buyer: `alice` / `alice123`; store link at `/c.html?code=nanzhi`.
+- Second buyer: `bob` / `bob123`; useful for checking that buyers cannot access each other's orders.
 
-Redis 在这套里承担四件事：商品列表缓存、会话上下文、待支付订单的浏览记录，以及结算时的商品热点数据。
+Without MySQL and Redis, the application uses SQLite and in-process conversation storage. To run the MySQL + Redis configuration, execute `docker compose up --build` from the repository root.
 
-店内助手默认走本机 Ollama（`qwen2.5:7b`）。模型没启动时，商品、库存、订单和售后问题会退回规则检索，仍然只查当前这家店。
+Redis supports product-list caching, conversation context, browsing history, and frequently accessed checkout data.
+
+The store assistant defaults to local Ollama with `qwen2.5:7b`. If the model is unavailable, product, stock, order, and after-sales queries fall back to rule-based retrieval while retaining the current store scope.
 
 ```powershell
 ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
 ```
 
-商家登录后可以调用 `POST /api/v1/b/knowledge/reindex`，把 `backend/knowledge` 里的规则写进 Chroma。向量模型不可用时，售后问答按关键词检索原文。
+After signing in as a merchant, call `POST /api/v1/b/knowledge/reindex` to index the rules in `backend/knowledge` into Chroma. If the embedding model is unavailable, after-sales answers use keyword retrieval over the source text.
 
-超时订单由 APScheduler 每 60 秒扫一次，把超过 30 分钟没付款的订单取消并退回库存。定时器起不来时不会影响接口。
+APScheduler checks for expired unpaid orders every 60 seconds, canceling those older than 30 minutes and restoring stock. Failure to start the scheduler does not prevent the API from running.
 
-## 功能清单
+## Feature Summary
 
-买家端：最上面一行直达购物车 / 订单 / 浏览记录（底色是店铺主题色兑出来的浅色，越过主题色边框再淡出一小段）；首页轮播主视觉（与商品行同宽、两边是同一张图的窄条模糊渐变、点图进详情）、店主推荐 / 畅销榜 / 自定义栏目（一行三个、箭头浮在图片两侧、每行可进对应合集页）、商品卡只留图片（名称和价格挂在悬停浮层里并避开角标，左上角商家自定义标签按卡片宽度缩、左下角小购物车可原地选规格加购）、换页自动回到顶部、用户评价流动展示（排在全部商品前面）、全部商品默认两行、展开到底后按钮变「收回」再折回两行、页面末尾商家写的售后保障；合集页（左侧商家自定义的类目标签与排序，右侧搜索框 + 商品网格，给栏目的全量）；商品详情「缩略图 / 大图 / 信息」（信息栏 400px）三栏、缩略图与规格一一对应、点缩略图 / 左右箭头 / 规格按钮三边联动切图、规格选择、加入购物车、立即购买、主按钮滚出后顶部吸顶购买栏；收货地址、满 99 元包邮、待支付倒计时、支付 / 取消 / 确认收货；最近 7 天的跨店浏览记录（复用首页那套卡片）、商品评价、店内助手多轮对话。
+### Buyer Storefront
 
-商家后台：经营概览（在售、成交额、待发货、库存预警）、商品销量排行、最近订单、商品上下架 / 禁售 / 解禁、SKU 划线价与库存、每个规格单独一张图、每人限购、订单筛选、单个发货、批量发货、店铺 Logo 和主题色、分类标签与商品标签的增删改与排序，以及首页装修（轮播图上传与排序、栏目位增删改、用户评价维护、轮播高度、顶栏底色、售后保障文案）。买家端首页除了结构（哪一块在哪个位置），内容都是商家自己配的。
+- Direct navigation to the cart, orders, and browsing history, with a theme-derived top-bar background.
+- Hero carousel with blurred image edges, product links, and merchant-controlled height.
+- Recommendations, best sellers, and custom sections with three-card rows and dedicated collection pages.
+- Image-first cards with hover details, responsive merchant badges, and in-place variant selection and quick buy.
+- Collection filtering, sorting, and search across the full section or store.
+- Synchronized variant images, thumbnails, prices, and inventory, plus a sticky purchase bar.
+- Shipping addresses, free shipping from CNY 99, unpaid-order countdowns, payment, cancellation, and receipt confirmation.
+- Seven-day cross-store browsing history, product reviews, and multi-turn store-assistant conversations.
+- Merchant-managed customer reviews and after-sales copy, expandable product listings, and scroll reset on navigation.
 
-## 参考了什么
+### Merchant Dashboard
 
-这些功能不是凭空写的，对着同类开源项目抄了做法：
+- Business overview, sales rankings, recent orders, and inventory alerts.
+- Product listing, unlisting, banning, and unbanning.
+- SKU pricing, comparison prices, inventory, variant images, and per-buyer purchase limits.
+- Order filtering, individual shipping, and bulk shipping.
+- Store logo, theme color, categories, and product tags.
+- Homepage carousel uploads, section management, customer reviews, hero height, top-bar appearance, and after-sales copy.
 
-- [imShire/xu-shop](https://github.com/imShire/xu-shop)：单商家私域电商的完整闭环。防超卖的原子扣减、低库存预警、批量发货、下单限购都对着它做。
-- [mosliu/ldc-shop](https://github.com/mosliu/ldc-shop)：小店铺的功能清单。多规格、评分评论、公告栏、店铺主题色、订单超时取消从这里补。
-- [Web Awesome](https://webawesome.com/)（[Shoelace](https://github.com/shoelace-style/shoelace) 的后继者）：评分和弹层组件，CDN 直接引，不用构建。
-- [Hover.css](https://github.com/IanLunn/Hover)：按钮和链接的悬停效果，按它的写法抄进 `web/mall.css`。
-- [BpsEason/VueFastMart](https://github.com/BpsEason/VueFastMart)：FastAPI + Vue3 的商城骨架，接口分层参考它。
+Storefront content is merchant-configurable within the predefined page structure.
 
-商品照片来自 [Unsplash](https://unsplash.com/license)，按 Unsplash License 免费使用，下载后放在 `web/covers`，访问外网不是必需的。文件对应关系见 `backend/app/seed.py` 里的 `COVERS`；`pillow-blue.jpg`、`runner-blue.jpg`、`mug-detail.jpg` 是本地用 GDI+ 从原图裁切加色调偏移做出来的规格图变体，只为了让「切规格换主图」在演示数据里有东西可看。
+## References and Attribution
 
-## 测试
+The implementation draws on patterns from these projects:
+
+- [imShire/xu-shop](https://github.com/imShire/xu-shop): single-merchant private-domain commerce workflows, atomic stock deduction, low-stock alerts, bulk shipping, and purchase limits.
+- [mosliu/ldc-shop](https://github.com/mosliu/ldc-shop): product variants, ratings and reviews, announcements, store themes, and unpaid-order cancellation.
+- [Web Awesome](https://webawesome.com/), the successor to [Shoelace](https://github.com/shoelace-style/shoelace): rating and overlay components loaded directly from a CDN without a build step.
+- [Hover.css](https://github.com/IanLunn/Hover): button and link hover effects adapted into `web/mall.css`.
+- [BpsEason/VueFastMart](https://github.com/BpsEason/VueFastMart): FastAPI + Vue 3 storefront architecture and API layering.
+
+Product photos are provided by [Unsplash](https://unsplash.com/license) under the Unsplash License and stored locally in `web/covers`. File mappings are defined in `COVERS` in `backend/app/seed.py`. The variant images `pillow-blue.jpg`, `runner-blue.jpg`, and `mug-detail.jpg` were generated locally from source images using GDI+ cropping and color adjustments to demonstrate variant-linked imagery.
+
+## Tests
+
+From the parent workspace:
 
 ```powershell
 cd Project\private-domain-store-agent\backend
 .\.venv\Scripts\pytest
 ```
 
-覆盖 B / C 两端数据联动、上下架禁售、跨店隔离、订单流转、限购、防超卖、超时取消、批量发货、浏览记录、评价、分类标签、商品标签、规格图和首页样式。
+Coverage includes merchant/buyer data consistency, listing and banning, cross-store isolation, order transitions, purchase limits, overselling prevention, timeout cancellation, bulk shipping, browsing history, reviews, categories, product tags, variant images, and homepage appearance.
 
-## 目录
+## Project Structure
 
 ```text
-backend/app/api/b_api.py           商家后台接口
-backend/app/api/c_api.py           买家店铺接口
-backend/app/services/home.py       首页轮播、栏目位、用户评价、合集页数据
-backend/app/services/categories.py 商家自定义的分类标签
-backend/app/services/tags.py       商家自定义的商品标签（卡片角标）
-backend/app/services/shelf.py      上下架、禁售、能不能买
-backend/app/services/trade.py      购物车、收货地址、结算
-backend/app/services/engagement.py 浏览记录
-backend/app/services/reviews.py    商品评价
-backend/app/services/orders.py     下单、支付、发货、超时取消
-backend/app/models/tables.py       店铺、商品、SKU、购物车、地址、评价、订单、轮播、栏目
-backend/app/agent/                 只查当前店铺的助手
-web/mall.css                       两端共用的样式
-web/c.js                           买家店铺
-web/b.js                           商家后台
-web/covers/                        演示商品图
-docs/screenshots/                  界面截图
+backend/app/api/b_api.py           Merchant dashboard API
+backend/app/api/c_api.py           Buyer storefront API
+backend/app/services/home.py       Carousel, sections, reviews, and collections
+backend/app/services/categories.py Merchant-defined categories
+backend/app/services/tags.py       Merchant-defined product badges
+backend/app/services/shelf.py      Listing, banning, and purchase eligibility
+backend/app/services/trade.py      Cart, shipping addresses, and checkout
+backend/app/services/engagement.py Browsing history
+backend/app/services/reviews.py    Product reviews
+backend/app/services/orders.py     Ordering, payment, shipping, and expiry
+backend/app/models/tables.py       Store, product, SKU, cart, address, review,
+                                  order, carousel, and section models
+backend/app/agent/                 Store-scoped assistants
+web/mall.css                      Shared storefront and dashboard styles
+web/c.js                          Buyer storefront
+web/b.js                          Merchant dashboard
+web/covers/                       Demo product images
+docs/screenshots/                 Interface screenshots
 ```
