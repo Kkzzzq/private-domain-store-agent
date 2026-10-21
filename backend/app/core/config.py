@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 24
     auth_login_limit: int = Field(default=60, ge=1)
     auth_register_limit: int = Field(default=20, ge=1)
+    op_demo_login_enabled: bool = False
+    op_demo_login_username: str = ""
+    op_demo_login_password: str = ""
     demo_login_enabled: bool = True
     demo_login_username: str = 'merchant'
     demo_login_password: str = 'merchant123'

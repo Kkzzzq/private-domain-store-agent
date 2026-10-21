@@ -1,6 +1,6 @@
 from hashlib import sha256
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select, or_
 from sqlalchemy.exc import IntegrityError
@@ -62,6 +62,16 @@ def register(body: RegisterIn, request: Request, db: Session = Depends(get_db)):
     db.refresh(user)
     token = create_access_token(user_id=user.id, username=user.username, role=user.role)
     return TokenOut(access_token=token, user=_user_out(user))
+
+
+@router.get("/op-demo-login")
+def op_demo_login(response: Response):
+    # Explicitly public Demo credentials; disabled unless enabled by the operator.
+    response.headers["Cache-Control"] = "no-store"
+    enabled = bool(settings.op_demo_login_enabled and settings.op_demo_login_username and settings.op_demo_login_password)
+    return {"enabled": enabled,
+            "username": settings.op_demo_login_username if enabled else "",
+            "password": settings.op_demo_login_password if enabled else ""}
 
 
 @router.post("/login", response_model=TokenOut)
