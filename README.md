@@ -1,275 +1,220 @@
-# AI-Powered Private-Domain E-Commerce Platform
+# Private Store Agent
 
-A merchant dashboard and buyer storefront backed by shared product, inventory, and order data, with store-scoped AI assistants for shopping and operations.
+**An AI-powered storefront, a merchant workspace, and an agent evaluation platform—in one full-stack project.**
 
-The [native setup without virtualization](docs/native-live.md) has passed seven strict acceptance test groups covering MySQL, Redis, Zhipu chat and Embedding-3, and Chroma. The local demo runs at `127.0.0.1:8000`. The original Ollama and Docker options remain available; refer to that guide for the validated native configuration. Cloud-hosted models are identified separately from Ollama.
+Private Store Agent connects product discovery, shopping, and store operations through a shared commerce backend. Buyers get recommendations grounded in current inventory. Merchants manage their storefront and query business data through conversation. An operations workspace brings assistant evaluation and functional testing into the same project.
 
-Requirements and pass criteria for live integration are documented in the [live acceptance PRD](docs/prd-live-acceptance.md), with setup instructions in the [live integration guide](docs/live-acceptance.md). The independent MySQL/Redis/Ollama setup distinguishes implemented functionality, mocked tests, and real-model acceptance. Reports are written to `backend/data/acceptance/`.
+Built with **FastAPI · SQLAlchemy · MySQL · Redis · LangChain · Chroma · pytest · Playwright**. Supports local Ollama models and configured cloud providers.
 
-## AI Assistants for Buyers and Merchants
+[Quick Start](#quick-start) · [AI Assistants](#ai-assistants) · [Quality Engineering](#quality-engineering) · [Screenshots](#screenshots) · [Documentation](#documentation)
 
-See the [assistant PRD](docs/prd.md) for requirements and acceptance criteria. The floating assistant in the merchant dashboard can query the current store's products, orders, business overview, and low-stock alerts. The buyer assistant supports product search and recommendations, the buyer's own orders, and store policies. Both support multi-turn conversations, new conversations, product cards, and explicit fallback notices.
+![Buyer storefront](docs/screenshots/buyer-home.png)
 
-Query tools are read-only. Merchants can generate product proposals, preview and confirm them, and save them as new drafts without overwriting existing products. Buyer recommendation cards support variant selection, adding to cart, and checkout. See the [agent actions PRD](docs/prd-agent-actions.md) for the full flow. Identity and store scope are resolved on the server. The default rate limit is 30 requests per user per minute, and tool calls are recorded in the redacted `agent_tool_logs` audit table. Recommendations support best sellers, browsing preferences, similar products, and budget constraints. Redis stores separate conversation contexts and rate-limit counters. Real-model integration uses LangChain/Ollama function calling; the knowledge base uses heading-based chunking and Chroma. When the model is unavailable, rule-based queries are used and clearly labeled in the interface.
+## What Makes It Interesting
 
-The [requirement-driven recommendation PRD](docs/prd-recommendation-agent.md) describes how the model first retrieves the store's product overview, extracts budget, quantity, category, inclusion, and exclusion constraints, and selects specific in-stock SKUs with explanations. Budget checks use quantity-adjusted subtotals and exclude shipping. Constraints are not silently relaxed when no products match. Zhipu cloud models are also supported; see the [live integration guide](docs/live-acceptance.md) for operation and acceptance boundaries.
+- **AI connected to actual store data.** Product, stock, order, and policy queries use controlled tools and knowledge retrieval. Recommendations account for budget, quantity, availability, and explicit preferences.
+- **A complete shopping workflow.** Browse collections, select variants, add to cart, check out, and track orders, with inventory and order data shared between buyers and merchants.
+- **A storefront merchants can shape.** Configure branding, hero slides, product sections, categories, badges, reviews, and after-sales copy from the dashboard.
+- **Three distinct agent roles.** Business assistants serve users; an evaluation agent assesses assistant behavior; a functional-testing agent selects registered API and browser checks.
+- **Evidence-backed testing.** Approved plans, isolated execution, fixed assertions, tool traces, and browser screenshots support repeatable quality checks.
+- **Explicit identity and store boundaries.** Server-resolved identities, store-scoped queries, buyer-specific order access, redacted tool logs, and rate limits make access rules part of the implementation.
 
-Buyer queries include product discovery, SKU availability, budget-based recommendations, personal orders, shipping status, and return policies for custom products. Merchant queries include business summaries, inventory alerts, store orders, and product searches. See [acceptance and troubleshooting](docs/troubleshooting.md) for model and infrastructure validation boundaries and Wireshark troubleshooting steps.
+## AI Assistants
 
-The merchant dashboard and buyer storefront use the same stores, products, and orders. Buyers access a particular store through its share link.
+### For Buyers
 
-## User Interface
+Find products, compare available options, ask about stock and policies, and check personal orders. Recommendations select specific in-stock SKUs and explain their fit. Product cards let buyers choose variants and continue to cart or checkout.
 
-Product photos from Unsplash are stored in `web/covers`, so the local demo does not require external image requests. Selected button highlights, expanding underlines, and card-border hover effects are adapted from [Hover.css](https://github.com/IanLunn/Hover) under the MIT license; the full library is not included.
+The recommendation flow extracts budget, quantity, category, required attributes, and exclusions. Budget checks use quantity-adjusted subtotals before shipping; unmatched constraints are surfaced rather than silently relaxed.
 
-The top navigation contains the store name, cart, order center, and browsing history.
+### For Merchants
 
-![Buyer storefront home](docs/screenshots/buyer-home.png)
+Ask about store orders, business performance, and low-stock products. Generate product configuration proposals, review them, and save confirmed proposals as new drafts while preserving existing products.
 
-The homepage is organized into a hero carousel, merchant recommendations, best sellers, custom sections, all products, customer reviews, and after-sales assurances.
+### How They Work
 
-**Hero carousel:** A landscape image spans the same width as the product rows. Merchants choose its height, which defaults to 640px, with 22px of space above it. The main image occupies the middle 93.4%; narrow side strips use a blurred copy of the same image with `blur(34px)` and a 90-degree mask fading at 5% and 95%. Clicking the image opens the linked product. Vertically centered arrows use 38px circular buttons, 27px symbols, and a 7%-opacity background. Navigation indicators and automatic advancement are also supported.
+- **Tool calling:** LangChain/Ollama integration and configured cloud-model support connect conversations to business tools.
+- **Retrieval:** Heading-based knowledge chunks and Chroma support policy and after-sales answers.
+- **Conversation memory:** Redis-backed contexts keep conversations separate across users.
+- **Access control:** Identity and store scope are determined on the server; query tools are read-only.
+- **Observability:** Redacted calls are recorded in `agent_tool_logs`; the default limit is 30 requests per user per minute.
+- **Fallback behavior:** Model outages use explicitly labeled rule-based queries; embedding outages use keyword retrieval over policy sources.
 
-The top bar can use a light tint derived from the store theme or a plain white background. The tint fades below the theme-colored border on the page background layer, keeping the border and adjacent cart, order, and history content visible.
+See the [assistant requirements](docs/prd.md), [agent action flows](docs/prd-agent-actions.md), and [recommendation design](docs/prd-recommendation-agent.md).
 
-![Second hero slide](docs/screenshots/buyer-hero-2.png)
+## Commerce Experience
 
-**Product sections:** Each row displays three products with 397px images. A "View all" link opens the section's collection page. Vertically centered arrows advance one item at a time and fade at either end. Recommendations and best sellers each support up to six products.
+### Buyer Storefront
 
-**Product cards:** Cards display an image, a merchant-defined badge in the top-left corner, and a small cart button in the bottom-left corner. The name and price, including the comparison price, appear in a top hover overlay that avoids the badge. Badge colors use a light background with matching text. Container queries scale badges and cart buttons to the card width.
+An image-led interface combines a hero carousel, curated collections, best sellers, and a searchable catalog. Shared product cards offer hover details and quick buy, while variant-linked imagery keeps the selected image, price, and inventory aligned.
 
-**All products:** The initial view shows two rows, or eight products. "Show more" adds one row at a time. Once all products are visible, "Collapse" restores the initial two rows.
+The shopping flow includes shipping addresses, free shipping from CNY 99, order countdowns, cancellation, and receipt confirmation. A sticky purchase bar keeps the selected variant accessible on product pages. Cross-store browsing history retains the last seven days, including clearly labeled unavailable products.
 
-**Customer reviews:** Two rows of short reviews move in opposite directions and pause on hover. **After-sales assurances** appear at the bottom of the page, with copy configured by the merchant.
+### Merchant Workspace
 
-Every product card opens the product detail page in the same store. Navigation resets scrolling to the top; filtering within the current page does not.
+Manage products, SKU prices and stock, variant images, purchase limits, listings, categories, and tags. Track business metrics, recent orders, sales rankings, and inventory alerts; filter orders and ship individually or in bulk.
 
-### Collection Pages
+Homepage customization covers carousel uploads and ordering, product sections, reviews, theme colors, hero height, and after-sales messaging. Destructive actions require confirmation.
 
-Each homepage section's "View all" link opens a collection page with category filters and sorting on the left, and a search box and product grid on the right. Collections show the full section rather than the homepage's six-product limit.
+![Merchant business overview](docs/screenshots/admin-dashboard.png)
 
-![Collection page](docs/screenshots/buyer-collection.png)
+### Shared Data, Consistent Orders
 
-Merchants define and reorder category labels in the dashboard. Renaming a category also updates the products assigned to it.
+Both interfaces read the same `products` and `skus` tables. Product status controls visibility and purchase eligibility. Order items preserve names, variants, and unit prices as snapshots, so later catalog edits do not rewrite purchase history.
 
-Selecting a category immediately updates the product list and count.
-
-![Filtered collection](docs/screenshots/buyer-collection-filtered.png)
-
-The "All products" link opens the store-wide collection. Searches submitted beside the homepage's "All products" heading also open this page.
-
-![Store-wide collection](docs/screenshots/buyer-collection-all.png)
-
-### Product Cards and Quick Buy
-
-The homepage, collections, and browsing history share the same card design. Names and prices remain in the hover overlay, leaving the default view focused on imagery. The cart button opens a quick-buy dialog on the current page, where buyers can select an SPU/SKU and add it to the cart or place an order without leaving the homepage.
-
-![Quick-buy dialog](docs/screenshots/buyer-quickbuy.png)
-
-Badges use merchant-configured colors with a 9%-intensity background and matching text. A product can have up to four tags; the first is shown on its card. Products without tags fall back to a discount or best-seller badge. On 397px cards, badges use 12px text and cart buttons are 40px; on the 294px cards in the four-column grid, these scale to 11.5px and 35px.
-
-### Cross-Store Browsing History
-
-Browsing history combines products viewed across stores in a single Redis-backed list rather than a database table. Cards match the homepage design, with the store name added to the hover overlay. Each card links to the product's own store.
-
-![Browsing history](docs/screenshots/buyer-history.png)
-
-Only the last seven days are retained. Viewing a product again moves it to the front, and the list can be cleared with one action.
-
-**Unlisted and banned products remain in history.** They are hidden from storefront listings and detail pages, but history cards remain visible in a disabled style with "Unlisted" or "Banned" labels. Prices remain visible; opening details and adding to cart are disabled.
-
-### Product Details
-
-The detail page has three columns: vertical thumbnails, a large image, and product information. The 400px information column contains prices, the comparison price and discount, variants, quantity, and two primary actions. Details, specifications, and reviews appear in tabs below. On narrower windows, the information column shrinks to 340px and then 300px to preserve image space.
-
-![Product details](docs/screenshots/buyer-detail.png)
-
-**Images and variants stay synchronized.** Merchants upload a separate image for each variant, and each thumbnail is labeled with its variant name. Selecting a thumbnail, using the main-image arrows, or selecting a variant updates the image, selected variant, price, and stock together. Products with only one image hide the arrows.
-
-![Variant selection](docs/screenshots/buyer-detail-sku.png)
-
-A sticky purchase bar slides into view at the top after the primary action buttons scroll out of view. It follows the current variant and price. Recommendations also appear below the detail page.
-
-![Sticky purchase bar](docs/screenshots/buyer-detail-buybar.png)
-
-### Cart and Orders
-
-The cart supports select-all and bulk deletion, with shipping calculated in the checkout bar. Checkout places shipping information on the left and the order summary on the right.
-
-![Shopping cart](docs/screenshots/buyer-cart.png)
-
-![Checkout](docs/screenshots/buyer-checkout.png)
-
-Unpaid orders display a countdown. A scheduled task cancels orders that remain unpaid for more than 30 minutes and restores their inventory. Order cards have a lightly tinted, theme-bordered header, a white item area with alternating item backgrounds, and a gray action area.
-
-![Buyer orders](docs/screenshots/buyer-orders.png)
-
-### Merchant Dashboard
-
-The dashboard uses a dark top bar and left navigation. Its overview includes four key metrics, recent orders, product sales rankings, and low-stock alerts.
-
-![Business overview](docs/screenshots/admin-dashboard.png)
-
-**Homepage customization** has four tabs for managing storefront content.
-
-Merchants can upload carousel images or supply existing paths, set titles and subtitles, link to products or sections, and reorder slides.
-
-![Carousel management](docs/screenshots/admin-banners.png)
-
-Product sections can be created, renamed, reordered, and configured for manual selection or automatic selection of the six best sellers. Manual selections are limited to six products.
-
-![Section management](docs/screenshots/admin-sections.png)
-
-**Categories** have a dedicated page for creation, renaming, reordering, and deletion. Renaming updates assigned products. Duplicate names and deletion of nonempty categories are rejected.
-
-![Category management](docs/screenshots/admin-categories.png)
-
-**Product tags** control the badges on buyer-facing cards. Merchants can edit names and colors with a live preview. Renaming preserves associations because links store tag IDs; deleting a tag removes its product associations.
-
-![Product tag management](docs/screenshots/admin-tags.png)
-
-**Homepage appearance** controls hero height, the tinted top-bar background, and after-sales assurance copy.
-
-![Homepage appearance settings](docs/screenshots/admin-appearance.png)
-
-The product table includes thumbnails, stock, and low-stock warnings, with inline listing and banning actions. Orders support status filtering and bulk shipping.
-
-The **Variants and Inventory** area in the product editor provides editable variant names, comparison prices, selling prices, stock, and individual images. The frontend rejects comparison prices below the selling price, zero prices, and empty variant names with merchant-facing validation messages.
-
-![Variant and inventory editor](docs/screenshots/admin-product-editor.png)
-
-Destructive actions require confirmation, including deletion of slides, sections, reviews, categories, and tags. Canceling leaves data unchanged. Sections, reviews, categories, and tags support reordering; the complete sequence is written back as `1..n` to avoid duplicate positions.
-
-## Data Model and Consistency
+Unpaid orders expire after 30 minutes. A scheduled sweep runs every 60 seconds to cancel expired orders and restore stock. Product-tag associations use IDs, while category renames update assigned products.
 
 ```text
-Merchant user  1 -- 1 Store (share code)
-Store          1 -- n Categories / Product tags
-Store          1 -- n Products (SPUs)
-Product        1 -- n SKUs
-Product        n -- n Product tags (product_tag_links)
-Buyer user     1 -- n Orders
-Order          n -- 1 Store
-Order          1 -- n Order items
-Order item     n -- 1 Product / SKU, with name, variant, and unit-price snapshots
+Merchant → Store → Products → SKUs
+                 → Categories and product tags
+Buyer → Orders → Order items → Product / SKU snapshots
+      → Cross-store browsing history in Redis
 ```
 
-Products and tags have a many-to-many relationship. The link table stores tag IDs, so name changes automatically appear on associated products. Categories use names stored on products, so renaming a category also updates those product records.
+## Quality Engineering
 
-The buyer storefront has no separate product copy. Listings, checkout, and assistants read the shared `products` and `skus` tables, with status determining visibility and purchase eligibility.
+The operations workspace separates business assistance, assistant evaluation, and functional testing into distinct roles.
 
-| Status | Merchant dashboard | Buyer storefront | Browsing history |
-| --- | --- | --- | --- |
-| Listed | Can unlist or ban | Visible; purchasable with sufficient stock | Normal display; can add to cart |
-| Unlisted | Can list or ban | Hidden; details unavailable | Retained as "Unlisted"; cannot add to cart |
-| Banned | Must unban first, returning to unlisted | Hidden; details unavailable | Retained as "Banned"; cannot add to cart |
-| Store closed | Can reopen | Announcement visible; product list empty | Retained as "Store closed"; cannot add to cart |
+- **Assistant evaluation:** Build plans for registered scenarios, inspect tool traces and retrieved evidence, and assess results against explicit assertions.
+- **Functional testing:** Execute registered pytest checks and real-browser scenarios for business state transitions, permissions, and UI behavior.
+- **Controlled planning:** Review and approve model-proposed plans before execution. Registered runners constrain what can be executed.
+- **Isolated runs:** Test fixtures and subprocesses keep test execution separate from existing store data.
+- **Traceable results:** Preserve case versions, run reports, and browser screenshots; compare reports under compatible conditions.
 
-Browsing history stores product IDs and timestamps per user in Redis with a seven-day expiry. Rendering retrieves current names, prices, and statuses from the product tables, allowing unavailable products to remain in history with the correct label.
+Mocked tests, isolated regression, native dependency checks, and real-model acceptance are tracked separately. Rule-based fallback does not count as successful real-model evaluation.
 
-Orders belong to both the buyer and the store and can be fulfilled from the merchant dashboard. Later changes to product names or prices do not change existing order snapshots.
+See the [quality center](docs/quality-center.md), [agent implementation guide](docs/agent-basics.md), and [CI regression workflow](.github/workflows/quality-regression.yml).
 
-## Run Locally
+## Screenshots
 
-From the parent workspace:
+<details>
+<summary><strong>Explore the buyer experience</strong></summary>
+
+### Discovery and Collections
+
+![Hero carousel](docs/screenshots/buyer-hero-2.png)
+![Collection page](docs/screenshots/buyer-collection.png)
+![Category filtering](docs/screenshots/buyer-collection-filtered.png)
+![Full product catalog](docs/screenshots/buyer-collection-all.png)
+
+### Product Selection
+
+![Quick buy](docs/screenshots/buyer-quickbuy.png)
+![Product details](docs/screenshots/buyer-detail.png)
+![Variant-linked imagery](docs/screenshots/buyer-detail-sku.png)
+![Sticky purchase bar](docs/screenshots/buyer-detail-buybar.png)
+
+### Shopping and Order Tracking
+
+![Shopping cart](docs/screenshots/buyer-cart.png)
+![Checkout](docs/screenshots/buyer-checkout.png)
+![Order center](docs/screenshots/buyer-orders.png)
+![Cross-store browsing history](docs/screenshots/buyer-history.png)
+
+</details>
+
+<details>
+<summary><strong>Explore the merchant workspace</strong></summary>
+
+![Carousel management](docs/screenshots/admin-banners.png)
+![Homepage sections](docs/screenshots/admin-sections.png)
+![Category management](docs/screenshots/admin-categories.png)
+![Product badges](docs/screenshots/admin-tags.png)
+![Storefront appearance](docs/screenshots/admin-appearance.png)
+![Variants and inventory](docs/screenshots/admin-product-editor.png)
+
+</details>
+
+## Quick Start
+
+### Local Demo
+
+Clone the repository, then create a Python environment and start the backend:
 
 ```powershell
-cd Project\private-domain-store-agent\backend
+git clone https://github.com/Kkzzzq/private-domain-store-agent.git
+cd private-domain-store-agent\backend
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 .\.venv\Scripts\uvicorn app.main:app --reload
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The storefront supports product and category search, category filtering, sales and price sorting, variants, a cart, shipping addresses, free shipping on orders of CNY 99 or more, and unpaid, awaiting-shipment, and awaiting-receipt order states. The dashboard manages the same products and orders.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
-Demo accounts:
+- **Merchant:** `merchant` / `merchant123` — `/b.html`
+- **Buyer:** `alice` / `alice123` — `/c.html?code=nanzhi`
+- **Second buyer:** `bob` / `bob123` — available for checking buyer-order isolation.
+- **Operations workspace:** `/op.html` — see the [quality center guide](docs/quality-center.md) for access and setup.
 
-- Merchant: `merchant` / `merchant123`; dashboard at `/b.html`.
-- Buyer: `alice` / `alice123`; store link at `/c.html?code=nanzhi`.
-- Second buyer: `bob` / `bob123`; useful for checking that buyers cannot access each other's orders.
+The lightweight configuration uses SQLite and in-process conversation storage when MySQL and Redis are not configured. The demo storefront and its existing screenshots use Chinese UI text.
 
-Without MySQL and Redis, the application uses SQLite and in-process conversation storage. To run the MySQL + Redis configuration, execute `docker compose up --build` from the repository root.
+### AI Setup
 
-Redis supports product-list caching, conversation context, browsing history, and frequently accessed checkout data.
-
-The store assistant defaults to local Ollama with `qwen2.5:7b`. If the model is unavailable, product, stock, order, and after-sales queries fall back to rule-based retrieval while retaining the current store scope.
+The default local-model option uses Ollama:
 
 ```powershell
 ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
 ```
 
-After signing in as a merchant, call `POST /api/v1/b/knowledge/reindex` to index the rules in `backend/knowledge` into Chroma. If the embedding model is unavailable, after-sales answers use keyword retrieval over the source text.
+After merchant login, call `POST /api/v1/b/knowledge/reindex` to index `backend/knowledge` into Chroma. For cloud models and live integration, follow the [configuration and acceptance guide](docs/live-acceptance.md).
 
-APScheduler checks for expired unpaid orders every 60 seconds, canceling those older than 30 minutes and restoring stock. Failure to start the scheduler does not prevent the API from running.
+### MySQL and Redis
 
-## Feature Summary
-
-### Buyer Storefront
-
-- Direct navigation to the cart, orders, and browsing history, with a theme-derived top-bar background.
-- Hero carousel with blurred image edges, product links, and merchant-controlled height.
-- Recommendations, best sellers, and custom sections with three-card rows and dedicated collection pages.
-- Image-first cards with hover details, responsive merchant badges, and in-place variant selection and quick buy.
-- Collection filtering, sorting, and search across the full section or store.
-- Synchronized variant images, thumbnails, prices, and inventory, plus a sticky purchase bar.
-- Shipping addresses, free shipping from CNY 99, unpaid-order countdowns, payment, cancellation, and receipt confirmation.
-- Seven-day cross-store browsing history, product reviews, and multi-turn store-assistant conversations.
-- Merchant-managed customer reviews and after-sales copy, expandable product listings, and scroll reset on navigation.
-
-### Merchant Dashboard
-
-- Business overview, sales rankings, recent orders, and inventory alerts.
-- Product listing, unlisting, banning, and unbanning.
-- SKU pricing, comparison prices, inventory, variant images, and per-buyer purchase limits.
-- Order filtering, individual shipping, and bulk shipping.
-- Store logo, theme color, categories, and product tags.
-- Homepage carousel uploads, section management, customer reviews, hero height, top-bar appearance, and after-sales copy.
-
-Storefront content is merchant-configurable within the predefined page structure.
-
-## References and Attribution
-
-The implementation draws on patterns from these projects:
-
-- [imShire/xu-shop](https://github.com/imShire/xu-shop): single-merchant private-domain commerce workflows, atomic stock deduction, low-stock alerts, bulk shipping, and purchase limits.
-- [mosliu/ldc-shop](https://github.com/mosliu/ldc-shop): product variants, ratings and reviews, announcements, store themes, and unpaid-order cancellation.
-- [Web Awesome](https://webawesome.com/), the successor to [Shoelace](https://github.com/shoelace-style/shoelace): rating and overlay components loaded directly from a CDN without a build step.
-- [Hover.css](https://github.com/IanLunn/Hover): button and link hover effects adapted into `web/mall.css`.
-- [BpsEason/VueFastMart](https://github.com/BpsEason/VueFastMart): FastAPI + Vue 3 storefront architecture and API layering.
-
-Product photos are provided by [Unsplash](https://unsplash.com/license) under the Unsplash License and stored locally in `web/covers`. File mappings are defined in `COVERS` in `backend/app/seed.py`. The variant images `pillow-blue.jpg`, `runner-blue.jpg`, and `mug-detail.jpg` were generated locally from source images using GDI+ cropping and color adjustments to demonstrate variant-linked imagery.
-
-## Tests
-
-From the parent workspace:
+From the repository root:
 
 ```powershell
-cd Project\private-domain-store-agent\backend
+docker compose up --build
+```
+
+A [native setup guide](docs/native-live.md) also documents operation without virtualization, including MySQL, Redis, Zhipu chat and Embedding-3, and Chroma.
+
+## Tests and Validation
+
+From `backend`, using the environment created above:
+
+```powershell
 .\.venv\Scripts\pytest
 ```
 
-Coverage includes merchant/buyer data consistency, listing and banning, cross-store isolation, order transitions, purchase limits, overselling prevention, timeout cancellation, bulk shipping, browsing history, reviews, categories, product tags, variant images, and homepage appearance.
+The test suite covers buyer/merchant data consistency, store isolation, listing restrictions, order transitions, purchase limits, overselling prevention, timeout cancellation, bulk shipping, browsing history, reviews, categories, tags, variant images, and homepage configuration.
+
+Live integration requirements and pass criteria are documented in the [acceptance PRD](docs/prd-live-acceptance.md). Generated acceptance reports are stored in `backend/data/acceptance/`. See [troubleshooting](docs/troubleshooting.md) for model and infrastructure diagnostics.
 
 ## Project Structure
 
 ```text
-backend/app/api/b_api.py           Merchant dashboard API
-backend/app/api/c_api.py           Buyer storefront API
-backend/app/services/home.py       Carousel, sections, reviews, and collections
-backend/app/services/categories.py Merchant-defined categories
-backend/app/services/tags.py       Merchant-defined product badges
-backend/app/services/shelf.py      Listing, banning, and purchase eligibility
-backend/app/services/trade.py      Cart, shipping addresses, and checkout
-backend/app/services/engagement.py Browsing history
-backend/app/services/reviews.py    Product reviews
-backend/app/services/orders.py     Ordering, payment, shipping, and expiry
-backend/app/models/tables.py       Store, product, SKU, cart, address, review,
-                                  order, carousel, and section models
-backend/app/agent/                 Store-scoped assistants
-web/mall.css                      Shared storefront and dashboard styles
-web/c.js                          Buyer storefront
-web/b.js                          Merchant dashboard
-web/covers/                       Demo product images
-docs/screenshots/                 Interface screenshots
+backend/app/api/          Buyer, merchant, and operations endpoints
+backend/app/services/     Catalog, inventory, checkout, and order logic
+backend/app/agent/        Business assistants and controlled tool calls
+backend/app/rag/          Knowledge retrieval and routing
+backend/app/quality/      Planning, evaluation, runners, and reports
+backend/app/models/       Shared commerce and operations data models
+backend/knowledge/        Policy and after-sales source documents
+backend/tests/            Backend and regression tests
+web/                      Buyer, merchant, and operations interfaces
+web/covers/               Local demo product photos
+docs/                     Requirements, guides, and acceptance records
+docs/screenshots/         Interface screenshots
+.github/workflows/        CI regression and deployment workflows
 ```
+
+## Documentation
+
+- [Assistant requirements](docs/prd.md)
+- [Agent actions and confirmation flows](docs/prd-agent-actions.md)
+- [Constraint-aware recommendations](docs/prd-recommendation-agent.md)
+- [Quality center](docs/quality-center.md)
+- [Agent implementation guide](docs/agent-basics.md)
+- [Live integration and model configuration](docs/live-acceptance.md)
+- [Native infrastructure setup](docs/native-live.md)
+- [Live acceptance requirements](docs/prd-live-acceptance.md)
+- [Troubleshooting and diagnostics](docs/troubleshooting.md)
+
+## References and Attribution
+
+Implementation references include [imShire/xu-shop](https://github.com/imShire/xu-shop) for inventory and fulfillment patterns, [mosliu/ldc-shop](https://github.com/mosliu/ldc-shop) for storefront features, and [BpsEason/VueFastMart](https://github.com/BpsEason/VueFastMart) for API layering.
+
+UI components use [Web Awesome](https://webawesome.com/), the successor to [Shoelace](https://github.com/shoelace-style/shoelace), with selected effects adapted from [Hover.css](https://github.com/IanLunn/Hover) under the MIT license.
+
+Product photos are stored locally in `web/covers` and used under the [Unsplash License](https://unsplash.com/license). Source mappings are defined in `COVERS` in `backend/app/seed.py`. The demo variant images `pillow-blue.jpg`, `runner-blue.jpg`, and `mug-detail.jpg` were derived from source images using local GDI+ cropping and color adjustments.
