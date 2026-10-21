@@ -2,7 +2,7 @@
 window.OPAgentExperience = (() => {
   const contexts = new WeakMap();
   const rows = value => Array.isArray(value) ? value : [];
-  const titles = {business:'业务 Agent',functional:'功能测试 Agent',evaluator:'助手评测 Agent'};
+  const titles = {business:'业务 Agent',functional:'功能测试 Agent',evaluator:'评测 Agent'};
   const labels = {queued:'排队中',running:'执行中',completed:'执行结束',passed:'通过',failed:'失败',blocked:'阻塞',cancelled:'已取消',draft:'待审批',approved:'已批准',planning:'等待规划',planning_running:'正在规划'};
   const label = value => labels[value] || value || '未记录';
   const el = (tag,cls,text) => {const node=document.createElement(tag);node.className=cls||'';if(text!=null)node.textContent=String(text);return node;};
@@ -21,11 +21,11 @@ window.OPAgentExperience = (() => {
     summary.append(el('strong','','当前待办'),button(`进行中 ${active.length}`,()=>go('testing-runs')),button(`待审批计划 ${approvals.length}`,()=>go(approvals[0]?.payload?.kind==='assistant'?'testing-evaluator':'testing-functional')),button(`含失败或阻塞的报告 ${problem.length}`,()=>go('testing-runs')),el('small','','按当前已加载记录统计；报告可分别筛选两类测试。'));
     root.append(summary);
     const relation=el('div','ae-relation');relation.setAttribute('aria-label','三个Agent的职责关系');
-    for(const text of ['业务 Agent → 完成用户的业务任务','功能测试 Agent → 验证接口、页面与业务状态','助手评测 Agent → 验证业务 Agent 的回答与执行'])relation.append(el('p','',text));
+    for(const text of ['业务 Agent → 完成用户的业务任务','功能测试 Agent → 依据真实 B/C 功能调用工具验证','评测 Agent → 评估业务与功能测试两个 Agent'])relation.append(el('p','',text));
     root.append(relation);
     const workspaces=el('div','ae-overview-agents');
     const routes={business:'testing-business',functional:'testing-functional',evaluator:'testing-evaluator'};
-    const copy={business:['先看它如何完成任务','切换买家与商家视角，查看回答、商品结果与待确认操作。','进入业务对话'],functional:['业务功能是否正常','从测试计划到状态核验，定位失败步骤及业务差异。','进入功能测试'],evaluator:['助手是否回答并执行正确','对照问题、实际回答、事实依据和逐项判定。','进入助手评测']};
+    const copy={business:['先看它如何完成任务','切换买家与商家视角，查看回答、商品结果与待确认操作。','进入业务对话'],functional:['B/C 功能是否正常','读取真实功能目录，调用对应工具，再核验业务状态。','进入功能测试'],evaluator:['两个 Agent 是否可靠','对照任务结果、工具轨迹、完整会话；程序、模型与人工分别评审。','进入双对象评测']};
     for(const id of ['business','functional','evaluator']) {
       const descriptor=rows(agents).find(row=>row.id===id),stats=descriptor?.stats||{};
       const section=el('section','ae-workspace-card ae-card-'+id);
@@ -56,22 +56,43 @@ window.OPAgentExperience = (() => {
     contexts.set(root,{...options,traceOpen:previous?.traceOpen||false});
     if(!previous){const observer=new MutationObserver(()=>enhance(root));observer.observe(root,{childList:true,subtree:true});}
     const intro=el('section','ae-role-intro');
-    const descriptions={business:'这里体验业务助手；不填写预期答案，也不在这里给回答打分。',functional:'这里验证业务功能。先看测试目标与计划，再看实际状态是否符合预期。',evaluator:'这里评测业务助手。将用户问题、助手回答、事实依据与判定放在一起。'};
+    const descriptions={business:'这里体验业务助手；不填写预期答案，也不在这里给回答打分。',functional:'依据真实 B/C 功能目录和授权工具执行，核验业务状态；未覆盖能力明确列出。',evaluator:'同时评估业务 Agent 与功能测试 Agent；任务结果、工具轨迹和完整会话分别核验。'};
     intro.append(el('strong','',titles[options.id]),el('p','',descriptions[options.id]));root.append(intro);
     queueMicrotask(()=>enhance(root));
   }
   function brief(value) {
-    if(value==null)return '未采集独立值';
+    if(value==null)return '本断言未记录独立对照值';
     if(Array.isArray(value)){
       if(value.every(row=>row&&typeof row==='object'&&row.tool))return `${value.length} 条工具记录：${value.map(row=>row.tool).join(' → ')}`;
       if(value.every(row=>row&&typeof row==='object'&&row.name))return `${value.length} 项结果：${value.map(row=>row.name).join('、')}`;
     }
     const text=display(value);return text.length>240?text.slice(0,240)+'…（完整内容见证据）':text;
   }
-  function comparison(check) {
-    const item=el('section','ae-check');item.append(chip(check.passed===true?'通过':check.passed===false?'失败':'未记录',check.passed===true?'passed':check.passed===false?'failed':''),el('strong','',check.name||'业务检查'));
-    const grid=el('div','ae-compare');
-    for(const [caption,value] of [['预期',check.expected],['实际',check.actual]]){const cell=el('div');cell.append(el('small','',caption),el('pre','',brief(value)));grid.append(cell);}item.append(grid);const evidence=el('details','ae-details');evidence.append(el('summary','','查看完整断言证据'),el('pre','ae-facts',display(check)));item.append(evidence);return item;
+  function comparison(check,count=1) {
+    const passed=check.passed===true, failed=check.passed===false;
+    const item=el('section','ae-check'),head=el('div','ae-check-head');
+    head.append(chip(passed?'通过':failed?'失败':'未记录',passed?'passed':failed?'failed':''),el('strong','',check.name||'业务检查'));
+    if(count>1)head.append(chip(`同类记录 ${count} 条已合并`,''));
+    item.append(head);
+    const hasValues=check.expected!=null||check.actual!=null;
+    if(hasValues){
+      const grid=el('div','ae-compare');
+      for(const [caption,value] of [['预期',check.expected],['实际',check.actual]]){const cell=el('div');cell.append(el('small','',caption),el('pre','',brief(value)));grid.append(cell);}
+      item.append(grid);
+    } else item.append(el('p','ae-meta',passed
+      ? '这项只核对流程结果（真实请求、响应或状态），没有独立的预期/实际业务值；它本身不能证明业务正确，请对照上方检查目标与完整证据。'
+      : '这项没有记录预期值与实际值，不能据此判断业务是否正确。'));
+    const evidence=el('details','ae-details');evidence.append(el('summary','','查看完整断言证据'),el('pre','ae-facts',display(check)));item.append(evidence);return item;
+  }
+  /* 同名同值的重复断言来自准备/清理等重复步骤；合并展示，但不合并结果不同的断言。 */
+  function distinct(checks) {
+    const grouped=[],seen=new Map();
+    for(const check of checks){
+      const key=JSON.stringify([check?.name,check?.passed,check?.expected??null,check?.actual??null]);
+      const hit=seen.get(key);
+      if(hit)hit.count++;else{const entry={check,count:1};seen.set(key,entry);grouped.push(entry);}
+    }
+    return grouped;
   }
   function focus(result,run,kind) {
     const panel=el('section','ae-result-focus');const evidence=result?.evidence||{};
@@ -90,8 +111,9 @@ window.OPAgentExperience = (() => {
       if(stages.length){const list=el('div','ae-stage-results');for(const stage of stages)list.append(el('p','',`${label(stage.outcome)} · ${stage.node||'执行阶段'}`));panel.append(list);}
     }
     if(evidence.error)panel.append(el('p','ae-failure',evidence.error));
-    const checks=rows(evidence.assertions);panel.append(el('h4','','逐项核验'));
-    if(checks.length)checks.forEach(check=>panel.append(comparison(check)));
+    const checks=rows(evidence.assertions),grouped=distinct(checks);
+    panel.append(el('h4','',`逐项核验（${grouped.length} 项${grouped.length===checks.length?'':` · 已合并 ${checks.length-grouped.length} 条同名同值记录`}）`));
+    if(grouped.length)grouped.forEach(entry=>panel.append(comparison(entry.check,entry.count)));
     else panel.append(el('p','ae-meta','本记录未采集逐项断言；不能将缺失证据当成通过。'));
     if(evidence.facts!=null){const facts=el('details','ae-details');facts.append(el('summary','','可信业务事实'),el('pre','ae-facts',display(evidence.facts)));panel.append(facts);}
     panel.append(el('p','ae-meta',evidence.cleanup_ok===true?'资源清理：已完成（不等于用例通过）':evidence.cleanup_ok===false?'资源清理：未成功，需处理':'资源清理：本记录未采集'));
@@ -105,14 +127,16 @@ window.OPAgentExperience = (() => {
       grid.classList.add('ae-'+ctx.id);
       if(ctx.id==='business') {
         left.classList.add('ae-dialogue');left.querySelector('h4').textContent='对话与业务结果';
-        const side=el('aside','ae-inspector'),trace=el('details','ae-details');trace.open=ctx.traceOpen;
+        const trace=el('details','ae-details');trace.open=ctx.traceOpen;
         trace.append(el('summary','','展开实际执行轨迹'),middle);trace.addEventListener('toggle',()=>{ctx.traceOpen=trace.open;});
         const raw=right.querySelector('.ao-json');
         if(raw){try{const detail=JSON.parse(raw.textContent);const readable=detail.message||detail.answer||detail.result||detail.error;
           if(readable){const copy=el('section','ae-detail-reading');copy.append(el('small','','本步记录'),el('p','',display(readable)));right.insertBefore(copy,right.children[1]||null);}
         }catch{/* Raw technical records remain available in their original form. */}}
         if(raw&&!raw.closest('details')){const technical=el('details','ae-details');technical.append(el('summary','','技术原始记录'));raw.replaceWith(technical);technical.append(raw);}
-        side.append(trace,right);grid.append(side);
+        /* 业务证据、执行轨迹与所选步骤一起放进主内容区，跟在对话之后；不再挤成一条窄侧栏，也不会压住顶部导航与 tab。 */
+        const main=el('section','ae-main'),evidence=el('section','ae-main-evidence');
+        evidence.append(right);main.append(left,trace,evidence);grid.replaceWith(main);
       } else {
         const selections=Array.from(left.querySelectorAll('select'));
         const runs=rows(ctx.data.runs).filter(run=>rows(run.results).some(row=>row.kind===(ctx.id==='functional'?'functional':'assistant')));
@@ -145,5 +169,5 @@ window.OPAgentExperience = (() => {
     if(history&&!history.dataset.aeHistory){history.dataset.aeHistory='true';const folded=el('details','ae-details');folded.append(el('summary','','展开历史运行与报告'));history.replaceWith(folded);folded.append(history);}
     for(const reference of root.querySelectorAll('.qa-agent-reference:not([data-ae-ready])')){reference.dataset.aeReady='true';reference.open=false;}
   }
-  return {overview,context,focus,counts};
+  return {overview,context,focus,counts,distinct,comparison};
 })();

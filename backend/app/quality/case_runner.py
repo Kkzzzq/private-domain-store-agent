@@ -16,6 +16,8 @@ def execute(spec):
     from app.quality.browser import BROWSER_CASES
     if spec["case_id"] in BROWSER_CASES and not os.environ.get("QA_NATIVE_DATABASE_URL"):
         os.environ["DATABASE_URL"] = "sqlite:///" + (Path(os.environ["QA_CHILD_WORKSPACE"]) / "browser.db").as_posix()
+    from app.quality.sandbox import configure_test_model
+    configure_test_model(target=True)
     from app.quality.native import install_namespace
     install_namespace()
     evidence = Evidence()
@@ -47,9 +49,30 @@ def execute(spec):
             cache = get_redis()
             cache.set_json("quality-dependency-proof", {"native": True}, ex=60)
             evidence.check("真实Redis键仅落在测试命名空间", not cache.using_memory and cache._client.raw.get(os.environ["QA_NATIVE_PREFIX"] + "quality-dependency-proof") == '{"native": true}')
-        if spec["case_id"] in BROWSER_CASES:
+        if spec["case_id"] == "__business_debug__":
+            if spec["mode"] != "live":
+                raise RuntimeError("业务对话调试必须真实模型模式")
+            restore_model = budget.install()
+            from app.quality.business_debug import execute_dialogue
+            output.update(execute_dialogue(spec, evidence))
+            evidence.check("真实模型HTTP调用有计量", budget.calls > 0)
+        elif spec["case_id"] in BROWSER_CASES:
             from app.quality.browser import execute_browser
             output.update(execute_browser(spec["case_id"], evidence))
+        elif any(row["id"] == spec["case_id"] and row.get("adapter") == "registered_ui_action" for row in spec.get("case_snapshots", [])):
+            # 可复用点击工具：用登记用例里的固定参数跑单个动作，页面核验 + 接口交叉核验都记进证据。
+            row = next(row for row in spec["case_snapshots"] if row["id"] == spec["case_id"])
+            from app.quality.ui_actions import execute_action_script, flow_steps
+            params = spec.get("ui_action_params") or row.get("default_params") or {}
+            if row.get("ui_flow"):
+                from app.quality.ui_actions import FLOWS_BY_ID
+                steps = flow_steps(FLOWS_BY_ID[row["ui_flow"]], params)
+            else:
+                steps = [{"action": spec.get("ui_action") or row.get("ui_action"), "params": params}]
+            result = execute_action_script({"actions": steps, "shop_code": spec.get("shop_code", "nanzhi"),
+                                            "kind": "buyer" if row.get("side") == "C" else "merchant"},
+                                           evidence)
+            output.update(result)
         elif spec["case_id"] in FUNCTIONAL_TESTS:
             import pytest
             reports = []
@@ -62,6 +85,10 @@ def execute(spec):
                 code = pytest.main(["tests/" + FUNCTIONAL_TESTS[spec["case_id"]], "-q", "--disable-warnings", "-p", "no:cacheprovider", "--basetemp", os.environ["QA_CHILD_WORKSPACE"] + "/pytest"], plugins=[Plugin()])
             evidence.check("固定回归确实收集并执行且未跳过", code == 0 and any(row["stage"] == "call" and row["outcome"] == "passed" for row in reports) and all(row["outcome"] == "passed" for row in reports), "执行并通过", reports)
             output["suite"] = {"adapter": "registered_pytest", "node": FUNCTIONAL_TESTS[spec["case_id"]], "reports": reports}
+        elif any(row["id"] == spec["case_id"] and row.get("adapter") == "declarative_functional" for row in spec.get("case_snapshots", [])):
+            custom = next(row for row in spec["case_snapshots"] if row["id"] == spec["case_id"])
+            from app.quality.functional_cases import execute_functional
+            output.update(execute_functional(custom["definition"], evidence))
         elif spec["case_id"] in ASSISTANT_CASES or any(row["id"] == spec["case_id"] and row.get("adapter") == "declarative_assistant" for row in spec.get("case_snapshots", [])):
             if spec["mode"] == "live":
                 restore_model = budget.install()

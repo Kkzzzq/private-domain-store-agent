@@ -20,7 +20,7 @@ from app.models.quality import QualityRun
 from app.models.tables import User
 from app.quality import service
 from app.quality.catalog import cases
-from app.quality.worker import run_one
+from app.quality.worker import run_one, plan_one
 
 
 def main():
@@ -44,18 +44,35 @@ def main():
     reports = []
     path = Path(args.report)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # 助手每条独立预算，功能每批 5 条，防止长批次耗尽共享时间。
-    size = 1 if args.kind == 'assistant' else 5
+    size = 10
     for index in range(0, len(rows), size):
         batch = rows[index:index + size]
         with SessionLocal() as db:
             body = service.PlanIn(goal='三端全面验收：' + '、'.join(r['title'] for r in batch), kind=args.kind,
                                   mode='live' if args.kind == 'assistant' else 'rules', case_ids=[r['id'] for r in batch],
-                                  environment_id=args.environment, max_calls=20, max_tokens=60000, timeout_seconds=600)
+                                  environment_id=args.environment, max_calls=50, max_tokens=60000, timeout_seconds=1200)
             plan = service.new_plan(db, user_id, body)
+            plan_id = plan.id
+        planning_deadline = time.monotonic() + 130
+        while True:
+            with SessionLocal() as db:
+                from app.models.quality import QualityPlan
+                plan = db.get(QualityPlan, plan_id)
+                if plan.status not in ('planning', 'planning_running'):
+                    if plan.status != 'draft':
+                        raise RuntimeError('真实模型规划未完成：' + str(plan.evidence.get('error', plan.status)))
+                    break
+            if time.monotonic() > planning_deadline:
+                raise RuntimeError('等待真实规划超时：' + plan_id)
+            plan_one(plan_id)
+            time.sleep(0.5)
+        with SessionLocal() as db:
+            plan = db.get(QualityPlan, plan_id)
+            if set(plan.payload['case_ids']) != {row['id'] for row in batch}:
+                raise RuntimeError('规划未包含全部请求用例，未将遗漏计通过')
             service.approve(db, plan, user_id, plan.digest)
             run_id = service.create_run(db, plan, user_id, uuid4().hex).id
-        deadline = time.monotonic() + 720
+        deadline = time.monotonic() + 1500
         while True:
             with SessionLocal() as db:
                 run = db.get(QualityRun, run_id)

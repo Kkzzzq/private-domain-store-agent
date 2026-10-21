@@ -7,6 +7,12 @@ on:
       - backend/app/quality/**
       - backend/tests/test_quality*.py
       - web/op-quality.*
+      - web/op-agent-observatory.*
+      - web/op-business-observatory.*
+      - backend/app/api/business_debug.py
+      - backend/tests/test_business_debug.py
+      - backend/tests/test_custom_functional_cases.py
+      - backend/scripts/*observatory*
       - .github/workflows/quality-regression.yml
 
 permissions:
@@ -34,9 +40,15 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements-e2e.txt
       - run: python -m playwright install --with-deps chromium
-      - run: python -m pytest tests/test_quality.py tests/test_quality_business.py tests/test_quality_native.py tests/test_quality_reporting.py tests/test_quality_case_versions.py tests/test_embedding_failover.py -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node backend/scripts/test_op_observatory.cjs
+        working-directory: .
+      - run: python -m pytest tests/test_custom_functional_cases.py tests/test_business_debug.py tests/test_quality.py tests/test_quality_business.py tests/test_quality_native.py tests/test_quality_reporting.py tests/test_quality_case_versions.py tests/test_embedding_failover.py -q
       - run: python scripts/check_quality.py --cases A01 A02 A03 A04 A07 A08 A09 A12 A13 A14 A29 A30 A38 A39 F01 F08 F29 --report data/acceptance/ci-quality-fixed.json
       - run: python scripts/check_quality.py --cases E01 E02 E03 E04 E05 --report data/acceptance/ci-quality-browser.json
+      - run: python -m scripts.check_observatory_ui
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -44,4 +56,6 @@ jobs:
           path: |
             backend/data/acceptance/ci-quality-*.json
             backend/data/quality-artifacts/*.png
+            backend/data/acceptance/observatory/*.png
+            backend/data/acceptance/observatory/report*.json
           retention-days: 7

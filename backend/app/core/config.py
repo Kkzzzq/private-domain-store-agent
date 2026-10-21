@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     cloud_embedding_api_key: str = ""
     cloud_embedding_api_key_file: str = ""
     cloud_embedding_dimensions: int = Field(default=1024, ge=256, le=2048)
+    product_image_embedding_enabled: bool = True
+    product_image_embedding_model: str = "qwen3-vl-embedding"
+    product_image_embedding_fallback_models: str = "tongyi-embedding-vision-flash"
+    product_image_embedding_url: str = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding"
     cloud_timeout_seconds: int = Field(default=45, ge=1, le=180)
     chroma_path: str = "./data/chroma"
     agent_mode: str = "auto"
@@ -57,6 +61,14 @@ class Settings(BaseSettings):
     acceptance_environment: bool = False
     qa_native_enabled: bool = False
     qa_native_mysql_password: str = ""
+    qa_chat_model: str = ""
+    qa_chat_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    qa_chat_api_style: Literal["qwen", "zhipu", "deepseek"] = "zhipu"
+    qa_chat_api_key_file: str = ""
+    qa_target_chat_model: str = ""
+    qa_target_chat_base_url: str = ""
+    qa_target_chat_api_style: Literal["qwen", "zhipu", "deepseek"] = "deepseek"
+    qa_target_chat_api_key_file: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

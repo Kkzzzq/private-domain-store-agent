@@ -1,4 +1,6 @@
 from app.agent.product_actions import PrepareProductArgs, prepare_product_draft
+from app.services.store_context import merchant_help, query_store_data
+from app.services.agent_queries import image_products
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
@@ -120,6 +122,22 @@ class OverviewArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class StoreDataArgs(OverviewArgs):
+    topic: Literal["settings", "coupons", "reviews", "cart", "orders", "aftersales"]
+    question: str = Field(default="", max_length=200)
+    limit: int = Field(default=5, ge=1, le=10)
+
+
+class MerchantHelpArgs(OverviewArgs):
+    question: str = Field(min_length=1, max_length=200)
+    limit: int = Field(default=3, ge=1, le=5)
+
+
+class ImageSearchArgs(OverviewArgs):
+    question: str = Field(min_length=1, max_length=200)
+    limit: int = Field(default=3, ge=1, le=5)
+
+
 class LowInventoryArgs(OverviewArgs):
     threshold: int = Field(default=5, ge=0, le=10000)
 
@@ -134,6 +152,9 @@ def recommend_products(reason="hot", product_id=None, budget_yuan=None, limit=3,
 
 
 SPECS = {
+    "search_product_images": ImageSearchArgs,
+    "query_store_data": StoreDataArgs,
+    "merchant_help": MerchantHelpArgs,
     "prepare_product_draft": PrepareProductArgs,
     "get_store_catalog": CatalogArgs,
     "clarify_recommendation": ClarifyRecommendationArgs,
@@ -147,6 +168,9 @@ SPECS = {
 }
 
 IMPL = {
+    "search_product_images": image_products,
+    "query_store_data": query_store_data,
+    "merchant_help": merchant_help,
     "prepare_product_draft": prepare_product_draft,
     "get_store_catalog": store_catalog,
     "clarify_recommendation": clarify_recommendation,
@@ -160,6 +184,9 @@ IMPL = {
 }
 
 DESCRIPTIONS = {
+    "search_product_images": "按外观、颜色、花纹、形状等文字描述跨模态检索本店商品图片，真实分析图片像素。返回SPU/SKU及对应图片绑定；SKU没独立图会标为继承主图。不能凭图片认定材质功效；图像索引不可用要如实说明。",
+    "query_store_data": "实时查询当前身份授权的本店数据：settings店铺公开内容/商家配置，coupons优惠券，reviews商品评价（区分真实评价与展示反馈），cart当前账号本店购物车，orders订单与物流，aftersales售后。买家仅本人记录，商家只限本店，不能传其它用户店铺ID。question可模糊检索商品/规格/原因，省略时查当前列表。",
+    "merchant_help": "仅商家使用：查询现有B端实际功能和操作步骤，包括创建SPU/SKU草稿、图片排序、分类标签、优惠券、订单发货售后、装修预览保存、店铺运费与助手设置。仅指导、不执行写操作。",
     "prepare_product_draft": "商家生成商品配置提案，或复制本店现有商品为新草稿；仅准备待确认提案，不创建商品、不改原商品、不上架。名称规格售价库存必须来自用户或本店模板，缺失先追问。生成后请用户点击预览确认。",
     "get_store_catalog": "推荐前首先了解本店商品：分类、价格范围、可售商品说明及SKU库存，支持分页。不能用其他店铺或常识代替。",
     "clarify_recommendation": "概览后若关键条件确实缺失，用本工具声明需追问的1至2个字段，再向用户提问而非给具体推荐；已在本轮或历史提供的信息不要重复询问。",
@@ -174,23 +201,30 @@ DESCRIPTIONS = {
 
 
 def allowed_tools(role):
-    return set(SPECS) if role == "merchant" else set(SPECS) - {"merchant_overview", "low_inventory", "prepare_product_draft"}
+    return set(SPECS) if role == "merchant" else set(SPECS) - {"merchant_overview", "low_inventory", "prepare_product_draft", "merchant_help"}
 
 
 def langchain_tools(intent="unclear"):
     from langchain_core.tools import StructuredTool
 
+    if current()[1].role != "merchant" and intent in ("product_write", "overview", "low_inventory", "merchant_help"):
+        return []
+
     routes = {
+        "store_data": {"query_store_data", "search_products", "search_knowledge"},
+        "merchant_help": {"merchant_help", "query_store_data"},
         "product_write": {"prepare_product_draft", "get_store_catalog"},
-        "order": {"query_orders"},
-        "policy": {"search_knowledge", "query_orders"},
-        "inventory": {"search_products", "check_inventory"},
-        "product_search": {"search_products", "check_inventory", "search_knowledge"},
-        "recommend": {"get_store_catalog"} if not current()[1].catalog_loaded else {"get_store_catalog", "recommend_products", "clarify_recommendation", "search_knowledge", "check_inventory"},
+        "order": {"query_orders", "query_store_data"},
+        "policy": {"search_knowledge", "query_orders", "query_store_data"},
+        "inventory": {"search_products", "check_inventory", "search_product_images"},
+        "product_search": {"search_products", "check_inventory", "search_knowledge", "search_product_images"},
+        "recommend": {"get_store_catalog"} if not current()[1].catalog_loaded else {"get_store_catalog", "recommend_products", "clarify_recommendation", "search_knowledge", "check_inventory", "query_store_data", "search_product_images"},
         "overview": {"merchant_overview"},
         "low_inventory": {"low_inventory"},
     }
     names = allowed_tools(current()[1].role) & routes.get(intent, set(SPECS))
+    if current()[1].role == "merchant":
+        names |= {"merchant_help", "query_store_data"}
     return [
         StructuredTool.from_function(
             func=IMPL[name],

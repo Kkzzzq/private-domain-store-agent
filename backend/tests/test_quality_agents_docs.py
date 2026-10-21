@@ -21,8 +21,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_every_active_case_documents_steps_expected_and_real_code_file():
+    from app.quality.ui_actions import catalog_rows
     active = [row["id"] for row in cases() if row["state"] == "active"]
-    assert len(active) == 91, "接入用例数量变化时请同步用例文档"
+    # 登记用例 = 固定接口/浏览器用例 91 条 + 由点击工具注册表自动生成文档的工具用例
+    assert len(active) == 91 + len(catalog_rows()), "接入用例数量变化时请同步用例文档"
     assert missing_docs(active) == [], "有用例缺少人工登记的步骤/预期"
     for case_id in active:
         doc = doc_for(case_id)
@@ -50,8 +52,11 @@ def test_agents_endpoint_describes_three_agents_with_live_stats(client):
     for row in agents.values():
         for key in ("name", "role", "purpose", "entry_points", "how_to_use", "how_to_modify", "sources", "guardrails", "stats"):
             assert row[key], f"{row['id']} 缺少 {key}"
-        assert row["stats"]["active_cases"] > 0
-        assert row["stats"]["documented_cases"] == row["stats"]["active_cases"]
+        if row["id"] == "business":
+            assert row["stats"]["tool_count"] > 0 and "active_cases" not in row["stats"]
+        else:
+            assert row["stats"]["active_cases"] > 0
+            assert row["stats"]["documented_cases"] == row["stats"]["active_cases"]
     assert agents["business"]["tools"], "业务 Agent 必须列出真实工具清单"
     assert agents["functional"]["tools"] == [], "固定回归不该声明模型工具"
 

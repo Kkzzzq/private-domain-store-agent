@@ -15,6 +15,14 @@ assert.equal(output.children.find(node => node.tag === 'strong').textContent, '�
 assert.equal(output.children.find(node => node.tag === 'code').textContent, 'SKU 1');
 assert.equal(output.children.some(node => node.tag === 'img' || node.tag === 'script'), false);
 assert.ok(output.children.some(node => node.textContent.includes('<img src=x')));
+const descriptions=vm.runInContext('toolList(["check_inventory","prepare_product_draft","read_test_capabilities","propose_test_plan","<img onerror=alert(1)>"])',context);
+assert.equal(descriptions.children[0].children[0].textContent,'check_inventory');
+assert.ok(descriptions.children[0].children[1].textContent.includes('库存'));
+assert.ok(descriptions.children[1].children[1].textContent.includes('不直接创建'));
+assert.ok(descriptions.children[2].children[1].textContent.includes('测试环境'));
+assert.ok(descriptions.children[3].children[1].textContent.includes('批准'));
+assert.equal(descriptions.children[4].children[0].tag,'dt');
+assert.ok(descriptions.children[4].children[1].textContent.includes('暂无'));
 for (const file of ['b.html', 'c.html', 'index.html']) {
   assert.equal(fs.readFileSync('web/' + file, 'utf8').includes('op-quality'), false);
 }

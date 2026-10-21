@@ -23,12 +23,14 @@ def assistant_case(case_id, evidence, mode):
     transcript = []
     facts = {}
     with TestClient(app) as client:
-        def login(username):
+        def login(username, role="合成账号"):
             response = client.post("/api/v1/auth/login", json={"username": username, "password": username + "123"})
-            evidence.check("合成测试身份登录成功", response.status_code == 200)
+            # 每个身份单独命名并记录独立预期/实际，避免多条同名断言无法区分是谁登录失败。
+            evidence.check(f"合成测试身份 {username}（{role}）登录成功", response.status_code == 200,
+                           {"identity": username, "expected_status": 200}, response.status_code)
             return {"Authorization": "Bearer " + response.json()["access_token"]}
-        buyer = login("alice")
-        merchant = login("merchant")
+        buyer = login("alice", "买家")
+        merchant = login("merchant", "商家")
         products = client.get("/api/v1/c/shops/nanzhi/products", headers=buyer).json()
         allowed_ids = {row["id"] for row in products}
 
@@ -69,9 +71,14 @@ def assistant_case(case_id, evidence, mode):
             evidence.check("无结果有明确业务依据", any("没有找到" in row["result"] for row in output["tools"]), "没有找到", output["tools"])
             evidence.check("最终答案承认未找到", any(word in output["answer"] for word in ("没有", "未找到", "未查到", "暂无", "找不到")), "明确无结果", output["answer"])
         elif case_id == "A08":
+            # 准备阶段对所有商品下架：汇总成一条断言，避免几十条同名断言把报告淹掉。
+            offline, refused = [], []
             for product in products:
                 response = client.post(f"/api/v1/b/products/{product['id']}/status", headers=merchant, json={"action": "off"})
-                evidence.check("仅隔离数据完成下架准备", response.status_code == 200)
+                (offline if response.status_code == 200 else refused).append({"product_id": product["id"], "status": response.status_code})
+            evidence.check("仅隔离数据完成下架准备", bool(products) and not refused and len(offline) == len(products),
+                           {"准备": "本店全部合成商品在隔离数据内下架", "商品数": len(products)},
+                           {"下架成功": len(offline), "未成功": refused})
             output = chat("推荐热销商品")
             evidence.check("不可售商品不出现在推荐卡", output["products"] == [])
             evidence.check("无货有工具事实依据", any("没有找到" in row["result"] for row in output["tools"]), None, output["tools"])

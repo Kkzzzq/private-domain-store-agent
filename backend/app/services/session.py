@@ -28,32 +28,32 @@ class SessionService:
     def __init__(self) -> None:
         self.redis = get_redis()
 
-    def _key(self, user_id: int, shop_id: int, session_id: str) -> str:
-        return f"session:{user_id}:{shop_id}:{session_id}"
+    def _key(self, user_id: int, shop_id: int, session_id: str, role="customer") -> str:
+        return f"session:{role}:{user_id}:{shop_id}:{session_id}"
 
-    def load(self, user_id: int, shop_id: int, session_id: str) -> dict:
-        state = self.redis.get_json(self._key(user_id, shop_id, session_id))
+    def load(self, user_id: int, shop_id: int, session_id: str, role="customer") -> dict:
+        state = self.redis.get_json(self._key(user_id, shop_id, session_id, role))
         if not isinstance(state, dict):
             return {"summary": "", "messages": []}
         state.setdefault("summary", "")
         state.setdefault("messages", [])
         return state
 
-    def save(self, user_id: int, shop_id: int, session_id: str, state: dict) -> None:
-        self.redis.set_json(self._key(user_id, shop_id, session_id), state, ex=7 * 24 * 3600)
+    def save(self, user_id: int, shop_id: int, session_id: str, state: dict, role="customer") -> None:
+        self.redis.set_json(self._key(user_id, shop_id, session_id, role), state, ex=7 * 24 * 3600)
 
-    def recent(self, user_id: int, shop_id: int) -> dict:
-        saved = self.redis.get_json(f"chat-recent:{user_id}:{shop_id}")
+    def recent(self, user_id: int, shop_id: int, role="customer") -> dict:
+        saved = self.redis.get_json(f"chat-recent:{role}:{user_id}:{shop_id}")
         return saved if isinstance(saved, dict) else {"session_id": "", "messages": []}
 
     def record_turn(self, user_id: int, shop_id: int, session_id: str,
-                    message: str, answer: str, products: list) -> None:
+                    message: str, answer: str, products: list, role="customer") -> None:
         # Display history is independent of model context compaction.
-        previous = self.recent(user_id, shop_id)
+        previous = self.recent(user_id, shop_id, role)
         messages = list(previous.get("messages") or []) + [
             {"role": "user", "content": message},
             {"role": "assistant", "content": answer, "products": products},
         ]
-        self.redis.set_json(f"chat-recent:{user_id}:{shop_id}",
+        self.redis.set_json(f"chat-recent:{role}:{user_id}:{shop_id}",
                             {"session_id": session_id, "messages": messages[-10:]},
                             ex=7 * 24 * 3600)

@@ -86,6 +86,9 @@ def cases():
                          "critical": True})
     rows.extend({"id": case_id, "title": title, "kind": "functional", "version": 1, "state": "active", "modes": ["rules"], "adapter": "registered_browser", "critical": True,
                  "environments": ["isolated-local"] if case_id == "E04" else ["isolated-local", "native-local"]} for case_id, title in BROWSER_CASES.items())
+    # 可复用点击工具也登记成普通功能用例，让 Agent 通过既有链路组合调用。
+    from app.quality.ui_actions import catalog_rows
+    rows.extend(catalog_rows())
     return rows
 
 

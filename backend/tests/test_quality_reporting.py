@@ -23,7 +23,7 @@ def test_report_date_uses_beijing_midnight_and_snapshot_documents(client):
     assert response.status_code == 200
     assert [r['id'] for r in response.json()] == [ids[1]]
     report = response.json()[0]
-    assert report['name'] == '2026-10-21 00:00 测试报告'
+    assert report['name'] == f'2026-10-21 00:00 测试报告（1条用例） · {ids[1][:6]}'
     original = report['results'][0]['doc']['steps']
     old = CASE_DOCS['A02']['steps']
     try:

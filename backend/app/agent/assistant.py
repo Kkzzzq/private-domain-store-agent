@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.agent.fallback import fallback_reply
 from app.agent.guard import execute_tool
-from app.agent.prompts import SYSTEM_PROMPT
+from app.agent.prompts import SYSTEM_PROMPT, role_prompt
 from app.agent.context import current
 from app.agent.intent import classify
 from app.agent.rate_limit import check_rate
@@ -55,7 +55,7 @@ def run_tool_loop(history: list[dict], summary: str, user_text: str, llm=None, m
     from app.models.tables import Shop
     from app.services.assistant_identity import assistant_name
     shop = current()[0].get(Shop, actor.shop_id)
-    messages = [SystemMessage(content=SYSTEM_PROMPT + f"\n配置的首选模型：{model_name}，额度不足时可能切换候选模型。当前身份：{actor.role}。商家可查本店全部订单和经营概览，买家只能查本人订单。工具支持查询；商家可生成商品配置提案，必须引导用户在页面预览确认后才保存草稿，其他写操作请引导至业务页面。")]
+    messages = [SystemMessage(content=SYSTEM_PROMPT + f"\n配置的首选模型：{model_name}，额度不足时可能切换候选模型。当前身份：{actor.role}。" + role_prompt(actor.role))]
     if classify(user_text) == "policy":
         messages[0].content += "\n本轮是政策或养护查询。必须先调用 search_knowledge，question 参数填写当前用户问题；在收到知识工具结果前不要直接回答。"
     if shop:
@@ -143,7 +143,7 @@ class Assistant:
         from app.agent.product_preview import product_quick_reply
         quick_reply = product_quick_reply(message) if not settings.agent_require_llm and llm is None else None
         report_progress("context")
-        state = self.sessions.load(user_id, shop_id, session_id)
+        state = self.sessions.load(user_id, shop_id, session_id, actor.role)
         summary_llm = llm
         if summary_llm is None and settings.agent_mode != "fallback" and quick_reply is None:
             try:
@@ -175,7 +175,8 @@ class Assistant:
         else:
             try:
                 answer, traces = run_tool_loop(state["messages"], state["summary"], query, llm=llm)
-                if intent != "unclear" and not traces:
+                scope_refusal = actor.role != "merchant" and intent in ("product_write", "overview", "low_inventory", "merchant_help")
+                if intent != "unclear" and not traces and not scope_refusal:
                     raise ModelOutputError("业务查询未调用数据工具")
                 if settings.agent_require_llm and any(trace["result"].startswith("工具执行失败") for trace in traces):
                     raise ModelOutputError("工具未成功执行")
@@ -198,9 +199,9 @@ class Assistant:
         if notice_after and notice_after not in notices:
             notices.append(notice_after)
         report_progress("saving")
-        self.sessions.save(user_id, shop_id, session_id, state)
+        self.sessions.save(user_id, shop_id, session_id, state, actor.role)
         self.sessions.record_turn(user_id, shop_id, session_id, message, answer,
-                                  list({row["id"]: row for row in actor.products}.values()))
+                                  list({row["id"]: row for row in actor.products}.values()), actor.role)
         return {
             "session_id": session_id,
             "answer": answer,
@@ -217,8 +218,8 @@ class Assistant:
             "model_retries": actor.model_retries,
         }
 
-    def read_session(self, user_id: int, shop_id: int, session_id: str) -> dict:
-        state = self.sessions.load(user_id, shop_id, session_id)
+    def read_session(self, user_id: int, shop_id: int, session_id: str, role="customer") -> dict:
+        state = self.sessions.load(user_id, shop_id, session_id, role)
         return {"session_id": session_id, "summary": state["summary"], "messages": state["messages"], "summary_mode": state.get("summary_mode", "none")}
 
 

@@ -23,8 +23,9 @@ def _business():
             "provider": getattr(settings, "model_provider", "unknown"),
             "cloud_style": getattr(settings, "cloud_api_style", ""),
             "cloud_model": getattr(settings, "cloud_model", ""),
+            "debug_model": settings.qa_target_chat_model or settings.cloud_model,
             "ollama_model": getattr(settings, "ollama_model", ""),
-            "note": "改模型只改 backend/.env，不改代码；质量中心评测时用的是同一套模型配置。",
+            "note": "商城与默认被测业务Agent使用CLOUD_MODEL；QA_CHAT_MODEL只供测试Agent规划，不能将测试模型冒充被测对象。",
         },
         "tools": sorted(SPECS),
         "guardrails": [
@@ -34,9 +35,9 @@ def _business():
             "失败可观测：工具失败/缺参数有重试、澄清与兜底回复，并记录调用轨迹",
         ],
         "how_to_use": [
-            "以合成买家（alice）或商家（merchant）身份登录后直接对话",
-            "在 OP「评测Agent」页建评测计划，用 A 类用例真实跑一遍助手",
-            "回答与工具轨迹在「测试用例运行与报告」里逐条查看",
+            "选择合成买家或商家身份，直接输入业务问题，无需填写预期答案",
+            "在业务页查看对话、实际工具调用、知识引用与上下文信息",
+            "发现问题后可主动将最后一轮转为候选评测；多轮评测需在用例管理补充上下文",
         ],
         "how_to_modify": [
             {"what": "提示词与人设", "where": "backend/app/agent/prompts.py"},
@@ -56,6 +57,7 @@ def _business():
 
 
 def _evaluator():
+    from app.core.config import settings
     return {
         "id": "evaluator",
         "name": "评测 Agent",
@@ -68,7 +70,9 @@ def _evaluator():
             {"name": "执行", "value": "POST /runs → 队列 → 独立 worker 子进程（SQLite + 内存 Redis 隔离）"},
         ],
         "model": {
-            "provider": "与业务 Agent 同源的云端模型（规划阶段计费）",
+            "provider": "独立测试模型（优先使用服务端 QA_CHAT_MODEL）",
+            "cloud_model": settings.qa_chat_model or settings.cloud_model,
+            "target_model": settings.qa_target_chat_model or settings.cloud_model,
             "note": "规划与被测助手调用都计入预算；无额度/未调用工具一律记阻塞，不用规则答案补成通过。",
         },
         "tools": ["read_test_capabilities", "propose_test_plan"],
@@ -100,6 +104,7 @@ def _evaluator():
 
 
 def _functional():
+    from app.core.config import settings
     return {
         "id": "functional",
         "name": "功能测试 Agent",
@@ -111,8 +116,10 @@ def _functional():
             {"name": "接口用例", "value": "adapter=registered_pytest（每用例一个真实 pytest 节点）"},
             {"name": "浏览器用例", "value": "adapter=registered_browser（隔离起服务 + 真实 Edge/Chromium）"},
         ],
-        "model": {"provider": "不调用模型（固定回归 0 tokens）", "note": "只有规划/解释阶段才计费。"},
+        "model": {"provider": "真实模型规划 + 固定业务断言", "cloud_model": settings.qa_chat_model or settings.cloud_model,
+                  "note": "默认先真实模型选用例；接口/数据库/浏览器执行阶段用固定断言，不让模型宣称通过。"},
         "tools": [],
+        "planner_tools": ["read_test_capabilities", "propose_test_plan"],
         "guardrails": [
             "只执行白名单里的 pytest 节点与浏览器场景，无任意命令/URL",
             "每条用例独立子进程与合成数据，不写现有店铺库",
@@ -143,5 +150,5 @@ def _functional():
 
 def descriptors():
     from app.quality.real_cases import enabled, descriptors as real_descriptors
-    if enabled():return real_descriptors()
-    return [_business(), _evaluator(), _functional()]
+    from app.quality.agent_evaluation import decorate_descriptors
+    return decorate_descriptors(real_descriptors() if enabled() else [_business(), _evaluator(), _functional()])

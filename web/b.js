@@ -469,7 +469,7 @@ function merchantAssistant() {
     merchantMessages = [];
   }
   const panel = h("aside", "panel merchant-assistant");
-  panel.setAttribute("aria-label", "智能运营助手");
+  panel.setAttribute("aria-label", "运营小助手");
   const header = h("header", "merchant-chat-header");
   const close = h("button", "btn-ghost", "×");
   close.setAttribute("aria-label", "关闭智能助手");
@@ -478,8 +478,8 @@ function merchantAssistant() {
     panel.parentElement.querySelector(".merchant-chat-fab").replaceWith(merchantAssistantToggle());
     panel.remove();
   });
-  header.append(h("h2", "", `${storeAssistantName(shopInfo)} · 智能运营助手`), close);
-  panel.append(header, h("p", "muted", "商品配置 · 本店订单 · 库存经营 · 客户服务"));
+  header.append(h("h2", "", `${storeAssistantName(shopInfo)} · 运营小助手`), close);
+  panel.append(header, h("p", "muted", "商品库存 · 订单履约 · 优惠活动 · 装修配置"));
   const log = h("div", "merchant-chat-log");
   const append = (data) => {
     const question = data.text.startsWith("你：");
@@ -536,7 +536,7 @@ function merchantAssistant() {
           log.scrollTop = log.scrollHeight;
         });
       merchantSession = data.session_id;
-      const reply = { text: `${data.answer}${knowledgeSourceText(data)}\n${data.mode === "fallback" ? "规则查询 · " : ""}${data.notices.join("；")}`, products: data.products };
+      const reply = { text: data.answer, products: data.products };
       reply.proposals = [];
       for (const trace of data.tools || []) {
         if (trace.tool !== "prepare_product_draft") continue;

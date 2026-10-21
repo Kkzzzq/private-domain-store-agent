@@ -36,6 +36,21 @@ def stop_process(process):
         process.kill()
 
 
+def child_module(spec, planner, functional_agent):
+    """子进程入口选择：受理/评测/规划/功能工具/实店/隔离执行各自独立。"""
+    if spec.get("intake_job"):
+        return "app.quality.intake_driver"
+    if spec.get("evaluation_job"):
+        return "app.quality.evaluation_driver"
+    if planner:
+        return "app.quality.planner"
+    if functional_agent:
+        return "app.quality.functional_driver"
+    if spec.get("environment_id") == "real-nanzhi":
+        return "app.quality.real_runner"
+    return "app.quality.case_runner"
+
+
 def subprocess_job(spec, cancelled, planner=False):
     root = settings.backend_root / "data" / "quality-workspaces"
     root.mkdir(parents=True, exist_ok=True)
@@ -49,11 +64,23 @@ def subprocess_job(spec, cancelled, planner=False):
             request.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
             environment = dict(os.environ, QA_CHILD_RUN=uuid4().hex, QA_CHILD_WORKSPACE=directory,
                                PYTHONIOENCODING="utf-8", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")
-            if spec.get("environment_id") == "native-local" and not planner:
+            if settings.qa_chat_model and (planner or spec.get("functional_driver") or spec.get("evaluation_job") or spec.get("intake_job")):
+                if not settings.qa_chat_api_key_file:
+                    raise RuntimeError("测试模型未配置独立密钥文件")
+                environment.update(MODEL_PROVIDER="cloud", CLOUD_MODEL=settings.qa_chat_model,
+                                   CLOUD_BASE_URL=settings.qa_chat_base_url, CLOUD_API_STYLE=settings.qa_chat_api_style,
+                                   CLOUD_API_KEY="", CLOUD_API_KEY_FILE=settings.qa_chat_api_key_file, CLOUD_FALLBACK_MODELS="",
+                                   QA_CHAT_MODEL=settings.qa_chat_model, QA_CHAT_BASE_URL=settings.qa_chat_base_url,
+                                   QA_CHAT_API_STYLE=settings.qa_chat_api_style, QA_CHAT_API_KEY_FILE=settings.qa_chat_api_key_file)
+            if settings.qa_target_chat_model and spec.get("mode") == "live" and not planner:
+                environment.update(QA_TARGET_CHAT_MODEL=settings.qa_target_chat_model, QA_TARGET_CHAT_BASE_URL=settings.qa_target_chat_base_url,
+                                   QA_TARGET_CHAT_API_STYLE=settings.qa_target_chat_api_style, QA_TARGET_CHAT_API_KEY_FILE=settings.qa_target_chat_api_key_file)
+            if spec.get("environment_id") == "native-local" and not planner and not spec.get("intake_job"):
                 from app.quality.native import NativeWorkspace
                 native = NativeWorkspace()
                 environment.update(native.prepare())
-            module = "app.quality.planner" if planner else "app.quality.real_runner" if spec.get("environment_id") == "real-nanzhi" else "app.quality.case_runner"
+            functional_agent = spec.get("functional_driver") and any(r["id"] == spec.get("case_id") and r["kind"] == "functional" for r in spec.get("case_snapshots", []))
+            module = child_module(spec, planner, functional_agent)
             arguments = [sys.executable, "-m", module,
                          "--request", str(request), "--output", str(result)]
             produced = False
@@ -78,7 +105,7 @@ def subprocess_job(spec, cancelled, planner=False):
                 finally:
                     stop_process(process)
             if not produced:
-                may_call_model = planner or spec.get("mode") == "live"
+                may_call_model = planner or spec.get("mode") == "live" or spec.get("functional_driver") or spec.get("evaluation_job") or spec.get("intake_job")
                 output["budget"] = {"calls": max(0, spec.get("max_calls", 0)) if may_call_model else 0, "tokens": max(0, spec.get("max_tokens", 0)) if may_call_model else 0,
                                     "estimated": may_call_model, "uncertain": may_call_model, "scope": "子进程中断；模型模式按剩余额度保守占用，非实际计费；规则模式无模型调用"}
         if spec.get("environment_id") == "real-nanzhi" and not planner:
@@ -152,7 +179,7 @@ def run_one(run_id, session_factory=SessionLocal, executor=subprocess_job):
                     spec = {**plan.payload, "case_id": result.case_id, "mode": run.mode if result.kind == "assistant" else "rules",
                             "max_calls": plan.payload["max_calls"] - used_calls, "max_tokens": plan.payload["max_tokens"] - used_tokens,
                             "timeout_seconds": min(90, max(1, int(plan.payload["timeout_seconds"] - (time.monotonic() - started))))}
-                    if result.kind == "assistant" and run.mode == "live" and (spec["max_calls"] <= 0 or spec["max_tokens"] <= 0):
+                    if (result.kind == "assistant" and run.mode == "live" or spec.get("functional_driver")) and (spec["max_calls"] <= 0 or spec["max_tokens"] <= 0):
                         output = {"status": "blocked", "error": "父任务共享预算已耗尽", "cleanup_ok": True}
                     else:
                         output = executor(spec, cancelled)
@@ -161,6 +188,9 @@ def run_one(run_id, session_factory=SessionLocal, executor=subprocess_job):
                         result.status = "blocked"
                         output["error"] = "缺少断言或隔离清理未确认"
                     if result.status == "passed" and result.kind == "assistant":
+                        if not plan.payload.get("diagnostic", True) and output.get("budget", {}).get("calls", 0) <= 0:
+                            result.status = "blocked"
+                            output["error"] = "正式助手评测缺少实际模型HTTP调用计量"
                         chats = [row for row in output.get("requests", []) if row.get("path", "").endswith("/chat") and row.get("status") == 200]
                         expected_modes = {"llm"} if run.mode == "live" else {"fallback", "direct"}
                         if not chats or any(row.get("output", {}).get("mode") not in expected_modes for row in chats):

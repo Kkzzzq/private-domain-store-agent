@@ -51,7 +51,7 @@ def approved_case(client, headers, message="搜索抱枕"):
 
 def raw_plan(client, headers, **body):
     return client.post(f"{QA}/plans", headers=headers,
-                       json={"goal": "对抗性验证计划", "kind": "assistant", "case_ids": ["A02"], **body})
+                       json={"goal": "对抗性验证计划", "kind": "assistant", "diagnostic": True, "case_ids": ["A02"], **body})
 
 
 def recorded_run(client, headers, user_id, results, *, status="completed", mode="rules", age=0,

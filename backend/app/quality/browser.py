@@ -176,6 +176,8 @@ def execute_browser(case_id, evidence):
                             page.get_by_role("button", name="新建评测计划", exact=True).click()
                             dialog = page.locator("dialog[open]")
                             dialog.get_by_label("测试目标", exact=True).fill("浏览器OP测试闭环验收")
+                            dialog.locator("select").nth(0).select_option("rules")
+                            dialog.locator("select").nth(1).select_option("fixed")
                             dialog.get_by_role("checkbox").last.check()
                             dialog.get_by_role("button", name="生成待审批计划", exact=True).click()
                             page.get_by_role("button", name="批准此版本", exact=True).click()

@@ -1,0 +1,17 @@
+/* 自由需求受理面板：与质量中心既有卡片风格一致，窄屏不横向溢出。 */
+.fi-panel{min-width:0}
+.fi-form{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;margin:12px 0}
+.fi-input{flex:1 1 460px;min-width:0;box-sizing:border-box;padding:10px;border:1px solid #dedbd5;border-radius:6px;background:#fffdf9;color:inherit;font:inherit;line-height:1.6;resize:vertical}
+.fi-form>select{box-sizing:border-box;padding:10px;border:1px solid #dedbd5;border-radius:6px;background:#fffdf9;color:inherit;font:inherit}
+.fi-form>button{flex:0 0 auto}
+.fi-result{margin-top:6px}
+.fi-verdict{padding:14px;border:1px solid #e5dbcf;border-radius:8px;background:#fffdf8;min-width:0}
+.fi-verdict>*{overflow-wrap:anywhere}
+.fi-reason{margin:10px 0;line-height:1.7}
+.fi-history{margin-top:14px}
+.fi-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid #e5dbcf;padding:10px 0}
+.fi-requirement{flex:1 1 240px;min-width:0;overflow-wrap:anywhere;font-size:13px}
+.fi-result pre,.fi-panel pre{max-height:320px;overflow:auto}
+.fi-details{margin-top:10px}
+.fi-details>summary{cursor:pointer;font-size:13px;color:#974d34;padding:4px 0}
+@media(max-width:760px){.fi-input{flex:1 1 100%}.fi-form>select,.fi-form>button{flex:1 1 100%}}

@@ -1,0 +1,104 @@
+/* Server-derived capabilities and independent evaluations. No generated HTML. */
+window.OPAgentQuality=(()=>{
+  const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!=null)n.textContent=String(text);if(cls)n.className=cls;return n;};
+  const btn=(text,fn)=>{const n=el('button',text);n.type='button';n.onclick=fn;return n;};
+  const detail=(title,value)=>{const d=el('details');d.append(el('summary',title),el('pre',typeof value==='string'?value:JSON.stringify(value,null,2)));return d;};
+  const select=(label,values)=>{const n=el('select');n.setAttribute('aria-label',label);for(const [value,text] of values){const o=el('option',text);o.value=value;n.append(o);}return n;};
+  const states=new WeakMap();
+  const labels={passed:'通过',failed:'未通过',incomplete:'证据待补充',completed:'已评分',blocked:'阻塞',scoring:'执行中',not_scored:'尚未评分',needs_review:'待人工核验'};
+  const dimensionNames={task_success:'任务完成',factual_grounding:'事实依据',tool_use:'工具使用',conversation:'完整会话',permissions:'权限边界',recovery:'异常恢复',efficiency:'效率与成本',feature_grounding:'真实功能依据',plan_coverage:'计划覆盖',tool_execution:'工具执行',assertion_quality:'断言质量',defect_detection:'缺陷检出',failure_attribution:'失败归因',cleanup:'数据清理'};
+  const stamp=value=>new Date(/[Z+]|\d-\d\d:\d\d$/.test(value)?value:value+'Z').toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false});
+  function mount(root,{id,data,api,refresh}){
+    if(!['functional','evaluator'].includes(id))return;
+    const host=el('section',null,'aq-panel qa-card');root.append(host);
+    const state=states.get(root)||{target:'business'};states.set(root,state);
+    const live=()=>host.isConnected;
+    const error=err=>{if(live())host.append(el('p',err.message||String(err),'qa-error'));};
+    const job=async(button,fn)=>{button.disabled=true;try{await fn();}catch(err){error(err);}finally{button.disabled=false;}};
+    if(id==='functional'){
+      host.append(el('h3','B/C 功能依据与执行工具'),el('p','目录来自实际代码。已关联场景不代表全部分支覆盖；模型必须先读功能目录，再调用批准的复合测试工具。'));
+      api('/agent-quality/features').then(catalog=>{
+        if(!live())return;
+        const side=select('功能所属端',[['all','B 与 C'],['B','商家 B 端'],['C','买家 C 端']]),list=el('div');
+        host.append(el('p',`发现 ${catalog.endpoint_count} 个接口入口 · 目录 ${catalog.version.slice(0,12)} · 可复用点击工具 ${catalog.ui_actions?.counts?.ready??0} 个可用 / ${catalog.ui_actions?.counts?.unverified??0} 个待验证`),detail('B/C 前端实际入口与版本',catalog.frontend),detail('可复用点击工具库（Agent 只需组合调用）',catalog.ui_actions),side,list);
+        const paint=()=>{list.replaceChildren();for(const feature of catalog.features.filter(f=>side.value==='all'||f.sides.includes(side.value))){
+          const split=feature.coverage_split||{},counts=channel=>(split[channel]?.case_ids||[]).length;
+          const scenes=feature.scenarios||{},labels=scenes.labels||{},coverage=scenes.coverage||{};
+          const sceneText=Object.keys(labels).map(kind=>`${labels[kind]} ${(coverage[kind]||[]).length}`).join(' · ');
+          const statusText=(scenes.status||'unconfirmed')==='untestable'?'暂不可测试':(scenes.status||'unconfirmed')==='unconfirmed'?'待确认':'';
+          const summary=split.api||split.page?`接口覆盖 ${counts('api')} 条 · 页面覆盖 ${counts('page')} 条${statusText?' · '+statusText:''}`:(feature.tools.length?'部分场景已接入':'未覆盖');
+          const card=el('details',null,'aq-feature');card.append(el('summary',`${feature.sides.join('/')} · ${feature.name} · ${summary}`),el('p',feature.rule),el('p',feature.coverage_note));
+          card.append(detail(`正常/异常/权限/边界场景（${sceneText||'未采集'}）`,{status:scenes.status,status_note:scenes.status_note,coverage:scenes.coverage,reviewed:scenes.reviewed,unconfirmed_case_ids:scenes.unconfirmed_case_ids}),detail(`可复用点击工具（${(feature.ui_actions?.ready||[]).length} 个可用）`,feature.ui_actions),detail('测试数据要求与清理方式',feature.cleanup),detail('接口覆盖与页面覆盖（分别记录）',split),detail('真实入口、参数、权限依赖与源码',feature.endpoints),detail('前置条件与验证目标',{preconditions:feature.preconditions,verification:feature.verification}),detail('当前环境可用复合工具',feature.tools));
+          if(feature.tools.length){const create=btn('生成工具执行计划（需审批）',()=>job(create,async()=>{
+            const env=data.capabilities.environments[0]?.id;
+            const caseIds=feature.tools.filter(t=>!t.environments?.length||t.environments.includes(env)).map(t=>t.case_id).slice(0,20);
+            if(!caseIds.length)throw Error('所选环境没有可执行工具');
+            await api('/plans',{kind:'functional',goal:`检查${feature.sides.join('/')}端的${feature.name}。依据功能目录${catalog.version}：${feature.rule}。执行所有批准场景并保留实际工具证据。`,case_ids:caseIds,environment_id:env,mode:'rules',diagnostic:env==='real-nanzhi',planner:env==='real-nanzhi'?'fixed':'model',functional_driver:true,max_calls:30,max_tokens:60000,timeout_seconds:1200});
+            await refresh();
+          }));card.append(create);}list.append(card);
+        }};side.onchange=paint;paint();
+      }).catch(error);return;
+    }
+    host.append(el('h3','独立 Agent 评测'),el('p','分别检查任务结果、工具轨迹和完整会话。程序判定、模型评分与人工复核独立保存，缺证据不计通过。'));
+    const target=select('评测对象',[['business','业务 Agent'],['functional','功能测试 Agent']]);target.value=state.target;
+    const source=select('来源运行',[]),list=el('div'),content=el('div');host.append(target,source,list,content);
+    const fill=()=>{source.replaceChildren();const kind=target.value==='business'?'assistant':'functional';for(const run of data.runs.filter(r=>['completed','failed','blocked','cancelled'].includes(r.status)&&(r.kind===kind||r.kind==='joint'))){const o=el('option',run.name||run.id);o.value=run.id;source.append(o);}};
+    async function show(row){
+      content.replaceChildren();content.append(el('h4',`${row.target==='business'?'业务 Agent':'功能测试 Agent'} · ${row.id.slice(0,8)}`),el('p',`程序结论：${labels[row.program.decision]||row.program.decision} · 模型：${labels[row.model_score.status]||'尚未评分'} · 人工复核：${row.reviews.length?'已有记录':'待复核'}`));
+      if(row.review_conflict)content.append(el('p','人工意见与程序或模型存在分歧，请查看复核依据。','qa-error'));
+      if(row.reviews.length&&!row.review_current)content.append(el('p','已有人工意见针对旧评测版本，请对当前证据重新复核。'));
+      for(const check of row.program.checks)content.append(el('p',`${check.status==='passed'?'✓':check.status==='failed'?'✗':'待证据'} ${check.name}${check.detail?' · '+check.detail:''}`));
+      content.append(detail('任务结果与原始报告',row.snapshot.source.results),detail('工具调用轨迹与完整已采集会话',row.snapshot.evidence));
+      const score=btn('运行独立模型评分',()=>job(score,async()=>show(await api(`/agent-quality/evaluations/${row.id}/model-score`,{}))));content.append(score);
+      if(Object.keys(row.model_score).length)content.append(detail('模型各维度分数、证据引用与用量',row.model_score));
+      for(const dimension of row.model_score.dimensions||[])content.append(el('p',`${dimensionNames[dimension.dimension]||dimension.dimension}：${dimension.score==null?'未观察':dimension.score+'/4'} · ${dimension.reason} · 证据 ${dimension.evidence_ids.join('、')||'无'}`));
+      if(row.target==='functional'){
+        const calibrate=btn('用正常版与缺陷版评测测试 Agent',()=>job(calibrate,async()=>show(await api(`/agent-quality/evaluations/${row.id}/defect-benchmark`,{}))));
+        content.append(el('p','基准在独立合成环境为每个已知缺陷场景各跑正常版与注入版两次真实模型与真实复合工具，不修改实店；只看这些场景的检出与误报，不代表全站检出率。'),calibrate);
+        for(const item of (row.snapshot.calibration||{}).scenarios||[])content.append(el('p',`${item.detected?'检出':item.false_positive?'正常版误报':'未检出'} · ${item.title}（${item.defect}）· 用例 ${item.case_id} · 注入执行 ${item.mutation_exercised?'已确认':'未确认'}`));
+        if(row.snapshot.calibration)content.append(detail('功能测试 Agent 缺陷基准证据（逐场景正常/注入两次执行）',row.snapshot.calibration));
+      }
+      const decision=select('人工复核结论',[['needs_evidence','需要补充证据'],['accepted','认可本次评测'],['rejected','不认可本次评测']]);
+      const reason=el('textarea');reason.placeholder='填写复核依据，保留与程序或模型结论的分歧';reason.setAttribute('aria-label','人工复核理由');
+      const review=btn('提交人工复核',()=>job(review,async()=>show(await api(`/agent-quality/evaluations/${row.id}/reviews`,{version:row.version,decision:decision.value,reason:reason.value}))));
+      content.append(el('h4','人工复核'),decision,reason,review,detail('复核审计记录',row.reviews));
+      // 重复执行稳定性：同一计划在本报告中真实执行过几次，不足就判证据不足。
+      const planId=(row.snapshot.source||{}).plan_id;
+      const steady=el('div');content.append(el('h4','重复执行稳定性'),steady);
+      if(planId)api(`/agent-quality/stability?plan_id=${encodeURIComponent(planId)}`).then(rows=>{if(!live())return;steady.replaceChildren(el('p',`${rows.note}（同一计划已完成 ${rows.attempts} 次）`));for(const item of rows.cases)steady.append(el('p',`${item.case_id}：${item.note} · ${item.statuses.join(' → ')}`));}).catch(err=>steady.append(el('p',err.message)));
+      else steady.append(el('p','来源报告没有计划编号，无法统计稳定性。'));
+      if(row.program.decision!=='passed')content.append(el('p','存在失败或未观察项；人工意见不会改写原始断言。'));
+    }
+    function comparePanel(rows){
+      const box=el('div'),a=select('基线评测',[]),b=select('候选评测',[]),out=el('div');
+      for(const row of rows){for(const node of [a,b]){const option=el('option',`${stamp(row.created_at)} · ${row.id.slice(0,8)} · ${labels[row.program.decision]||row.program.decision}`);option.value=row.id;node.append(option);}}
+      if(rows.length>1)b.selectedIndex=1;
+      box.append(el('h4','评测版本对比'),a,b,btn('生成对比',()=>job(box,async()=>{const result=await api(`/agent-quality/evaluations/compare?baseline=${encodeURIComponent(a.value)}&candidate=${encodeURIComponent(b.value)}`);
+        const nodes=[el('p',result.comparable?'两份评测可比。':`不可比：${result.incompatible_reasons.join('、')}`)];
+        for(const item of result.program.filter(row=>row.changed))nodes.push(el('p',`${item.name}：${labels[item.before]||item.before} → ${labels[item.after]||item.after} · ${item.transition}`));
+        for(const item of result.dimensions)nodes.push(el('p',`${dimensionNames[item.dimension]||item.dimension}：${item.before==null?'未观察':item.before} → ${item.after==null?'未观察':item.after}${item.delta==null?'':'（'+(item.delta>0?'+':'')+item.delta+'）'}`));
+        nodes.push(el('p','人工复核：基线 '+result.reviews.baseline+' 条 / 候选 '+result.reviews.candidate+' 条；'+result.note));
+        out.replaceChildren(...nodes);})),out);
+      return box;
+    }
+    function heldoutPanel(){
+      const box=el('div'),out=el('div'),logs=el('div');
+      box.append(el('h4','不公开评测集'),el('p','期望答案不随代码发布，只给摘要；没有本地答案文件时标记 expectation_unavailable，不计通过。揭示答案需要审批权限并留痕。'),out,logs);
+      const paint=async()=>{const view=await api('/agent-quality/heldout');if(!live())return;
+        out.replaceChildren(el('p',`答案文件：${view.available?'已提供（摘要 '+String(view.sealed_digest).slice(0,12)+'）':'未提供'} · ${view.note}`));
+        for(const item of view.entries){const line=el('p',`${item.status==='sealed'?'已封存':'无答案'} · ${item.id} · 用例 ${item.case_id} · ${item.goal} · 摘要 ${item.expect_hash?item.expect_hash.slice(0,12):'无'}`);
+          line.append(btn('揭示答案',()=>job(line,async()=>{const reason=window.prompt('揭示期望答案需要理由（会留痕）');if(!reason)throw Error('需要填写理由');
+            const result=await api('/agent-quality/heldout/reveal',{entry_id:item.id,reason});out.append(el('p',`已揭示 ${item.id}：${JSON.stringify(result.answer.expect)}`));const rows=await api('/agent-quality/heldout/reveals');logs.replaceChildren(el('p',`揭示记录 ${rows.length} 条，最近：${rows[0]?rows[0].entry_id+'（'+rows[0].reason+'）':'无'}`));})));out.append(line);}
+        const rows=await api('/agent-quality/heldout/reveals');logs.replaceChildren(el('p',`揭示记录 ${rows.length} 条`));};
+      paint().catch(error);return box;
+    }
+    let revision=0,compareHost=null,heldoutHost=null;
+    async function load(){const current=++revision;state.target=target.value;fill();list.replaceChildren();content.replaceChildren();const rows=await api(`/agent-quality/evaluations?target=${target.value}`);if(!live()||current!==revision)return;for(const row of rows)list.append(btn(`${stamp(row.created_at)} · ${row.source_run.slice(0,8)} · ${labels[row.program.decision]||row.program.decision}`,()=>show(row)));
+      if(!compareHost){compareHost=el('div');host.append(compareHost);}
+      compareHost.replaceChildren(comparePanel(rows));
+      if(!heldoutHost){heldoutHost=el('div');host.append(heldoutHost);heldoutHost.append(heldoutPanel());}}
+    const create=btn('对所选运行创建评测',()=>job(create,async()=>{if(!source.value)throw Error('没有该对象的已结束运行');const row=await api('/agent-quality/evaluations',{target:target.value,run_id:source.value});await load();await show(row);}));host.insertBefore(create,list);
+    target.onchange=()=>load().catch(error);load().catch(error);
+  }
+  return {mount};
+})();

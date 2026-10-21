@@ -48,3 +48,4 @@
 .qa-evidence-column button.qa-result-passed{border-left:4px solid #25845b;background:#eef9f2}.qa-evidence-column button.qa-result-failed,.qa-evidence-column button.qa-result-blocked{border-left:4px solid #cb4040;background:#fff0f0}
 
 .qa-completed{color:#25845b;background:#e5f4ea}.qa-run-detail{scroll-margin-top:24px}.qa-evidence-column h4{margin:20px 0 8px}
+.qa-tool-list{margin:10px 0 18px}.qa-tool-row{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px;padding:8px 0;border-bottom:1px solid #ebe5dc}.qa-tool-row dt{font-family:inherit;overflow-wrap:anywhere}.qa-tool-row dd{margin:0;color:#686e6a;line-height:1.6}@media(max-width:700px){.qa-tool-row{grid-template-columns:1fr;gap:4px}}

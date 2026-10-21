@@ -7,6 +7,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from app.quality.catalog import ENVIRONMENT, cases
+from app.quality.feature_catalog import planning_view
 from app.quality.sandbox import ModelBudget, configure_environment, safe
 
 
@@ -17,6 +18,8 @@ class Selection(BaseModel):
 
 def generate(spec):
     configure_environment()
+    from app.quality.sandbox import configure_test_model
+    configure_test_model()
     from app.agent.model import create_chat_model
     from app.core.config import settings
     settings.cloud_max_tokens = min(settings.cloud_max_tokens, 1000)
@@ -29,12 +32,14 @@ def generate(spec):
     def catalog():
         nonlocal observed_catalog
         observed_catalog = True
-        return {"environment": spec.get("environment", ENVIRONMENT), "cases": available}
+        return {"environment": spec.get("environment", ENVIRONMENT), "cases": available, "bc_features": planning_view(spec.get("feature_catalog")), "unmapped_cases": spec.get("unmapped_cases", [])}
     def propose(case_ids, rationale):
         nonlocal proposal
         selection = Selection(case_ids=case_ids, rationale=rationale)
         if not observed_catalog or len(set(case_ids)) != len(case_ids) or not set(case_ids).issubset(spec["case_ids"]):
             raise ValueError("必须先读取用例且只能选择授权的候选集合")
+        if spec.get("functional_driver") and set(case_ids) != set(spec["case_ids"]):
+            raise ValueError("功能工具计划必须保留全部请求场景，不得静默漏选")
         kinds = {row["kind"] for row in available if row["id"] in case_ids}
         if spec["kind"] == "joint" and kinds != {"assistant", "functional"}:
             raise ValueError("联合计划必须包含两种测试")

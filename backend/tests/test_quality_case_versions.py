@@ -10,7 +10,7 @@ def definition(message="搜索抱枕"):
 def test_case_version_review_immutable_snapshots_and_revocation(client):
     headers, _user_id = operator(client)
     draft = client.post("/api/v1/op/qa/cases", headers=headers, json=definition()).json()
-    plan_body = {"goal": "自定义版本验收", "kind": "assistant", "mode": "live", "case_ids": [draft["id"]]}
+    plan_body = {"goal": "自定义版本验收", "kind": "assistant", "mode": "live", "diagnostic": True, "case_ids": [draft["id"]]}
     assert client.post("/api/v1/op/qa/plans", headers=headers, json=plan_body).status_code == 422
     assert client.post(f"/api/v1/op/qa/cases/{draft['id']}/approve", headers=headers, json={"digest": "0"*64}).status_code == 409
     approved = client.post(f"/api/v1/op/qa/cases/{draft['id']}/approve", headers=headers, json={"digest": draft["revision_digest"]}).json()

@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.quality import QualityCaseVersion
 from app.quality.catalog import content_digest, case_by_id, cases
+from app.quality.functional_cases import FunctionalCaseIn
 
 
 class TurnIn(BaseModel):
@@ -42,8 +43,9 @@ def custom_id(case_id):
 
 
 def snapshot(row):
-    return {"id": row.id, "family_id": row.family_id, "title": row.specification["title"], "kind": "assistant", "version": row.version,
-            "state": row.state, "modes": ["live"], "adapter": "declarative_assistant", "critical": True,
+    kind = row.specification.get("kind", "assistant")
+    return {"id": row.id, "family_id": row.family_id, "title": row.specification["title"], "kind": kind, "version": row.version,
+            "state": row.state, "modes": ["rules"] if kind == "functional" else ["live"], "adapter": "declarative_" + kind, "critical": True,
             "definition": row.specification, "revision_digest": content_digest(row.specification)}
 
 
@@ -59,10 +61,13 @@ def resolve(db, case_id):
 
 
 def create(db, user_id, body, previous=None):
+    specification = body.model_dump()
+    if previous and previous.specification.get("kind", "assistant") != specification.get("kind", "assistant"):
+        raise HTTPException(409, "用例版本不能跨类型修改")
     case_id = "C" + uuid4().hex[:11]
     family = previous.family_id if previous else case_id
     version = (db.scalar(select(func.max(QualityCaseVersion.version)).where(QualityCaseVersion.family_id == family)) or 0) + 1
-    row = QualityCaseVersion(id=case_id, family_id=family, version=version, created_by=user_id, state="candidate", specification=body.model_dump())
+    row = QualityCaseVersion(id=case_id, family_id=family, version=version, created_by=user_id, state="candidate", specification=specification)
     db.add(row)
     try:
         db.commit()
@@ -74,7 +79,7 @@ def create(db, user_id, body, previous=None):
 
 def validate_snapshots(db, snapshots):
     for expected in snapshots:
-        if expected.get("adapter") != "declarative_assistant":
+        if expected.get("adapter") not in ("declarative_assistant", "declarative_functional"):
             continue
         actual = resolve(db, expected["id"])
         if not actual or actual["state"] != "active" or actual["revision_digest"] != expected["revision_digest"]:

@@ -29,7 +29,7 @@ def operator(client, caps=None):
 
 def plan(client, headers, **kwargs):
     response = client.post("/api/v1/op/qa/plans", headers=headers,
-                           json={"goal": "验证助手库存与业务接口", "kind": "assistant", "case_ids": ["A02"], **kwargs})
+                           json={"goal": "验证助手库存与业务接口", "kind": "assistant", "diagnostic": True, "case_ids": ["A02"], **kwargs})
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -55,7 +55,7 @@ def test_quality_needs_operator_and_separate_grant(client):
 
 def test_quality_rejects_candidates_arbitrary_targets_and_cross_tools(client):
     headers, _user_id = operator(client)
-    base = {"goal": "库存检查", "kind": "assistant", "case_ids": ["A02"]}
+    base = {"goal": "库存检查", "kind": "assistant", "diagnostic": True, "case_ids": ["A02"]}
     for change in ({"case_ids": ["A99"]}, {"case_ids": ["A15"]}, {"environment_id": "production"}, {"base_url": "http://localhost"},
                    {"case_ids": ["F01"]}, {"case_ids": ["A02", "A02"]}, {"kind": "joint"}, {"max_tokens": 999999}):
         assert client.post("/api/v1/op/qa/plans", headers=headers, json={**base, **change}).status_code == 422
@@ -125,7 +125,12 @@ def test_registered_cases_match_existing_fixed_tests_and_redact():
         filename, function = node.split("::")
         module = ast.parse((root / filename).read_text(encoding="utf-8"))
         assert function in {item.name for item in module.body if isinstance(item, ast.FunctionDef)}
-    assert len(cases()) == 91 and sum(row["state"] == "active" for row in cases()) == 91
+    from app.quality.ui_actions import catalog_rows
+    registered = cases()
+    # 登记用例 = 固定接口/浏览器用例 + 可复用点击工具（后者也是登记用例，走同一审批与执行链路）
+    assert len(registered) == 91 + len(catalog_rows())
+    assert all(row["state"] == "active" for row in registered)
+    assert {row["id"] for row in catalog_rows()} <= {row["id"] for row in registered}
     redacted = safe({"access_token": "private", "password": "password", "phone": "13911112222"})
     assert set(redacted.values()) == {"[已脱敏]"}
     assert safe({"budget": {"tokens": 120, "calls": 2}})["budget"]["tokens"] == 120
@@ -136,7 +141,7 @@ def test_real_isolated_worker_joint_run_retains_numeric_budget(client):
     launched = launch(client, headers, plan(client, headers, kind="joint", case_ids=["A02", "F01"]))
     assert run_one(launched["id"])
     report = client.get(f"/api/v1/op/qa/runs/{launched['id']}", headers=headers).json()
-    assert report["summary"]["decision"] == "eligible", report
+    assert report["summary"]["decision"] == "eligible", {"summary": report["summary"], "results": [(row["id"], row["status"], row["evidence"].get("error")) for row in report["results"]]}
     assert report["summary"]["budget"]["tokens"] == 0
     assert all(row["evidence"]["cleanup_ok"] for row in report["results"])
     assert all(row["evidence"]["requests"] for row in report["results"])

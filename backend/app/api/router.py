@@ -16,6 +16,10 @@ from app.api.op_api import router as op_router
 router.include_router(op_router)
 from app.api.quality import router as quality_router
 router.include_router(quality_router)
+from app.api.business_debug import router as business_debug_router
+router.include_router(business_debug_router)
+from app.api.functional_intake import router as functional_intake_router
+router.include_router(functional_intake_router)
 from app.api.agent_actions import router as agent_actions_router
 router.include_router(agent_actions_router)
 

@@ -62,6 +62,34 @@ def configure_environment():
         os.environ.update(DATABASE_URL=os.environ["QA_NATIVE_DATABASE_URL"], REDIS_URL="redis://127.0.0.1:16379/0", STRICT_DEPENDENCIES="true")
 
 
+def configure_test_model(target=False):
+    if not re.fullmatch(r"[a-f0-9]{32}", os.environ.get("QA_CHILD_RUN", "")):
+        raise RuntimeError("测试模型只能用于隔离子进程")
+    from app.core.config import settings
+    if target:
+        if settings.qa_target_chat_model:
+            if not settings.qa_target_chat_api_key_file or not settings.qa_target_chat_base_url:
+                raise RuntimeError("被测模型实验配置缺少独立端点或密钥文件")
+            settings.model_provider = "cloud"
+            settings.cloud_model = settings.qa_target_chat_model
+            settings.cloud_base_url = settings.qa_target_chat_base_url
+            settings.cloud_api_style = settings.qa_target_chat_api_style
+            settings.cloud_api_key = ""
+            settings.cloud_api_key_file = settings.qa_target_chat_api_key_file
+            settings.cloud_fallback_models = ""
+        return
+    if settings.qa_chat_model:
+        if not settings.qa_chat_api_key_file:
+            raise RuntimeError("测试模型未配置独立密钥文件")
+        settings.model_provider = "cloud"
+        settings.cloud_model = settings.qa_chat_model
+        settings.cloud_base_url = settings.qa_chat_base_url
+        settings.cloud_api_style = settings.qa_chat_api_style
+        settings.cloud_api_key = ""
+        settings.cloud_api_key_file = settings.qa_chat_api_key_file
+        settings.cloud_fallback_models = ""
+
+
 class Evidence:
     def __init__(self):
         self.requests = []
@@ -134,10 +162,10 @@ class ModelBudget:
                 self.estimated = True
             else:
                 self.estimated = True
-            self.models.append({"model": body.get("model"), "http_status": response.status_code, "kind": "embedding" if str(url).endswith("/embeddings") else "chat"})
+            self.models.append({"model": body.get("model"), "http_status": response.status_code, "kind": "embedding" if str(url).endswith(("/embeddings", "/multimodal-embedding")) else "chat"})
             return response
         cloud_http.post = lambda url, *args, **kwargs: measured(original, url, *args, **kwargs)
-        httpx.post = lambda url, *args, **kwargs: measured(original_embedding, url, *args, **kwargs) if str(url).endswith("/embeddings") else original_embedding(url, *args, **kwargs)
+        httpx.post = lambda url, *args, **kwargs: measured(original_embedding, url, *args, **kwargs) if str(url).endswith(("/embeddings", "/multimodal-embedding")) else original_embedding(url, *args, **kwargs)
         def restore():
             cloud_http.post = original
             httpx.post = original_embedding

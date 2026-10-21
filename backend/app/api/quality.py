@@ -1,5 +1,6 @@
 from uuid import uuid4
 from datetime import date, datetime, time, timedelta
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -11,6 +12,7 @@ from app.core.deps import get_db
 from app.models.quality import QualityPlan, QualityRun, QualityCaseVersion
 from app.quality import report_batches
 from app.quality.case_versions import CaseIn
+from app.quality.functional_cases import FunctionalCaseIn
 from app.quality import service
 from app.quality.catalog import CATALOG_VERSION, environments, cases
 from app.quality.case_docs import CASE_DOCS, doc_for
@@ -30,11 +32,16 @@ def get_record(db, model, record_id):
     return record
 
 
+from app.api.agent_quality import router as agent_quality_router
+router.include_router(agent_quality_router)
+
+
 @router.get("/capabilities")
 def capabilities(user=Depends(quality_user), db=Depends(get_db)):
     from app.quality.reporting import RETENTION_DAYS
     from app.quality.real_cases import enabled
     return {"capabilities": sorted(service.capabilities(db, user.id)), "environments": environments(), "real_shop": enabled(),
+            "platform_diagnostics": os.environ.get("QA_BROWSER_OP") == "1",
             "catalog_version": CATALOG_VERSION, "case_counts": {kind: sum(row["kind"] == kind and row["state"] == "active" for row in cases()) for kind in ("assistant", "functional")},
             "limits": {"max_cases": 20, "max_calls": 50, "max_tokens": 60000},
             "retention": {"days": RETENTION_DAYS, "auto": True,
@@ -55,7 +62,9 @@ CUSTOM_CASE_DOC = {
 def list_agents(user=Depends(quality_user), db=Depends(get_db)):
     """三类 Agent 的关键信息 + 与本平台运行数据结合的实时统计。"""
     from app.quality.agents import descriptors
-    rows = cases()
+    from app.quality.case_versions import all_cases
+    from app.db.redis_client import get_redis
+    rows = all_cases(db)
     runs = db.scalars(select(QualityRun).order_by(QualityRun.created_at.desc()).limit(200)).all()
     out = []
     for agent in descriptors():
@@ -63,9 +72,18 @@ def list_agents(user=Depends(quality_user), db=Depends(get_db)):
         kind_runs = [run for run in runs if run.kind == agent["kind"]]
         latest = kind_runs[0] if kind_runs else None
         entry = dict(agent)
+        if agent["id"] == "business":
+            records = get_redis().get_json(f"qa:business-debug:{user.id}") or []
+            entry["stats"] = {"tool_count": len(agent["tools"]), "dialogues": len(records),
+                              "last_dialogue": {key: records[0].get(key) for key in ("id", "status", "created_at")} if records else None}
+            out.append(entry)
+            continue
         entry["stats"] = {"active_cases": len(active),
-                          "documented_cases": sum(1 for row in active if row["id"] in CASE_DOCS),
+                          "documented_cases": sum(1 for row in active if row["id"] in CASE_DOCS or row.get("definition") or row.get("adapter", "").startswith("real_shop_")),
+                          "custom_cases": sum(bool(row.get("definition")) for row in active),
                           "runs": len(kind_runs),
+                          "formal_runs": sum(not db.get(QualityPlan, run.plan_id).payload.get("diagnostic", True) for run in kind_runs),
+                          "diagnostic_runs": sum(db.get(QualityPlan, run.plan_id).payload.get("diagnostic", True) for run in kind_runs),
                           "last_run": None if latest is None else {
                               "id": latest.id, "status": latest.status, "mode": latest.mode,
                               "created_at": latest.created_at.isoformat(),
@@ -81,7 +99,10 @@ def list_cases(user=Depends(quality_user), db=Depends(get_db)):
     rows = []
     for row in all_cases(db):
         entry = dict(row)
-        entry["doc"] = CUSTOM_CASE_DOC if row.get("adapter") == "declarative_assistant" else doc_for(row["id"])
+        entry["doc"] = ({"steps": [f"步骤{i+1}：{step['role']} / {step['action']}" for i, step in enumerate(row["definition"]["steps"])],
+                         "expected": ["每步HTTP状态及JSON硬断言匹配"], "code_file": "backend/app/quality/functional_cases.py",
+                         "code_node": "execute_functional", "risk": "writes"} if row.get("adapter") == "declarative_functional"
+                        else CUSTOM_CASE_DOC if row.get("adapter") == "declarative_assistant" else doc_for(row["id"]))
         rows.append(entry)
     return rows
 
@@ -207,18 +228,20 @@ def locked_case(db, case_id):
 
 
 @router.post("/cases", status_code=201)
-def create_case(body: CaseIn, user=Depends(quality_user), db=Depends(get_db)):
-    service.require_capability(db, user.id, "qa.assistant.run")
+def create_case(body: CaseIn | FunctionalCaseIn, user=Depends(quality_user), db=Depends(get_db)):
+    service.require_capability(db, user.id, "qa.functional.run" if isinstance(body, FunctionalCaseIn) else "qa.assistant.run")
     from app.quality.case_versions import create
     return create(db, user.id, body)
 
 
 @router.patch("/cases/{case_id}")
-def edit_case(case_id: str, body: CaseIn, user=Depends(quality_user), db=Depends(get_db)):
-    service.require_capability(db, user.id, "qa.assistant.run")
+def edit_case(case_id: str, body: CaseIn | FunctionalCaseIn, user=Depends(quality_user), db=Depends(get_db)):
+    service.require_capability(db, user.id, "qa.functional.run" if isinstance(body, FunctionalCaseIn) else "qa.assistant.run")
     row = locked_case(db, case_id)
     if row.state != "candidate":
         raise HTTPException(409, "已审核版本不可修改，请创建新版本")
+    if row.specification.get("kind", "assistant") != body.model_dump().get("kind", "assistant"):
+        raise HTTPException(409, "用例版本不能跨类型修改")
     row.specification = body.model_dump()
     db.commit()
     from app.quality.case_versions import snapshot
@@ -226,8 +249,8 @@ def edit_case(case_id: str, body: CaseIn, user=Depends(quality_user), db=Depends
 
 
 @router.post("/cases/{case_id}/revisions", status_code=201)
-def revise_case(case_id: str, body: CaseIn, user=Depends(quality_user), db=Depends(get_db)):
-    service.require_capability(db, user.id, "qa.assistant.run")
+def revise_case(case_id: str, body: CaseIn | FunctionalCaseIn, user=Depends(quality_user), db=Depends(get_db)):
+    service.require_capability(db, user.id, "qa.functional.run" if isinstance(body, FunctionalCaseIn) else "qa.assistant.run")
     from app.quality.case_versions import create
     return create(db, user.id, body, get_record(db, QualityCaseVersion, case_id))
 

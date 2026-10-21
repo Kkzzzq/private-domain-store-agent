@@ -134,7 +134,7 @@ def chat(body: ChatIn, user: User = Depends(require_merchant), db: Session = Dep
 
 @router.get("/sessions/{session_id}", response_model=SessionOut)
 def read_agent_session(session_id: str, user: User = Depends(require_merchant), db: Session = Depends(get_db)):
-    return assistant.read_session(user.id, merchant_shop(db, user).id, session_id)
+    return assistant.read_session(user.id, merchant_shop(db, user).id, session_id, "merchant")
 
 
 @router.get("/shop", response_model=ShopOut)

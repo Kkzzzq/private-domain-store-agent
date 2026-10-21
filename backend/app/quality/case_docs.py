@@ -21,6 +21,27 @@ ADAPTER_FILES = {
 RISKS = {"read-only", "writes"}
 
 
+def _ui_action_docs():
+    """可复用点击工具的用例文档：直接来自工具注册表（步骤/核验点/出处），不另写一份文案。"""
+    from app.quality.ui_actions import ACTIONS, FLOWS_BY_ID, catalog_rows
+    risk_map = {"read": "read-only", "write": "writes"}
+    docs = {}
+    for row in catalog_rows():
+        if row.get("ui_action"):
+            action = next(item for item in ACTIONS if item["id"] == row["ui_action"])
+            steps = list(action["steps"])
+            expected = list(action["verify"]) + list(action["cross_check"])
+        else:
+            flow = FLOWS_BY_ID[row["ui_flow"]]
+            steps = [f"依次执行点击动作：{' → '.join(step['action'] for step in flow['actions'])}"]
+            expected = ["整条动作流在同一个隔离站点内完成，页面核验与接口交叉核验全部成立"]
+        docs[row["id"]] = {"steps": steps, "expected": expected,
+                           "risk": risk_map.get(action["risk"] if row.get("ui_action") else flow["risk"], "read-only"),
+                           "code_file": "backend/app/quality/ui_actions.py",
+                           "code_node": row.get("ui_action") or row.get("ui_flow")}
+    return docs
+
+
 def _load():
     docs = {}
     for module in SOURCES:
@@ -29,6 +50,7 @@ def _load():
         except ModuleNotFoundError:
             continue
         docs.update(loaded)
+    docs.update(_ui_action_docs())
     from app.quality.real_cases import enabled, SPECS, doc_for as real_doc
     if enabled():docs.update({key:real_doc(key) for key in SPECS})
     return docs

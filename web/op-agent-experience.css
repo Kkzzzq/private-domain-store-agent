@@ -3,3 +3,43 @@
 .ae-root .ae-hero{display:block;position:static;background:transparent;color:var(--ae-ink);height:auto;min-height:0}.ae-card-business{justify-content:flex-start}.ae-business-guide{margin-top:26px;padding-top:16px;border-top:1px solid var(--ae-line);width:100%}.ae-business-guide>div{margin:0 0 18px}.ae-business-guide strong{font-size:13px}.ae-detail-reading{padding:10px 0;border-bottom:1px solid var(--ae-line)}.ae-detail-reading small{font-size:11px;color:var(--ae-muted)}.ae-detail-reading p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.8;max-height:280px;overflow:auto}
 
 .ae-command-bar{padding:10px 0 16px}.ae-plans{padding:8px 14px;margin-bottom:16px;border:1px solid var(--ae-line);border-radius:8px;background:var(--ae-paper)}.ae-plans>summary{cursor:pointer;font-size:13px;padding:5px 0;color:var(--ae-accent)}
+
+/* 业务页：对话、执行轨迹与业务证据放在同一个主内容区，单列自适应，不产生横向溢出。 */
+.ae-main{display:block;min-width:0;max-width:100%}
+.ae-main>*{min-width:0}
+.ae-main>.ae-dialogue{display:block}
+.ae-main>.ae-details{margin-top:14px;border:1px solid var(--ae-line);border-radius:8px;background:var(--ae-paper);padding:6px 14px}
+.ae-main>.ae-details>summary{cursor:pointer;font-size:13px;padding:6px 0;color:var(--ae-accent)}
+.ae-main>.ae-details .ao-column{border-top:0;padding-top:6px}
+.ae-main-evidence{margin-top:18px;padding-top:12px;border-top:1px solid var(--ae-line)}
+.ae-main-evidence>.ao-column{border-top:0;padding-top:0}
+.ae-check-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ae-check-head>strong{overflow-wrap:anywhere}
+
+/* 业务对话区：一眼看出是对话——左右气泡、说话人标签，而不是一整条提示条。 */
+.ae-dialogue .ao-datasource{font-size:11px;color:var(--ae-muted);background:var(--ae-soft);border-radius:6px;padding:6px 10px;margin:4px 0 12px}
+.ae-dialogue .ao-chat-turn{display:flex;flex-direction:column;gap:10px;margin:0 0 18px}
+.ae-dialogue .ao-bubble{max-width:88%;padding:10px 14px;border-radius:14px;border:1px solid var(--ae-line);background:var(--ae-paper);min-width:0}
+/* 对话信息统一靠左排列，提问与回答只用颜色/说话人区分，不再右侧对齐。 */
+.ae-dialogue .ao-bubble-user{align-self:flex-start;background:#eaf3ec;border-color:#d8e5da;border-bottom-left-radius:4px}
+.ae-dialogue .ao-bubble-agent{align-self:flex-start;border-bottom-left-radius:4px}
+.ae-dialogue .ao-bubble-pending{opacity:.75;font-style:italic}
+.ae-dialogue .ao-speaker{display:block;font-size:11px;letter-spacing:.02em;color:var(--ae-muted);margin-bottom:5px}
+.ae-dialogue .ao-bubble-text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75}
+.ae-dialogue .ao-bubble .ao-answer{background:transparent;border:0;padding:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.8}
+.ae-dialogue .ao-bubble strong{font-weight:600}
+
+/* 观测台窄列里的长接口路径、编号等没有可断行字符，会把整页撑出横向滚动；这里强制换行并允许列收缩。 */
+.qa-workspace,.ao-workspace,.ao-grid{max-width:100%}
+.ao-column,.ae-result-column,.ae-main,.ae-main-evidence{min-width:0}
+.ao-column>h3,.ao-column>h4,.ao-column>p,.ao-column>small,
+.ae-result-column>h3,.ae-result-column>h4,.ae-result-column>p,.ae-result-column>small,
+.ae-main>h3,.ae-main>h4,.ae-main-evidence h3,.ae-main-evidence h4{overflow-wrap:anywhere;word-break:break-word}
+
+/* 外壳修正：左侧导航项目多时会被固定在底部的 .sidebar-bottom 压住，导致最后几个入口点不到。
+   让导航自身滚动、底栏回归文档流，导航列表不再被覆盖（桌面宽度生效，手机布局保持原样）。 */
+@media(min-width:641px){
+  aside{display:flex;flex-direction:column;overflow:hidden}
+  aside>nav{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+  aside>.sidebar-bottom{position:static;margin-top:14px;flex:0 0 auto}
+}

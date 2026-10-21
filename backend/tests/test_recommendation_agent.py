@@ -44,6 +44,36 @@ def test_catalog_is_paged_and_does_not_create_recommendation_cards(catalog_actor
     assert "测试下架杯" not in execute_tool("get_store_catalog", {"limit": 20})
 
 
+def test_customer_scope_has_no_merchant_tools_or_fallback_guidance(catalog_actor):
+    from app.agent.fallback import fallback_reply
+    from app.agent.tools import langchain_tools
+    for intent in ("product_write", "overview", "low_inventory"):
+        assert langchain_tools(intent) == []
+    for message in ("创建商品", "经营概览", "库存预警", "修改价格"):
+        answer, traces = fallback_reply(message)
+        assert "联系商家" in answer and not traces
+        assert "商品管理" not in answer
+    answer, traces = fallback_reply("我要加一个商品")
+    assert "购物车" in answer and not traces
+    assert "无权" in execute_tool("prepare_product_draft", {})
+    answer, traces = fallback_reply("运费多少，给我来源")
+    assert traces and traces[0]["tool"] == "search_knowledge"
+    assert not any(term in answer for term in ("来源", ".md", "检索", "知识片段", "本店当前配置"))
+
+
+def test_role_specific_prompt_is_used_for_customer_and_merchant(catalog_actor):
+    from app.agent.assistant import run_tool_loop
+    from app.agent.prompts import role_prompt
+    class CaptureModel:
+        def invoke(self, messages):
+            assert role_prompt("customer") in messages[0].content
+            assert "知识回答应注明工具实际返回的文件来源" not in messages[0].content
+            return AIMessage(content="这里帮您购物，经营问题可联系商家。")
+    answer, traces = run_tool_loop([], "", "经营概览", llm=CaptureModel())
+    assert "联系商家" in answer and not traces
+    assert "prepare_product_draft" in role_prompt("merchant")
+
+
 def test_catalog_page_budget_and_offset_do_not_skip_products(catalog_actor):
     db, actor = catalog_actor
     for index in range(21):

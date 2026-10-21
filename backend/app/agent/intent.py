@@ -4,6 +4,10 @@ import re
 def classify(message):
     # “不要推荐”是约束，不应把明确搜索错误分流到推荐工具。
     message = re.sub(r'(?:不要|不|无需)推荐', '', message)
+    if re.search(r"(?:怎么|如何|哪里|步骤).*(?:配置|设置|新建|创建|添加商品|加商品|发券|发放|装修|上架)|(?:后台|B端).*(?:怎么|如何)", message):
+        return "merchant_help"
+    if any(word in message for word in ("购物车", "优惠券", "评论", "评价", "买家反馈", "店铺公告", "装修配置")):
+        return "store_data"
     if re.search(r"(?:重新.*(?:生成|创建).*?(?:提案|草稿)|(?:提案|草稿).*重新.*生成|生成.*商品.*提案)", message):
         return "product_write"
     if any(word in message for word in ("配置商品", "生成商品", "创建商品", "新建商品", "复制商品", "商品草稿", "配置一个", "配置一款", "上新", "帮我卖", "新增商品")):

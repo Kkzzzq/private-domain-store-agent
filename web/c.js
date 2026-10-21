@@ -2130,10 +2130,10 @@ function renderChatToggle() {
     icon.append(path);
     button.append(icon);
   }
-  button.setAttribute("aria-label", chatOpen ? "关闭店内助手" : "打开店内助手");
+  button.setAttribute("aria-label", chatOpen ? "关闭购物小助手" : "打开购物小助手");
   button.type = "button";
   button.setAttribute("aria-expanded", String(chatOpen));
-  button.title = "店内助手";
+  button.title = "购物小助手";
   button.addEventListener("click", () => {
     chatOpen = !chatOpen;
     updateChatView();
@@ -2182,7 +2182,7 @@ function renderChat() {
   const box = h("aside", "chat");
   const head = document.createElement("header");
   const title = h("div");
-  title.append(h("b", "", `${storeAssistantName(shop)} · 店内助手`), h("small", "", "选品加购 · 我的订单 · 物流售后 · 联系商家"));
+  title.append(h("b", "", `${storeAssistantName(shop)} · 购物小助手`), h("small", "", "选品比价 · 我的购物车 · 订单售后 · 联系商家"));
   const close = h("button", "close", "×");
   close.addEventListener("click", () => {
     chatOpen = false;
@@ -2288,7 +2288,7 @@ function renderChat() {
       if (requestIdentity !== currentChatIdentity()) return;
       sessionId = data.session_id;
       pending.classList.remove("waiting");
-      const answer = `${data.answer}${knowledgeSourceText(data)}${data.mode === "fallback" ? "\n规则查询模式" : ""}${data.notices.length ? "\n" + data.notices.join("；") : ""}`;
+      const answer = data.answer;
       renderAssistantMessage(pending, answer);
       appendCards(data.products);
       StoreAssistantActions.orderActions(log, answer, {role:"customer", orders:()=>go("#/orders"), shopCode:code});
