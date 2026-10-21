@@ -309,13 +309,13 @@ window.OPQuality = (() => {
       if(!plan)return;const section=el("section","qa-card qa-plan-detail");section.append(el("h3","",plan.payload.goal),badge(plan.status));
       section.append(el("p","",`用例：${plan.payload.case_ids.join("、")}；预算≤${plan.payload.max_calls}次LLM / ${plan.payload.max_tokens} tokens；最长${plan.payload.timeout_seconds}秒`),
         el("p","qa-muted",`环境 ${plan.payload.environment_id} · 代码指纹 ${plan.payload.target_revision.slice(0,12)} · 计划 ${plan.digest.slice(0,12)} · ${plan.payload.planner==="model"?"真实模型工具规划":"人工选择固定计划（无规划模型调用）"}`));
-      if(plan.evidence&&Object.keys(plan.evidence).length)section.append(pre(plan.evidence));
+      const evidence=el('details','qa-plan-evidence');evidence.append(el('summary','','查看规划依据与模型用量'));if(plan.evidence&&Object.keys(plan.evidence).length)evidence.append(pre(plan.evidence));
       const controls=el("div","qa-actions");
       if(plan.status==="draft"){
         const approve=button("确认审批 · 批准此版本",()=>action(()=>api(`/plans/${plan.id}/approve`,{digest:plan.digest})),true);approve.disabled=!can("qa.approve");controls.append(approve);
       }
       if(plan.status==="approved"){const start=button("启动已批准计划",()=>action(async()=>{const run=await api("/runs",{plan_id:plan.id,request_key:crypto.randomUUID()});selectedRun=run.id;}),true);start.disabled=!canRun(plan.payload.kind);controls.append(start);}
-      controls.append(button("收起",()=>{selectedPlan=null;paint();}));section.append(controls);root.append(section);
+      controls.append(button("收起",()=>{selectedPlan=null;paint();}));section.append(controls,evidence);root.append(section);
     }
     function renderRunsPage(){
       root.append(heading("测试用例报告","每条运行的用例数、通过/失败/阻塞计数与代码版本；失败必标注原因，UI 用例可直接查看截图。"));
