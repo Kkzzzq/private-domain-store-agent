@@ -44,3 +44,9 @@ h2 { margin: 10px 0 7px; font-size: 23px; font-weight: 500; letter-spacing: 1px;
 .portal-account {border:1px solid #e8ddd1;border-radius:6px;background:transparent;color:#9a7863;padding:7px 10px;cursor:pointer;font:12px "Microsoft YaHei",sans-serif}.portal-error{padding:24px;text-align:center;color:#ad563e}.account-login .auth-page{min-height:100dvh;box-sizing:border-box}
 
 .entry-disabled {filter:grayscale(1);opacity:.48;cursor:not-allowed}.entry-disabled:hover{transform:none;box-shadow:none}.entry-disabled:hover img{transform:none}
+
+/* 面试测试声明：进入站点即显示，不随登录态隐藏 */
+.test-notice{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:center;gap:clamp(14px,3vw,36px);flex-wrap:wrap;margin:0;padding:12px 24px;background:#26211d;color:#f8f2e8;border-bottom:3px solid #bd5037;box-shadow:0 4px 18px #2b272233;text-align:center}
+.test-notice-stamp{display:inline-block;padding:4px 18px 7px;border-radius:8px;background:#bd5037;color:#fffdf8;font:900 clamp(30px,4.6vw,54px)/1.05 "Microsoft YaHei","PingFang SC",sans-serif;letter-spacing:6px;text-indent:6px;white-space:nowrap}
+.test-notice-copy{margin:0;font-size:clamp(13px,1.5vw,18px);font-weight:600;letter-spacing:2px;color:#f1e4d4}
+@media(max-width:600px){.test-notice{gap:10px;padding:10px 14px}.test-notice-stamp{font-size:30px;letter-spacing:4px;text-indent:4px;padding:3px 12px 5px}.test-notice-copy{font-size:12px;letter-spacing:1px}}
