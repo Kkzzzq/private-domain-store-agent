@@ -10,8 +10,8 @@
 .fi-reason{margin:10px 0;line-height:1.7}
 .fi-history{margin-top:14px}
 .fi-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid #e5dbcf;padding:10px 0}
-.fi-requirement{flex:1 1 240px;min-width:0;overflow-wrap:anywhere;font-size:13px}
+.fi-requirement{flex:1 1 240px;min-width:0;overflow-wrap:anywhere;font-size:14px}
 .fi-result pre,.fi-panel pre{max-height:320px;overflow:auto}
 .fi-details{margin-top:10px}
-.fi-details>summary{cursor:pointer;font-size:13px;color:#974d34;padding:4px 0}
+.fi-details>summary{cursor:pointer;font-size:14px;color:#974d34;padding:4px 0}
 @media(max-width:760px){.fi-input{flex:1 1 100%}.fi-form>select,.fi-form>button{flex:1 1 100%}}
