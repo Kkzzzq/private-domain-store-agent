@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, func, or_
@@ -124,6 +125,8 @@ def update_shop(shop_id: int, body: ShopUpdate, actor: User = Depends(require_op
 @router.get('/orders')
 def orders(q: str = '', shop_id: int | None = None, status: str = '', days: int = Query(7, ge=1, le=365),
            shipped_only: bool = False, after_sales_only: bool = False,
+           shipment_status: Literal['', 'shipped','transit','exception','delivered'] = '',
+           after_sale_status: Literal['', 'requested','accepted','rejected','return_shipped','resolved','withdrawn'] = '',
            page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
     if shop_id is None and not q.strip():
         return {'items': [], 'total': 0, 'needs_filter': True}
@@ -143,14 +146,20 @@ def orders(q: str = '', shop_id: int | None = None, status: str = '', days: int 
         query = query.where(Order.id.in_(select(Shipment.order_id)))
     if after_sales_only:
         query = query.where(Order.id.in_(select(AfterSale.order_id)))
+    if shipment_status:
+        query = query.where(Order.id.in_(select(Shipment.order_id).where(Shipment.status == shipment_status)))
+    if after_sale_status:
+        query = query.where(Order.id.in_(select(AfterSale.order_id).where(AfterSale.status == after_sale_status)))
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     result = []
     for row in db.scalars(query.order_by(Order.created_at.desc(), Order.id.desc()).offset((page-1)*size).limit(size)):
         shipment = db.scalar(select(Shipment).where(Shipment.order_id == row.id))
+        sale = db.scalar(select(AfterSale).where(AfterSale.order_id == row.id))
         result.append(dict(id=row.id, order_no=row.order_no, shop_id=row.shop_id, shop_name=row.shop.name,
                            buyer=row.buyer.username, status=row.status, total_cents=row.total_cents,
                            created_at=row.created_at, carrier=shipment.carrier if shipment else '',
-                           tracking_number=shipment.tracking_number if shipment else '', shipment_status=shipment.status if shipment else 'unshipped'))
+                           tracking_number=shipment.tracking_number if shipment else '', shipment_status=shipment.status if shipment else 'unshipped',
+                           after_sale_status=sale.status if sale else '', after_sale_kind=sale.kind if sale else ''))
     return {'items': result, 'total': total, 'needs_filter': False}
 
 
@@ -162,6 +171,29 @@ def product_detail(product_id: int, db: Session = Depends(get_db)):
     return dict(id=row.id, name=row.name, category=row.category, description=row.description, status=row.status,
                 shop_id=row.shop_id, shop_name=row.shop.name,
                 skus=[dict(id=s.id, spec=s.spec, price_cents=s.price_cents, stock=s.stock, status=s.status) for s in row.skus])
+
+
+@router.get('/coupons')
+def coupons(q: str = '', shop_id: int | None = None,
+            status: Literal['','active','scheduled','expired','disabled','exhausted'] = '',
+            page: int = Query(1, ge=1), db: Session = Depends(get_db)):
+    from app.models.tables import Coupon
+    from app.services.coupons import payload
+    query=select(Coupon)
+    if shop_id is not None:query=query.where(Coupon.shop_id==shop_id)
+    if q.strip():query=query.where(Coupon.name.contains(q.strip(),autoescape=True))
+    now=utcnow()
+    if status=='disabled':query=query.where(Coupon.enabled.is_(False))
+    if status=='scheduled':query=query.where(Coupon.enabled.is_(True),Coupon.starts_at>now)
+    if status=='expired':query=query.where(Coupon.enabled.is_(True),Coupon.starts_at<=now,Coupon.ends_at<=now)
+    if status in ('active','exhausted'):
+        query=query.where(Coupon.enabled.is_(True),Coupon.starts_at<=now,Coupon.ends_at>now)
+        query=query.where(Coupon.claimed_count<Coupon.total_count) if status=='active' else query.where(Coupon.claimed_count>=Coupon.total_count)
+    total=db.scalar(select(func.count()).select_from(query.subquery()))
+    items=[]
+    for c in db.scalars(query.order_by(Coupon.id.desc()).offset((page-1)*20).limit(20)):
+        item=payload(db,c);item.update(shop_id=c.shop_id,shop_name=db.get(Shop,c.shop_id).name);items.append(item)
+    return dict(items=items,total=total)
 
 
 @router.get('/orders/{order_id}')

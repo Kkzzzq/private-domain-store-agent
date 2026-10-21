@@ -93,6 +93,10 @@ class RealCase:
             if status:self.e.check('数据库订单状态正确',row.status==status,status,row.status)
 
     def run(self,cid):
+        from app.quality.real_cases_extended import MORE_SPECS
+        if cid in MORE_SPECS:
+            from app.quality.real_scenarios_extended import run
+            return run(self,cid)
         if cid=='RF01':
             b=self.call('GET','/b/shop',self.merchant);c=self.call('GET','/c/shops/nanzhi')
             for key in ('id','name','notice','theme_color','status'):self.e.check('BC店铺字段一致 '+key,b[key]==c[key],b[key],c[key])
@@ -112,6 +116,7 @@ class RealCase:
             return
         if cid=='RF12':
             from scripts.seed_nanzhi_demo import seed
+            from scripts.seed_nanzhi_showcase import verify
             from app.models.support import Shipment,AfterSale,Message
             with SessionLocal() as db:
                 summary=seed(db,self.shop_id)
@@ -122,6 +127,8 @@ class RealCase:
                     self.e.check(o.order_no+' 金额与明细一致',o.total_cents==sum(i.price_cents*i.quantity for i in o.items)+o.freight_cents)
                     self.e.check(o.order_no+' SKU归属一致',all(db.get(Sku,i.sku_id).product_id==i.product_id for i in o.items))
                 for model in (Shipment,AfterSale,Message,Review):self.e.check(model.__tablename__+' 有实际记录',db.scalar(select(func.count()).select_from(model))>0)
+                actual=verify(db,self.shop_id)
+                self.e.check('全管理页演示批次金额归属与多状态完整',actual['amounts_and_ownership'],True,actual)
             return
         if cid.startswith('RE'):return self.ui(cid)
         if cid.startswith('RA'):return self.agent(cid)
@@ -194,6 +201,8 @@ class RealCase:
             self.e.check('SKU顺序实际同步',order==[s['id'] for s in c['skus']],order,[s['id'] for s in c['skus']])
             self.call('POST',f'/b/products/{pid}/status',self.merchant,{'action':'off'})
             self.e.check('下架不在C端',not any(x['id']==pid for x in self.call('GET','/c/shops/nanzhi/products')))
+        else:
+            raise ValueError('用例缺少真实执行分支：'+cid)
 
     def agent(self,cid):
         p=self.fixture() if cid in ('RA01','RA02','RA04') else None

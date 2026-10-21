@@ -162,7 +162,8 @@ class Assistant:
         if intent == "inventory" and any(word in message for word in ("它", "这个", "刚才")):
             previous_queries = [item["content"] for item in state["messages"] if item.get("role") == "user" and classify(item["content"]) == "product_search"]
             if previous_queries:
-                query = previous_queries[-1]
+                # 保留当前库存意图；历史搜索仅补充商品线索，不能覆盖本轮问题。
+                query = message + '；关联商品线索：' + previous_queries[-1]
         if quick_reply is not None:
             answer, traces = quick_reply
             mode = "direct"

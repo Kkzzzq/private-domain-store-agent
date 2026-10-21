@@ -37,6 +37,8 @@ SPECS = {
  "RE07":("UI平台维护商品同步BC与数据库",["OP进入本轮商品的店铺维护页","填写维护原因、新描述并保存","核对B、C、数据库与审计"],["OP页面真实提交成功","三端值一致且操作审计落库，保留截图"],True),
  "RE08":("UI真实购物车结算与订单落库",["新买家添加本轮商品与演示默认地址","在购物车点去结算、提交订单","读取数据库与B订单列表"],["真实结算接口200且订单落库","B同步显示同一订单，保留截图"],True),
 }
+from app.quality.real_cases_extended import MORE_SPECS
+SPECS.update(MORE_SPECS)
 
 
 def cases():
@@ -48,8 +50,9 @@ def cases():
 
 def doc_for(case_id):
     title,steps,expected,writes=SPECS[case_id]
+    file='real_scenarios_agent.py' if case_id in MORE_SPECS and case_id.startswith('RA') else 'real_scenarios_ui.py' if case_id in MORE_SPECS and case_id.startswith('RE') else 'real_scenarios_extended.py' if case_id in MORE_SPECS else 'real_runner.py'
     return {"steps":steps,"expected":expected,"risk":"writes" if writes else "read-only",
-            "code_file":"backend/app/quality/real_runner.py","code_node":f"execute({case_id})"}
+            "code_file":"backend/app/quality/"+file,"code_node":f"execute({case_id})"}
 
 
 def descriptors():

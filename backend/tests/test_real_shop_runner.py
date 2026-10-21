@@ -19,6 +19,8 @@ def test_real_api_adapter_uses_business_routes_and_archives_only_owned_records(c
         if case_id=='RF12':
             from scripts.seed_nanzhi_demo import seed
             seed(db,shop_id);db.commit()
+            from scripts.seed_nanzhi_showcase import seed as showcase
+            showcase(db,shop_id);db.commit()
     monkeypatch.setattr(settings,'qa_real_shop_enabled',True)
     monkeypatch.setattr(real_runner,'httpx',SimpleNamespace(Client=lambda **kwargs:client))
     output=real_runner.execute({'environment_id':'real-nanzhi','case_id':case_id,'mode':'rules','real_operator_id':user_id,'timeout_seconds':90,'max_tokens':60000})
