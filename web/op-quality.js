@@ -1,4 +1,9 @@
 window.OPQuality = (() => {
+  function requestTimeout(path) {
+    if (/\/defect-benchmark$/.test(path)) return 1250000;
+    if (/\/(?:functional-intake|business-debug)$|\/model-score$|\/runs\/[^/]+$|\/evaluations\/[^/]+\/detail$/.test(path)) return 120000;
+    return 30000;
+  }
   const names = {mixed:"接口/UI与Agent组合执行",assistant:"业务 Agent 评测",functional:"业务功能测试",joint:"联合回归",rules:"规则 / 固定回归",live:"真实云端模型",browser:"浏览器用例",candidate:"候选未接入",active:"已接入",revoked:"已撤销",queued:"排队",planning:"AI规划排队",planning_running:"AI规划中",draft:"待批准",approved:"已批准",running:"运行中",completed:"执行完成",passed:"通过",failed:"失败",blocked:"阻塞",cancelled:"已取消",eligible:"满足本次范围门禁",not_eligible:"不满足门禁",not_selected:"未在这侧运行"};
   const label = value => names[value] || value;
   // Keep downloads alive across workspace mounts, scoped to the current login.
@@ -68,11 +73,10 @@ window.OPQuality = (() => {
     const cacheSession=reports;
     const api=async(path,body,method="POST")=>{
       if(!valid())throw Error("账号或页面已变化");
-      if(body)return options.api(path,{method,body:JSON.stringify(body)});
       const controller=new AbortController();
-      const timeout=setTimeout(()=>controller.abort(),/\/runs\/[^/]+$|\/evaluations\/[^/]+\/detail$/.test(path)?120000:30000);
-      try{return await options.api(path,{signal:controller.signal});}
-      catch(err){if(controller.signal.aborted)throw Error(`读取 ${path.split('?')[0]} 超时，请点击重试。`);throw err;}
+      const timeout=setTimeout(()=>controller.abort(),requestTimeout(path));
+      try{return await options.api(path,{...(body?{method,body:JSON.stringify(body)}:{}),signal:controller.signal});}
+      catch(err){if(controller.signal.aborted)throw Error(body?"请求等待超时。服务端任务可能仍在执行，请先刷新历史记录确认状态，勿重复提交。":`读取 ${path.split('?')[0]} 超时，请点击重试。`);throw err;}
       finally{clearTimeout(timeout);}
     };
     function loadRun(id){
@@ -232,11 +236,7 @@ window.OPQuality = (() => {
       root.classList.add('qa-evaluator');
       window.OPAgentExperience?.context(root,{id:'evaluator',row:agentOf('evaluator'),data});
       const description=document.getElementById('page-description');if(description)description.textContent='评估任务结果、工具使用和会话质量，保留每一种结论的依据。';
-      root.append(el('p','qa-eval-intro','从已有运行记录开始，先核验事实，再按需补充模型评分与人工意见。'));
-      const guide=el('div','qa-eval-guide');
-      [['01','选择评测来源','业务 Agent 或功能测试 Agent 的已结束运行。'],['02','核对评测结果','先查看程序核验，再按需补充模型评分。'],['03','人工确认','记录复核意见；不同结论各自保留。']].forEach(([number,title,copy])=>{
-        const step=el('div','qa-eval-step');step.append(el('span','qa-eval-number',number),el('strong','',title),el('p','',copy));guide.append(step);
-      });root.append(guide);
+      window.OPAgentFlow?.mount(root,'evaluator',{navigate:go,capabilities:data.capabilities.capabilities});
       window.OPAgentQuality?.mount(root,{id:'evaluator',data,api,refresh});
       const secondary=el('section','qa-eval-secondary');
       const trace=el('details','qa-eval-fold'),traceBody=el('div','qa-eval-fold-body');trace.open=evaluatorTraceOpen;
@@ -257,19 +257,8 @@ window.OPQuality = (() => {
       if(!row){root.append(heading("Agent 说明",agents?"后端未返回该 Agent 的说明，请刷新重试。":"正在读取该 Agent 的说明…"));return;}
       const supporting=id==="functional"?el("div"):root;
       if(!referenceOnly){
-      root.append(heading(AGENT_TITLE[id]||row.name,id==="functional"?"验证 B/C 端的接口、页面与数据库是否符合预期。从描述需求开始，核对计划后再运行。":row.role));
-      if(id==="functional"){
-        const flow=el("ol","fi-workflow");
-        for(const [title,copy] of [["描述需求","说明要测的操作和预期结果"],["核对并运行","确认用例、范围和预算后批准"],["查看报告","对照步骤、预期与实际结果"]]){const step=el("li");step.append(el("strong","",title),el("span","",copy));flow.append(step);}root.append(flow);
-      }
-      // 业务页与另两个 Agent 页对齐：同样先给一句话说明和编号步骤，再进入工作台。
-      if(id==="business"){
-        root.append(el('p','qa-eval-intro','先以合成买家或商家身份提问，再看它实际调用了哪些接口和工具；需要打分时把这一轮交给评测 Agent。'));
-        const guide=el('div','qa-eval-guide');
-        for(const [number,title,copy] of [['01','选择身份提问','合成买家只能购物与查本人订单；合成商家可查本店经营。'],['02','核对实际调用','展开轨迹查看真实请求、工具与用量；副本清理完成不等于用例通过。'],['03','交给评测 Agent','把这一轮问题转成待审核用例，再在评测页独立核验。']]){
-          const step=el('div','qa-eval-step');step.append(el('span','qa-eval-number',number),el('strong','',title),el('p','',copy));guide.append(step);}
-        root.append(guide);
-      }
+      root.append(heading(AGENT_TITLE[id]||row.name,id==="functional"?"验证 B/C/OP 端的接口、页面与数据库是否符合预期。从描述需求开始，核对计划后再运行。":row.role));
+      window.OPAgentFlow?.mount(root,id,{navigate:go,capabilities:data.capabilities.capabilities});
       if(id==='functional'||id==='evaluator'){
         const kind=id==='functional'?'functional':'assistant',waiting=data.plans.filter(p=>p.payload.kind===kind&&p.status==='draft');
         if(waiting.length){const notice=el('section','qa-approval-banner');notice.append(el('h3','',`待审批计划 ${waiting.length} 项`),el('p','','先核对测试范围、环境与预算，再批准并启动。'),button('立即审核最新计划',()=>reviewPlan(waiting[0].id),true));root.append(notice);}
@@ -301,7 +290,7 @@ window.OPQuality = (() => {
       reference.append(card);return reference;
     }
     function renderEvaluation(kind){
-      if(kind==="functional")root.append(heading("2. 核对计划并运行","也可以直接选择已接入用例创建计划；批准后才开始执行。"));
+      if(kind==="functional")root.append(heading("3. 核对计划并批准执行","确认用例、环境与预算后再批准；也可以直接用已登记用例创建计划。"));
       const controls=el("div","qa-actions");
       const create=button(kind==="assistant"?"新建评测计划":"新建功能测试计划",()=>compose(kind),true);
       create.disabled=!can(`qa.${kind}.run`);
@@ -315,7 +304,7 @@ window.OPQuality = (() => {
       if(comparison)renderComparison();
       renderPlans(kind);
       if(selectedPlan)renderPlan(data.plans.find(plan=>plan.id===selectedPlan));
-      if(kind==="functional")root.append(heading("3. 查看测试结果","按小时展开报告，点击某次执行后查看用例步骤、实际结果与失败原因。"));
+      if(kind==="functional")root.append(heading("4. 查看测试结果","按小时展开报告，点击某次执行后查看用例步骤、实际结果与失败原因。"));
       renderRunsSection(kind);
     }
     function renderComparison(){

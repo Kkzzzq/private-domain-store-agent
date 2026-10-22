@@ -73,7 +73,9 @@ class PlanIn(BaseModel):
         if not custom_cases and self.kind == "joint" and kinds != {"assistant", "functional"}:
             raise ValueError("联合回归必须选择两类用例")
         if "functional_driver" not in self.model_fields_set:
-            self.functional_driver = self.kind == "functional" and self.planner == "model" and not self.diagnostic
+            self.functional_driver = self.kind in ("functional", "joint") and self.planner == "model" and not self.diagnostic
+        if not self.diagnostic and self.kind in ("functional", "joint") and not self.functional_driver:
+            raise ValueError("正式功能Agent执行必须启用模型工具编排；固定回归请显式选择诊断模式")
         if self.functional_driver and self.kind not in ("functional", "joint"):
             raise ValueError("功能执行工具不能用于业务助手评测计划")
         if self.kind == "functional" and self.mode != "rules":
@@ -82,6 +84,11 @@ class PlanIn(BaseModel):
 
 
 def capabilities(db, user_id):
+    from app.models.governance import AccountRestriction
+    from app.models.tables import AccountClosure
+    restriction = db.get(AccountRestriction, user_id, populate_existing=True)
+    if restriction and restriction.disabled or db.get(AccountClosure, user_id, populate_existing=True):
+        return set()
     grant = db.get(QualityGrant, user_id, populate_existing=True)
     if not db.get(Operator, user_id, populate_existing=True) or not grant:
         return set()

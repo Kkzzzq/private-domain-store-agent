@@ -21,19 +21,26 @@ window.OPFunctionalIntake = (() => {
     const result = el('div', 'fi-result');
     const history = el('div', 'fi-history');
     let historyRows = [];
+    let busy = false;
     const submit = button('分析需求并匹配用例', async () => {
-      message.textContent = ''; result.replaceChildren(el('p', 'qa-muted', '正在读取真实功能目录，由 DeepSeek-Flash 判断…'));
+      if(busy || input.value.trim().length < 4)return;
+      busy = true; input.disabled = true; environment.disabled = true;
+      panel.setAttribute('aria-busy','true');
+      message.textContent = ''; result.replaceChildren(el('p', 'qa-muted', '正在读取功能目录并调用测试模型分析，请稍候；尚未执行测试。'));
       submit.disabled = true;
       try {
         const record = await api('/functional-intake', { requirement: input.value.trim(), environment_id: environment.value });
         render(record);
+        historyRows = [record, ...historyRows.filter(row => row.id !== record.id)].slice(0, 10);
+        paintHistory();
       } catch (err) { message.textContent = err.message; result.replaceChildren(); }
-      finally { submit.disabled = false; }
+      finally { busy = false; input.disabled = false; environment.disabled = false; submit.disabled = input.value.trim().length < 4; panel.setAttribute('aria-busy','false'); }
     }, true);
     submit.disabled = !input.value.trim();
-    input.oninput = () => { submit.disabled = input.value.trim().length < 4; };
+    input.oninput = () => { submit.disabled = busy || input.value.trim().length < 4; if(!busy){result.replaceChildren();message.textContent='';} };
+    environment.onchange = () => input.oninput();
     const examples=el('div','fi-examples');examples.append(el('span','qa-muted','试试这些需求：'));
-    for(const text of ['购物车数量超过库存时应拒绝修改','B 端修改商品价格后，C 端应显示新价格','OP 修改商品后，B/C 端数据与数据库应一致'])examples.append(button(text,()=>{input.value=text;input.oninput();input.focus();}));
+    for(const text of ['购物车数量超过库存时应拒绝修改','B 端修改商品价格后，C 端应显示新价格','OP 修改商品后，B/C 端数据与数据库应一致'])examples.append(button(text,()=>{if(busy)return;input.value=text;input.oninput();input.focus();}));
     const toolbar=el('div','fi-toolbar'),envLabel=el('label','fi-environment');envLabel.append(el('span','','测试环境'),environment);toolbar.append(envLabel,submit);
     form.append(input,examples,toolbar,message);
     panel.append(form, result, history);
@@ -55,6 +62,7 @@ window.OPFunctionalIntake = (() => {
     function render(record) {
       const verdict = record.verdict || {};
       const item = el('section', 'fi-verdict');
+      item.append(el('h3', '', '2. 确认范围并生成计划'));
       const failed=record.status!=='completed';
       item.append(chip(failed?'判断未完成':verdict.feasible?'已匹配可执行用例':'暂时无法执行',failed?'blocked':verdict.feasible?'passed':'blocked'),
         el('p','fi-reason',failed?(record.error||record.evidence?.error||'受理服务未完成，请重试；本次不代表功能不可测。'):(verdict.reason||'未给出判断理由')));
@@ -80,7 +88,7 @@ window.OPFunctionalIntake = (() => {
         const line = el('div', 'fi-line');
         line.append(chip(record.verdict?.feasible ? '可实现' : '不可测', record.verdict?.feasible ? 'passed' : 'blocked'),
           el('span', 'fi-requirement', record.requirement),
-          button('查看', () => { input.value = record.requirement; environment.value = record.environment_id; input.oninput(); render(record); }));
+          button('查看', () => { if(busy)return;input.value = record.requirement; environment.value = record.environment_id; input.oninput(); render(record); }));
         previous.append(line);
       }
     }

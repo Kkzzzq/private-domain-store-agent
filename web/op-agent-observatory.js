@@ -110,7 +110,7 @@ window.OPAgentObservatory = (() => {
         definition.append(el("summary","","冻结的调试定义（点击核对）"),json(state.debug.candidate.definition));
         panel.append(el("p","ao-muted","候选已冻结 · "+state.debug.candidate.id),definition);
         panel.append(button(state.debug.run?"运行已创建":"批准并运行（消耗额度）",()=>act(async()=>{
-          if(!window.confirm("批准当前冻结定义与隔离计划，并使用服务端配置的模型执行？最多20次调用、60000 tokens；不操作实际店铺。"))return;
+          if(!await window.OPDialogs.confirm("批准当前冻结定义与隔离计划，并使用服务端配置的模型执行？最多20次调用、60000 tokens；不操作实际店铺。"))return;
           const run=await advanceDebug(state.debug,api,options.capabilities);state.runId=run.id;state.caseId=null;
           state.refreshRequested=true;
         }),state.busy||Boolean(state.debug.run)||!options.capabilities.includes("qa.approve")||!allowed));

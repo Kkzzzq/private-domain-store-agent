@@ -1,0 +1,10 @@
+.op-action-dialog{box-sizing:border-box;width:min(460px,calc(100vw - 32px));max-height:85vh;overflow:auto;border:1px solid #dce3da;border-radius:14px;padding:24px;background:#fffdfa;color:#304438;font:14px/1.7 system-ui}
+.op-action-dialog::backdrop{background:#16251f66}
+.op-action-dialog h2{font-size:19px;margin:0 0 12px}
+.op-action-dialog p{margin:0 0 16px;white-space:pre-wrap;overflow-wrap:anywhere}
+.op-action-dialog textarea{box-sizing:border-box;width:100%;resize:vertical;border:1px solid #bfcfc2;border-radius:8px;padding:10px;font:inherit;background:#fff}
+.op-action-dialog form>div{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.op-action-dialog button,.op-action-notice button{border:1px solid #d4dfd4;border-radius:7px;padding:8px 16px;background:#fff;color:#34513f;font:inherit;cursor:pointer}
+.op-action-dialog button.primary{background:#315f48;color:#fff;border-color:#315f48}
+.op-action-dialog :focus-visible{outline:2px solid #548367;outline-offset:3px}
+.op-action-notice{position:fixed;z-index:10000;bottom:24px;right:24px;max-width:min(520px,calc(100vw - 48px));display:flex;align-items:center;gap:16px;padding:14px 18px;border:1px solid #dfc9bc;border-radius:10px;background:#fff8f2;color:#6f4330;font:14px/1.7 system-ui;overflow-wrap:anywhere}

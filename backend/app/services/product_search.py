@@ -85,11 +85,22 @@ def search_rows(keyword, rows, db, actor):
         skus = [sku for sku in row["skus"] if common or literal_match(keyword, sku_text(sku))]
         if skus:
             matches.append({**row, "skus": skus})
-    if matches:
-        return matches
-    pairs = semantic_matches(keyword, rows, db, actor)
+    try:
+        pairs = semantic_matches(keyword, rows, db, actor)
+    except Exception:
+        if matches:
+            return matches
+        raise
     found = [{**row, "skus": [sku for sku in row["skus"] if (row["id"], sku["id"]) in pairs]}
              for row in rows if any((row["id"], sku["id"]) in pairs for sku in row["skus"])]
     if isinstance(pairs, dict):
         found.sort(key=lambda row: min(pairs[(row["id"], sku["id"])] for sku in row["skus"]))
-    return found
+    merged = {row['id']: row for row in matches}
+    for row in found:
+        if row['id'] in merged:
+            current = merged[row['id']]
+            existing = {sku['id'] for sku in current['skus']}
+            current['skus'].extend(sku for sku in row['skus'] if sku['id'] not in existing)
+        else:
+            merged[row['id']] = row
+    return list(merged.values())

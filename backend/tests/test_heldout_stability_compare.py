@@ -51,7 +51,8 @@ def test_tampered_answers_are_rejected_and_reveal_reports_digest(tmp_path):
 
 def test_scoring_uses_generic_probe_and_marks_not_observed(tmp_path):
     file = write_answers(tmp_path, {"H-cart-illegal-quantity": True, "H-order-shortage": False})
-    results = [{"id": "F11", "evidence": {"assertions": [{"name": "固定回归确实收集并执行且未跳过", "passed": True}]}}]
+    results = [{"id": "F11", "status": "passed", "evidence": {"suite": {"reports": [{
+        "node": heldout.HELDOUT_SUITE[0]['probe']['node'], "stage": "call", "outcome": "passed"}]}}}]
     scored = heldout.score_results(results, file)
     entries = {row["id"]: row for row in scored["entries"]}
     assert entries["H-cart-illegal-quantity"]["status"] == "matched" and entries["H-cart-illegal-quantity"]["passed"]

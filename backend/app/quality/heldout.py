@@ -21,13 +21,13 @@ DEFAULT_EXPECTATION_FILE = "data/heldout/expectations.json"
 HELDOUT_SUITE = (
     {'id': 'H-cart-illegal-quantity', 'case_id': 'F11', 'domain': 'cart',
      'goal': '用未公开的期望值检查购物车数量校验：非法与边界数量必须被拒绝且购物车不变',
-     'probe': {'kind': 'assertion', 'name': '固定回归确实收集并执行且未跳过', 'field': 'passed'}, 'compare': 'equals'},
+     'probe': {'kind': 'registered_test', 'node': 'tests/test_quality_business.py::test_cart_quantity_validation_preserves_previous_value'}, 'compare': 'equals'},
     {'id': 'H-order-shortage', 'case_id': 'F17', 'domain': 'orders',
      'goal': '用未公开的期望值检查库存不足时的下单行为',
-     'probe': {'kind': 'assertion', 'name': '固定回归确实收集并执行且未跳过', 'field': 'passed'}, 'compare': 'equals'},
+     'probe': {'kind': 'registered_test', 'node': 'tests/test_quality_business.py::test_order_reserves_exact_sku_stock_and_rejects_shortage'}, 'compare': 'equals'},
     {'id': 'H-buyer-merchant-denied', 'case_id': 'F02', 'domain': 'auth',
      'goal': '用未公开的期望值检查买家访问商家接口的权限边界',
-     'probe': {'kind': 'assertion', 'name': '固定回归确实收集并执行且未跳过', 'field': 'passed'}, 'compare': 'equals'},
+     'probe': {'kind': 'registered_test', 'node': 'tests/test_auth_security.py::test_invalid_tokens_and_database_role_are_authoritative'}, 'compare': 'equals'},
 )
 SUITE_BY_ID = {row['id']: row for row in HELDOUT_SUITE}
 
@@ -74,7 +74,9 @@ def public_view(path=None):
     answers = load_expectations(path)
     return {'sealed_digest': sealed_digest(path),
             'available': bool(answers),
-            'note': '答案不随代码发布；未提供本地答案时标记 expectation_unavailable，不计通过',
+            'expected_count': len(HELDOUT_SUITE), 'provided_count': len(answers),
+            'ready': len(answers) == len(HELDOUT_SUITE),
+            'note': f'答案已提供 {len(answers)}/{len(HELDOUT_SUITE)}；答案不随代码发布，缺失条目标记 expectation_unavailable，整集不计通过',
             'entries': [{**{key: row[key] for key in ('id', 'case_id', 'domain', 'goal')},
                          'probe': row['probe'], 'compare': row['compare'],
                          'expect_hash': expectation_hash(answers[row['id']]) if row['id'] in answers else None,
@@ -84,6 +86,15 @@ def public_view(path=None):
 
 def observed_value(result, probe):
     """从真实运行结果里取通用字段，不认识的结构直接返回 None（记为未观察）。"""
+    if probe.get('kind') == 'registered_test':
+        if result.get('status') not in {'passed', 'failed'}:
+            return None
+        reports = result.get('evidence', {}).get('suite', {}).get('reports', [])
+        selected = [row for row in reports if row.get('node') == probe.get('node')]
+        calls = [row for row in selected if row.get('stage') == 'call']
+        if not calls:
+            return None
+        return result['status'] == 'passed' and all(row.get('outcome') == 'passed' for row in selected)
     if probe.get('kind') == 'assertion':
         for assertion in result.get('evidence', {}).get('assertions', []):
             if assertion.get('name') == probe.get('name'):
@@ -119,8 +130,12 @@ def score_results(results, path=None):
                         'passed': bool(matched), 'expect_hash': expectation_hash(expect),
                         'observed_digest': sha256(canonical(observed).encode()).hexdigest()})
     scored = [row for row in entries if row['status'] != 'expectation_unavailable']
+    decision = 'not_enabled' if not scored else 'failed' if any(row['status'] == 'mismatched' for row in scored) else 'incomplete' if len(scored) < len(HELDOUT_SUITE) or any(row['status'] == 'not_observed' for row in scored) else 'passed'
     return {'sealed_digest': sealed_digest(path), 'available': bool(answers), 'entries': entries,
-            'passed': bool(scored) and all(row['passed'] for row in scored),
+            'decision': decision,
+            'expected_count': len(HELDOUT_SUITE), 'scored_count': len(scored),
+            'missing_count': len(HELDOUT_SUITE) - len(scored),
+            'passed': len(scored) == len(HELDOUT_SUITE) and all(row['passed'] for row in scored),
             'note': 'absence of the local answer file means expectation_unavailable and never counts as pass'}
 
 

@@ -188,6 +188,7 @@ def test_evaluation_accepts_multi_case_report_batch(client):
     evaluation=created.json()
     assert evaluation['source_run']==report_id
     assert evaluation['snapshot']['source']['report_batch'] is True
+    assert evaluation['snapshot']['heldout']['expected_count'] == 3
     assert [row['id'] for row in evaluation['snapshot']['source']['results']]==['RF01','RF02']
     assert evaluation['program']['decision'] in ('failed','incomplete')
     check_names=[check['name'] for check in evaluation['program']['checks']]

@@ -1,0 +1,38 @@
+.af-page{--af-ink:#293f36;--af-muted:#728075;--af-line:#dfe7dd;--af-green:#315f48;--af-soft:#f2f6ef}
+.af-page>.af-flow{margin:6px 0 26px;padding:22px 24px;background:#fffefa;border:1px solid var(--af-line);border-radius:16px}
+.af-flow-header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+.af-flow-header>strong{font-size:13px;padding:4px 10px;border-radius:6px;background:#eaf2e7;color:var(--af-green)}
+.af-flow-header>span{font-size:13px;color:var(--af-muted);line-height:1.7}
+.af-page .af-steps.qa-eval-guide{display:grid;grid-template-columns:repeat(var(--af-step-count),minmax(0,1fr));padding:0;margin:0;gap:12px;border:0;background:transparent;list-style:none}
+.af-page .af-steps .qa-eval-step{padding:0;position:relative;min-width:0}
+.af-page .af-steps button{display:flex;flex-direction:column;align-items:flex-start;position:relative;box-sizing:border-box;width:100%;height:100%;min-height:148px;padding:46px 15px 15px;text-align:left;background:var(--af-soft);border:1px solid transparent;border-radius:10px;color:var(--af-ink);font:inherit;cursor:pointer;transition:background .15s,border-color .15s}
+.af-page .af-steps button:hover{background:#eaf2e6;border-color:#b5c9b1}
+.af-page .af-steps button:focus-visible{outline:2px solid #598263;outline-offset:3px}
+.af-page .af-steps .qa-eval-number{position:absolute;left:15px;top:12px;background:transparent;width:auto;height:auto;font-weight:600;font-size:12px;line-height:22px;color:#6f8c74;border-radius:0}
+.af-page .af-steps button>strong{font-size:14px;line-height:1.6;color:var(--af-ink)}
+.af-step-copy{display:block;font-size:12px;line-height:1.75;color:var(--af-muted);margin-top:7px;overflow-wrap:anywhere}
+.af-hint{margin:16px 0 0;padding-top:14px;border-top:1px solid var(--af-line);font-size:12px;color:var(--af-muted);line-height:1.8}
+.af-page>.qa-heading{margin-top:28px;margin-bottom:16px}
+.af-page>.qa-heading h2{font-size:20px;letter-spacing:.01em;color:var(--af-ink)}
+.af-page>.qa-heading p{max-width:820px;line-height:1.8;color:var(--af-muted)}
+.af-page :is(.fi-panel,.aq-panel,.qa-card){border-color:var(--af-line);border-radius:14px}
+.af-page .qa-actions{gap:10px;flex-wrap:wrap}
+.af-page button.qa-primary,.af-page .aq-panel button.primary{background:var(--af-green);border-color:var(--af-green);color:#fff}
+.af-page :is(.fi-input,.aq-field select){border-radius:10px;border-color:#cfdbcc}
+.af-page .qa-plan-detail{scroll-margin-top:24px}
+.af-page .af-section-caption{display:block;font-size:12px;color:var(--af-muted);margin-bottom:9px}
+.af-page .fi-verdict{border-left:3px solid #8ba885;background:#f4f7f0;border-radius:0 10px 10px 0;padding:18px}
+.af-page .fi-verdict>h3{font-size:17px;margin-top:0}
+.af-page .aq-history-head,.af-page .aq-result-head{padding-bottom:14px;border-bottom:1px solid var(--af-line)}
+.af-page .qa-agent-reference,.af-page .qa-eval-fold{border-color:var(--af-line);border-radius:12px}
+.af-welcome{margin-top:20px;padding-top:18px;border-top:1px solid var(--af-line)}
+.af-welcome h3{font-size:15px;color:var(--af-ink);margin:0 0 12px}
+.af-welcome p{display:grid;grid-template-columns:104px 1fr;gap:12px;font-size:13px;margin:9px 0;line-height:1.8}
+.af-welcome p>strong{color:#536d59;font-weight:500}.af-welcome p>span{color:var(--af-muted)}
+.af-page .af-start{margin-top:10px;border:1px solid #b5c9b1;border-radius:8px;background:#f2f6ef;color:var(--af-green);padding:9px 14px;cursor:pointer;font:inherit;font-size:13px}
+.af-page .af-link{margin-left:8px;background:transparent;border-color:var(--af-line)}
+.af-manual{margin-top:16px;font-size:13px;color:var(--af-muted)}
+.af-manual summary{cursor:pointer;color:var(--af-green);padding:8px 0}.af-manual p{line-height:1.85;margin:10px 0}
+@media(max-width:640px){.af-welcome p{grid-template-columns:1fr;gap:2px}.af-page .af-start{width:100%;text-align:left;white-space:normal}.af-page .af-link{margin-left:0}}
+@media(max-width:1100px){.af-functional .af-steps.qa-eval-guide{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.af-page>.af-flow{padding:16px;border-radius:12px}.af-page .af-steps.qa-eval-guide{grid-template-columns:1fr;gap:8px}.af-page .af-steps button{min-height:0;padding:13px 14px 13px 48px}.af-page .af-steps .qa-eval-number{left:14px;top:13px}.af-flow-header{gap:8px;margin-bottom:14px}.af-step-copy{margin-top:4px}}

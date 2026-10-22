@@ -47,7 +47,8 @@ def expire_stale_scores(db,target):
         if not started: continue
         try: started_at=datetime.fromisoformat(started)
         except (TypeError,ValueError): continue
-        if started_at<cutoff:
+        effective_cutoff=utcnow()-timedelta(minutes=20) if row.model_score.get('operation')=='defect_benchmark' else cutoff
+        if started_at<effective_cutoff:
             row.status='blocked';row.model_score={**row.model_score,'status':'blocked','error':'评测执行中断；没有自动重放付费调用'};row.version+=1;changed=True
     if changed: db.commit()
 
@@ -112,7 +113,11 @@ def create(body:EvaluationIn,user=Depends(quality_user),db=Depends(get_db)):
         planning['run_ids']=[run.id for run in runs]
     report['planning']=planning
     # Persist redacted server evidence; never accept caller-provided scores or transcripts.
-    try: snapshot=snapshot_for(report,body.target)
+    try:
+        snapshot=snapshot_for(report,body.target)
+        if body.target=='functional':
+            from app.quality.heldout import score_results
+            snapshot['heldout']=score_results(report['results'])
     except ValueError as exc: raise HTTPException(422,str(exc)) from exc
     row=AgentEvaluation(id=uuid4().hex,created_by=user.id,target=body.target,source_run=body.run_id,
         snapshot=jsonable_encoder(snapshot),program=program_checks(report,body.target))
@@ -190,7 +195,24 @@ def tester_benchmark(ident:str,user=Depends(quality_user),db=Depends(get_db)):
     if claimed.rowcount!=1:raise HTTPException(409,'评测已变化')
     from app.quality.agent_evaluation import calibrate_tester
     from app.quality.worker import subprocess_job
-    calibration=calibrate_tester(subprocess_job)
+    from app.quality import queue
+    token=queue.acquire('defect-benchmark')
+    if not token:
+        db.refresh(row);row.status='blocked';row.model_score={'status':'blocked','error':'已有缺陷基准在运行'};row.version+=1
+        db.commit()
+        raise HTTPException(409,'已有缺陷基准在运行，请稍后重试')
+    def revoked():
+        db.rollback()
+        return not queue.renew('defect-benchmark',token) or not {'qa.view','qa.functional.run'}.issubset(service.capabilities(db,user.id))
+    try:
+        calibration=calibrate_tester(subprocess_job,revoked)
+    except Exception as exc:
+        db.refresh(row)
+        row.status='blocked';row.model_score={'status':'blocked','error':str(exc)};row.version+=1
+        db.commit()
+        raise HTTPException(409,'缺陷基准未完成：'+str(exc)) from exc
+    finally:
+        queue.release('defect-benchmark',token)
     scenario_rows=[{'variant':r['variant'],'case_id':r['case_id'],'title':r['title'],'defect':r['defect'],
                     'observed':r['observed'],'expected':r['expected'],'detected':r['detected'],
                     'mutation_exercised':r['mutation_exercised'],'false_positive':r['false_positive'],

@@ -36,10 +36,34 @@ def decorate_descriptors(rows):
                 evaluation_targets=['business','functional'])
             row['how_to_use']=['选择评测对象和已结束的来源运行，创建独立评测。','分别查看程序检查、模型维度评分与人工复核，展开结果/轨迹/会话证据。','新建业务Agent场景测试仍使用下方计划与审批。']
         elif row['id']=='functional':
-            row['role']='依据当前B/C真实功能目录，通过对应已登记API/UI复合工具验证功能、权限和业务状态。'
+            row['role']='依据当前B/C/OP真实功能目录，通过对应已登记API/UI复合工具验证功能、权限和业务状态。'
             row['planner_tools']=['read_test_capabilities','propose_test_plan']
             row['execution_tools']=['read_bc_features','execute_registered_case']
     return rows
+
+
+def catalog_evidence(value):
+    def feature(row):
+        result={key:row[key] for key in ('id','name','sides','rule','preconditions','verification','tools','coverage') if key in row}
+        endpoints=row.get('endpoints',row.get('entry_points',[]))
+        result['entry_points']=[{key:item[key] for key in ('id','source','source_hash','dependencies') if key in item} for item in endpoints] if row.get('tools') else []
+        if not row.get('tools'):
+            result['unselected_endpoint_count']=len(endpoints)
+            result['unselected_endpoint_digest']=digest(endpoints)
+        return result
+    result={key:item for key,item in value.items() if key not in ('contracts','bc_features')}
+    if 'contracts' in value:
+        result['contracts']=[feature(row) for row in value['contracts']]
+    if 'bc_features' in value:
+        index=value['bc_features'] or {}
+        result['bc_features']={key:index[key] for key in ('version','endpoint_count') if key in index}
+        result['bc_features']['features']=[feature(row) for row in index.get('features',[])]
+    result['projection_note']='仅静态功能目录使用契约摘要；未选择功能的入口用数量和摘要标记。源码及原始工具返回完整保存在snapshot.source。行为对话、执行参数与实际结果未截断。'
+    return result
+
+
+def trace_evidence(traces):
+    return [{**row,'result':catalog_evidence(row['result'])} if row.get('tool') in ('read_bc_features','read_test_capabilities') and isinstance(row.get('result'),dict) else row for row in traces]
 
 
 def evidence_index(report,target):
@@ -51,14 +75,17 @@ def evidence_index(report,target):
     for row in selected:
         prefix=row['id'];ev=row['evidence']
         items[prefix+':result']={'status':row['status'],'assertions':ev.get('assertions',[]),'cleanup_ok':ev.get('cleanup_ok'), 'error':ev.get('error'),'budget':ev.get('budget',{}),'duration_ms':ev.get('duration_ms')}
-        items[prefix+':trajectory']=ev.get('functional_agent',{}).get('tools',[]) if target=='functional' else [r for r in ev.get('requests',[]) if r.get('path','').endswith('/chat')]
-        items[prefix+':conversation']=ev.get('functional_agent',{}).get('conversation',[]) if target=='functional' else [{'input':r.get('input'),'output':r.get('output')} for r in ev.get('requests',[]) if r.get('path','').endswith('/chat')]
+        items[prefix+':trajectory']=trace_evidence(ev.get('functional_agent',{}).get('tools',[])) if target=='functional' else [r for r in ev.get('requests',[]) if r.get('path','').endswith('/chat')]
+        items[prefix+':conversation']=[{**r,'content':{'evidence_ref':prefix+':trajectory','tool':'read_bc_features','catalog_version':r['content'].get('catalog_version'),'projection_note':'同一静态目录返回已完整投影到轨迹证据，此处只作去重引用；原始工具会话保留在snapshot.source。'}} if r.get('role')=='tool' and r.get('name')=='read_bc_features' and isinstance(r.get('content'),dict) else r for r in ev.get('functional_agent',{}).get('conversation',[])] if target=='functional' else [{'input':r.get('input'),'output':r.get('output')} for r in ev.get('requests',[]) if r.get('path','').endswith('/chat')]
         items[prefix+':suite']=ev.get('suite',{})
         items[prefix+':observations']={'requests':ev.get('requests',[]),'facts':ev.get('facts',{}),'scenario':row.get('doc',{})}
     target_meta={k:v for k,v in report['target'].items() if k!='feature_catalog'}
     feature=report['target'].get('feature_catalog')
     target_meta['feature_catalog_version']=feature.get('version') if feature else None
-    items['plan']={'target':target_meta,'planning':report.get('planning',{})}
+    planning=report.get('planning',{})
+    if isinstance(planning.get('evidence'),dict):
+        planning={**planning,'evidence':{**planning['evidence'],'tools':trace_evidence(planning['evidence'].get('tools',[]))}}
+    items['plan']={'target':target_meta,'planning':planning}
     return items
 
 
@@ -74,6 +101,7 @@ def program_checks(report,target):
         check(p+' 具备独立断言',bool(assertions),ref)
         check(p+' 清理确认',ev.get('cleanup_ok') is True,ref)
         if target=='business':
+            check(p+' 来源任务已完成',row['status']=='passed',ref,'阻塞、取消或失败的业务来源不能被前置断言覆盖为通过')
             check(p+' 任务硬断言',all(a.get('passed') is True for a in assertions) if assertions else None,ref)
             chats=[r for r in ev.get('requests',[]) if r.get('path','').endswith('/chat')]
             check(p+' 完整输入与回答',all('message' in r.get('input',{}) and 'answer' in r.get('output',{}) for r in chats) if chats else None,[p+':conversation'])
@@ -183,7 +211,7 @@ def _scenario_result(row, outputs):
             'runs':outputs}
 
 
-def calibrate_tester(executor):
+def calibrate_tester(executor, cancelled=None):
     """同一真实功能Agent+相同复合工具，逐个缺陷场景跑正常版与注入版。
 
     runs/detected/false_positive/valid 保持为运费场景（既有口径），多场景结果在 scenarios 与 scenarios_* 中。
@@ -191,7 +219,10 @@ def calibrate_tester(executor):
     from app.quality.catalog import FUNCTIONAL_TESTS
     from app.quality.faults import SCENARIOS
     scenarios=[]
+    cancelled = cancelled or (lambda: False)
     for row in SCENARIOS:
+        if cancelled():
+            raise ValueError('缺陷基准已取消或执行授权已撤销')
         if row['case_id'] not in FUNCTIONAL_TESTS:
             scenarios.append({'variant':row['variant'],'case_id':row['case_id'],'title':row['title'],'defect':row['defect'],
                               'observed':'blocked','expected':'failed','mutation_exercised':False,'receipt':{},
@@ -199,9 +230,12 @@ def calibrate_tester(executor):
                               'error':'该场景用例未接入固定执行器，不能计入检出率'})
             continue
         spec=_calibration_spec(row)
-        outputs=[{'variant':variant,'expected':'passed' if variant=='correct' else 'failed',
-                  'observed':None,'evidence':executor({**spec,'calibration_variant':variant},lambda:False)}
-                 for variant in ('correct',row['variant'])]
+        outputs=[]
+        for variant in ('correct',row['variant']):
+            if cancelled():
+                raise ValueError('缺陷基准已取消或执行授权已撤销')
+            outputs.append({'variant':variant,'expected':'passed' if variant=='correct' else 'failed',
+                            'observed':None,'evidence':executor({**spec,'calibration_variant':variant},cancelled)})
         for entry in outputs:
             entry['observed']=entry['evidence'].get('status','blocked')
         scenarios.append(_scenario_result(row,outputs))

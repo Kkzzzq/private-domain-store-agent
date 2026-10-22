@@ -6,9 +6,10 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCES = ('auth', 'b_api', 'c_api', 'support', 'agent_actions')
+SOURCES = ('auth', 'b_api', 'c_api', 'support', 'agent_actions', 'op_api', 'op_management', 'op_governance')
 # Reviewed scenario associations, not a claim that each endpoint/branch is covered.
 DOMAINS = {
+    'platform': ('OP平台治理与完整维护', [f'F{number}' for number in range(31,44)] + ['E03','E04','E05','E06'], '平台授权、原因留痕、治理与跨端同步；仅使用本轮合成记录'),
     'auth': ('账号与身份', ['F01','F02','F03','RF11'], '登录令牌、退出撤销和商家授权按当前身份生效'),
     'products': ('商品与规格', ['F05','F06','F07','F08','F09','F10','E02','RF01','RF02','RF10','RE05','RE06'], '商品状态、规格顺序、图片和可售范围在 B/C 一致'),
     'cart': ('购物车与结算', ['F11','F12','F13','F16','E01','RF05','RE04','RE08'], '数量合法、价格运费优惠一致，拒绝后原状态不变'),
@@ -25,7 +26,7 @@ DOMAINS = {
     'history': ('浏览历史', [], '本人历史与清空隔离'),
     'uploads': ('图片上传', [], '真实文件类型、大小和资源范围校验'),
     'home': ('首页与内容', [], '已发布内容、合集、轮播和排序正确'),
-    'settings': ('店铺设置与经营', ['F13','F22'], '本店配置与经营统计基于授权数据'),
+    'settings': ('店铺设置与经营', ['F13','F22','E07'], '本店配置与经营统计基于授权数据'),
 }
 
 
@@ -34,6 +35,7 @@ def digest(value):
 
 
 def domain_for(path, source):
+    if source.startswith('op_'): return 'platform'
     if source == 'auth': return 'auth'
     if source == 'support': return 'support'
     if source == 'agent_actions': return 'proposals'
@@ -64,7 +66,7 @@ def discover():
                 domain = domain_for(path, source)
                 deps = [ast.unparse(x) for x in fn.args.defaults if isinstance(x, ast.Call) and ast.unparse(x.func) == 'Depends']
                 entries.append({'id': method+' '+path, 'method': method, 'path': path, 'domain': domain,
-                    'sides': ['B','C'] if source in ('support','auth') else ['B'] if prefix.startswith('/b') else ['C'],
+                    'sides': ['OP'] if source.startswith('op_') else ['B','C'] if source in ('support','auth') else ['B'] if prefix.startswith('/b') else ['C'],
                     'handler': fn.name, 'source': f'backend/app/api/{source}.py', 'line': fn.lineno,
                     'source_hash': sha256(ast.get_source_segment(file.read_text(encoding='utf-8-sig'), fn).encode()).hexdigest(),
                     'dependencies': deps, 'description':ast.get_docstring(fn) or fn.name,
@@ -172,6 +174,10 @@ def catalog(case_rows=None):
         routes = [r for r in endpoints if r['domain']==key]
         if not routes: continue
         tools = [active[i] for i in ids if i in active]
+        if key == 'products' and 'E08' in active: tools.append(active['E08'])
+        action_domains = {'catalog':'products','product':'products','cart':'cart','add_cart':'cart','orders':'orders'}
+        tools.extend(row for row in active.values() if row.get('adapter') == 'declarative_functional'
+                     and any(action_domains.get(step.get('action')) == key for step in row.get('definition', {}).get('steps', [])))
         # 可复用点击工具已经是登记用例，按所属功能域并入本域工具清单（页面通道）。
         tools.extend(row for row in active.values()
                      if (row.get('ui_action') or row.get('ui_flow')) and row.get('feature') == key)
@@ -180,7 +186,7 @@ def catalog(case_rows=None):
                       'environments':r.get('environments',[])} for r in tools]
         split = split_channels(tool_rows)
         features.append({'id':key,'name':name,'sides':sorted({s for r in routes for s in r['sides']}),
-            'pages': [('/b.html' if s=='B' else '/c.html') for s in sorted({s for r in routes for s in r['sides']})],
+            'pages': [('/op.html' if s=='OP' else '/b.html' if s=='B' else '/c.html') for s in sorted({s for r in routes for s in r['sides']})],
             'rule':rule,'preconditions':['匹配用户/店铺/角色','使用当前环境的合成或本轮专属测试记录'],
             'verification':['核对实际请求、响应与业务状态','页面能力需浏览器场景独立验证'],
             'endpoints':routes,'tools':tool_rows,
@@ -254,7 +260,7 @@ def planning_view(snapshot):
     features=[]
     for feature in snapshot['features']:
         row={key:value for key,value in feature.items() if key not in ('endpoints','pages','scenarios','coverage_split','cleanup','ui_actions')}
-        row['entry_points']=[{'id':r['id'],'handler':r['handler'],'dependencies':r['dependencies'],'parameters':r['parameters']} for r in feature['endpoints']]
+        row['entry_points']=[{'id':r['id'],'dependencies':r['dependencies']} for r in feature['endpoints']]
         row['coverage_split']=compact_coverage(feature['coverage_split'])
         row['scenarios']=compact_scenarios(feature['scenarios'])
         row['cleanup']=compact_cleanup(feature['cleanup'])

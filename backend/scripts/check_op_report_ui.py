@@ -150,6 +150,58 @@ def main():
             check("全链路：规划与执行都有真实模型计量",
                   (run.get("planning") or {}).get("budget", {}).get("calls", 0) > 0 and evidence.get("budget", {}).get("calls", 0) > 0,
                   json.dumps({"planning": run.get("planning"), "execute": evidence.get("budget")}, ensure_ascii=False)[:300])
+            definition = {'kind': 'functional', 'title': '新手自建：匿名购物车拒绝访问', 'steps': [
+                {'action': 'catalog', 'role': 'anonymous', 'expected_status': 200},
+                {'action': 'cart', 'role': 'anonymous', 'expected_status': 401}]}
+            candidate = operator.post('/api/v1/op/qa/cases', json=definition)
+            candidate.raise_for_status()
+            candidate = candidate.json()
+            operator.post(f"/api/v1/op/qa/cases/{candidate['id']}/approve", json={'digest': candidate['revision_digest']}).raise_for_status()
+            plan_response = operator.post('/api/v1/op/qa/plans', json={
+                'goal': '执行自建匿名购物车权限用例，先读目录再调用工具', 'kind': 'functional',
+                'case_ids': [candidate['id']], 'environment_id': 'isolated-local', 'max_calls': 20, 'max_tokens': 60000})
+            plan_response.raise_for_status()
+            custom_plan = plan_response.json()
+            for _ in range(300):
+                if custom_plan['status'] not in ('planning', 'planning_running'): break
+                time.sleep(.5)
+                custom_plan = operator.get('/api/v1/op/qa/plans/' + custom_plan['id']).json()
+            check('自建功能用例：真实模型规划成功且无未映射场景', custom_plan['status'] == 'draft'
+                  and not custom_plan['payload'].get('unmapped_cases'), custom_plan['status'])
+            operator.post(f"/api/v1/op/qa/plans/{custom_plan['id']}/approve", json={'digest': custom_plan['digest']}).raise_for_status()
+            custom_run = operator.post('/api/v1/op/qa/runs', json={'plan_id': custom_plan['id'], 'request_key': uuid4().hex}).json()
+            for _ in range(600):
+                custom_run = operator.get('/api/v1/op/qa/runs/' + custom_run['id']).json()
+                if custom_run['status'] not in ('queued', 'running'): break
+                time.sleep(.5)
+            custom_evidence = (custom_run.get('results') or [{}])[0].get('evidence', {})
+            check('自建功能用例：模型工具执行与硬断言通过', custom_run['status'] == 'completed'
+                  and custom_run['results'][0]['status'] == 'passed'
+                  and custom_evidence.get('budget', {}).get('calls', 0) > 0
+                  and bool(custom_evidence.get('functional_agent', {}).get('tools')), custom_run['status'])
+            results['diagnostics']['custom_live_run'] = {'id': custom_run['id'], 'status': custom_run['status'],
+                                                       'budget': custom_evidence.get('budget')}
+            evaluated = operator.post('/api/v1/op/qa/agent-quality/evaluations', json={
+                'target': 'functional', 'run_id': custom_run['id']})
+            evaluated.raise_for_status()
+            evaluation = evaluated.json()
+            results['diagnostics']['judge_evidence_bytes'] = {key: len(json.dumps(value, ensure_ascii=False).encode())
+                                                             for key, value in evaluation['snapshot']['evidence'].items()}
+            check('评测：隐藏集缺场景不会误判通过', evaluation['snapshot']['heldout']['decision'] in ('not_enabled', 'incomplete'), '')
+            scored = operator.post(f"/api/v1/op/qa/agent-quality/evaluations/{evaluation['id']}/model-score", timeout=100)
+            scored.raise_for_status()
+            scoring = scored.json()['model_score']
+            results['diagnostics']['live_judge'] = {'id': evaluation['id'], 'status': scoring.get('status'), 'budget': scoring.get('budget'), 'error': scoring.get('error')}
+            check('评测：独立模型真实调用并保留维度结论', scoring.get('status') in ('completed', 'needs_review')
+                  and scoring.get('budget', {}).get('calls', 0) > 0, scoring.get('error') or scoring.get('status'))
+            results['diagnostics']['live_judge'] = {'id': evaluation['id'], 'status': scoring.get('status'), 'budget': scoring.get('budget')}
+            dialogue = operator.post('/api/v1/op/qa/business-debug', timeout=120, json={
+                'role': 'customer', 'messages': ['查询本店陶瓷马克杯有哪些可售规格和库存'], 'confirmed': True})
+            dialogue.raise_for_status()
+            business = dialogue.json()
+            check('业务：购物问题真实调用模型与工具完成', business['status'] == 'completed'
+                  and business['evidence'].get('budget', {}).get('calls', 0) > 0, business.get('evidence', {}).get('error'))
+            results['diagnostics']['live_business'] = {'id': business['id'], 'status': business['status'], 'budget': business['evidence'].get('budget')}
 
         if args.defect_benchmark:
             # 该基准确认过会由诊断子进程重置浏览器 harness 自己的库（子进程与父进程共用同一个 SQLite 文件），
@@ -366,7 +418,7 @@ def main():
                 results["diagnostics"]["coverage_summaries"] = summaries[:6]
                 results["diagnostics"]["feature_map"] = feature_text[:400]
                 check("功能页展示代码同源的 B/C 功能依据与覆盖情况",
-                      "B/C 功能依据与执行工具" in feature_text and ("接口覆盖" in feature_text and "页面覆盖" in feature_text), feature_text[:200])
+                      "B / C / OP 功能依据与执行工具" in feature_text and ("接口覆盖" in feature_text and "页面覆盖" in feature_text), feature_text[:200])
                 check("功能页把接口覆盖与页面覆盖分开列出", len(summaries) >= 5, str(summaries[:4]))
                 check("页面覆盖既有已登记场景也有未覆盖的域",
                       any(re.search(r"页面覆盖 [1-9]\d* 条", text) for text in summaries)
@@ -386,6 +438,57 @@ def main():
                       and "点击商品卡片进入详情" in raw_text, raw_text[:300])
                 check("点击工具区分可用与待验证",
                       "个可用" in raw_text or "待验证" in raw_text, raw_text[:200])
+                for agent, count in [('business', 3), ('functional', 4), ('evaluator', 3)]:
+                    page.goto(origin + '/op.html#/testing/' + agent)
+                    flow = page.locator('.af-flow')
+                    expect(flow).to_be_visible()
+                    check(agent + ' 首次使用说明默认可见', flow.get_by_text('第一次使用，从这里开始', exact=True).is_visible(), '')
+                    flow.locator('.af-manual summary').click()
+                    check(agent + ' 功能费用与失败说明可展开', '状态怎么看' in flow.locator('.af-manual').inner_text(), '')
+                    flow.locator('.af-manual summary').click()
+                    check(agent + ' 页面显示明确步骤数', flow.locator('.af-step-button').count() == count, count)
+                    if agent in ('business', 'functional'):
+                        control = page.locator('.ae-dialogue select').first if agent == 'business' else page.locator('.fi-input')
+                        expect(control).to_be_visible()
+                        if control.is_disabled() and agent == 'business':
+                            control = page.locator('.ae-dialogue textarea')
+                        flow.locator('.af-step-button').first.click()
+                        expect(control).to_be_focused()
+                        check(agent + ' 第一步准确定位输入控件', True, '')
+                    flow.locator('.af-step-button').last.click()
+                    check(agent + ' 流程定位给出下一步说明', bool(flow.locator('.af-hint').inner_text().strip()), '')
+                    if agent == 'functional':
+                        flow.get_by_role('button', name='填入一个示例，先不运行', exact=True).click()
+                        check('新手示例只填入需求，不自动执行', '购物车' in page.locator('.fi-input').input_value()
+                              and '未产生模型调用' in flow.locator('.af-hint').inner_text(), '')
+                        flow.locator('.af-step-button').nth(1).click()
+                        check('无分析结果时明确提示先分析需求', '先点击' in flow.locator('.af-hint').inner_text(), '')
+                        page.evaluate("""() => {
+                          const original = window.fetch;
+                          window.fetch = (url, options) => String(url).endsWith('/functional-intake') && options?.method === 'POST'
+                            ? new Promise(resolve => { window.finishIntakeFixture = () => resolve(new Response(JSON.stringify({
+                              id:'ui-control-fixture', status:'blocked', error:'仅验证界面状态的合成夹具', verdict:{feasible:false},
+                              requirement:'购物车权限验证', environment_id:'isolated-local', catalog_version:'ui-only'
+                            }), {status:201, headers:{'content-type':'application/json'}})); }) : original(url, options);
+                        }""")
+                        page.get_by_role('button', name='分析需求并匹配用例', exact=True).click()
+                        expect(page.locator('.fi-input')).to_be_disabled()
+                        expect(page.get_by_label('测试环境', exact=True)).to_be_disabled()
+                        before = page.locator('.fi-input').input_value()
+                        page.locator('.fi-examples button').first.click()
+                        check('分析中禁止改需求与重复提交', page.locator('.fi-input').input_value() == before
+                              and page.get_by_role('button', name='分析需求并匹配用例', exact=True).is_disabled(), '')
+                        page.evaluate('window.finishIntakeFixture()')
+                        expect(page.locator('.fi-input')).to_be_enabled()
+                        expect(page.locator('.fi-verdict')).to_be_visible()
+                        page.locator('.fi-input').fill('修改后的新需求需要重新分析')
+                        check('修改需求后旧判断和旧计划入口失效', page.locator('.fi-result').inner_text() == '', '')
+                    for width in [1440, 390]:
+                        page.set_viewport_size({'width': width, 'height': 1000})
+                        check(agent + ' 流程引导无横溢出 ' + str(width),
+                              flow.evaluate('node => node.scrollWidth <= node.clientWidth'), '')
+                        flow.screenshot(path=str(artifacts / (agent + '-flow-' + str(width) + '.png')))
+                    page.set_viewport_size({'width': 1440, 'height': 1000})
                 check("页面无 JS 错误（含双对象评测与功能地图）", not errors, errors)
                 context.close()
             finally:

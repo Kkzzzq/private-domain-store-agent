@@ -31,10 +31,10 @@ window.OPAgentQuality=(()=>{
     const clearError=()=>{errorNode?.remove();errorNode=null;};
     const job=async(button,fn)=>{button.disabled=true;try{await fn();}catch(err){error(err);}finally{button.disabled=false;}};
     if(id==='functional'){
-      host.append(el('h3','B/C 功能依据与执行工具'),el('p','目录来自实际代码。已关联场景不代表全部分支覆盖；模型必须先读功能目录，再调用批准的复合测试工具。'));
+      host.append(el('h3','B / C / OP 功能依据与执行工具'),el('p','目录来自实际代码，平台治理单独标记为 OP。已关联场景不代表全部分支覆盖；模型必须先读功能目录，再调用批准的复合测试工具。'));
       api('/agent-quality/features').then(catalog=>{
         if(!live())return;
-        const side=select('功能所属端',[['all','B 与 C'],['B','商家 B 端'],['C','买家 C 端']]),list=el('div');
+        const side=select('功能所属端',[['all','全部：B / C / OP'],['B','商家 B 端'],['C','买家 C 端'],['OP','平台 OP 端']]),list=el('div');
         host.append(el('p',`发现 ${catalog.endpoint_count} 个接口入口 · 目录 ${catalog.version.slice(0,12)} · 可复用点击工具 ${catalog.ui_actions?.counts?.ready??0} 个可用 / ${catalog.ui_actions?.counts?.unverified??0} 个待验证`),detail('B/C 前端实际入口与版本',catalog.frontend),detail('可复用点击工具库（Agent 只需组合调用）',catalog.ui_actions),side,list);
         const paint=()=>{list.replaceChildren();for(const feature of catalog.features.filter(f=>side.value==='all'||f.sides.includes(side.value))){
           const split=feature.coverage_split||{},counts=channel=>(split[channel]?.case_ids||[]).length;
@@ -101,7 +101,14 @@ window.OPAgentQuality=(()=>{
       if(Object.keys(row.model_score).length)content.append(detail('模型各维度分数、证据引用与用量',row.model_score));
       for(const dimension of row.model_score.dimensions||[])content.append(el('p',`${dimensionNames[dimension.dimension]||dimension.dimension}：${dimension.score==null?'未观察':dimension.score+'/4'} · ${dimension.reason} · 证据 ${dimension.evidence_ids.join('、')||'无'}`));
       if(row.target==='functional'){
-        const calibrate=btn('用正常版与缺陷版评测测试 Agent',()=>job(calibrate,async()=>show(await api(`/agent-quality/evaluations/${row.id}/defect-benchmark`,{}))));
+        if(row.snapshot.heldout){
+          const hidden=row.snapshot.heldout,states={not_enabled:'未启用：管理员尚未配置答案',incomplete:'证据不足：答案或来源场景不完整',failed:'存在不匹配项',passed:'当前隐藏集核验通过'};
+          content.append(el('h4','隐藏集对照（独立结论）'),el('p',`${states[hidden.decision]||'待确认'} · 已提供答案 ${hidden.scored_count??0}/${hidden.expected_count??0}。此结论不替代程序核验、模型评分或人工复核。`),detail('隐藏集逐条状态与摘要',hidden));
+        }
+        const calibrate=btn('用正常版与缺陷版评测测试 Agent',()=>job(calibrate,async()=>{
+          if(!await window.OPDialogs.confirm('将在独立合成环境执行4个场景的正常版与缺陷版，共8次执行；最多32次模型调用、480000 tokens，可能等待数分钟。不修改实际店铺，撤销权限后会停止。确认运行？'))return;
+          show(await api(`/agent-quality/evaluations/${row.id}/defect-benchmark`,{}));
+        }));
         content.append(el('p','基准在独立合成环境为每个已知缺陷场景各跑正常版与注入版两次真实模型与真实复合工具，不修改实店；只看这些场景的检出与误报，不代表全站检出率。'),calibrate);
         for(const item of (row.snapshot.calibration||{}).scenarios||[])content.append(el('p',`${item.detected?'检出':item.false_positive?'正常版误报':'未检出'} · ${item.title}（${item.defect}）· 用例 ${item.case_id} · 注入执行 ${item.mutation_exercised?'已确认':'未确认'}`));
         if(row.snapshot.calibration)content.append(detail('功能测试 Agent 缺陷基准证据（逐场景正常/注入两次执行）',row.snapshot.calibration));
