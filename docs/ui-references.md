@@ -6,7 +6,7 @@
 
 商品标签统一：参考 [shadcn/ui Badge](https://github.com/shadcn-ui/ui/blob/main/apps/v4/registry/new-york-v4/ui/badge.tsx) 的内容适宽、胶囊轮廓和紧凑内边距，独立实现 `web/product-labels.css`。B/C两端共用，覆盖商品卡标签、详情折扣及后台自定义标签预览，保留商家颜色。首页、合集和浏览记录均复用productCard；折扣格式统一X折，整数去掉小数零。
 
-2026-10-19 第二轮详情精修：进一步检查 [Saleor Paper Storefront](https://github.com/saleor/storefront)（GitHub页面约1.6k星；源码最新提交 `dcf6f9c`，2026-10-14）。具体参考 `src/styles/brand.css` 的近白/柔灰表面、低阴影和统一边框，以及 `src/ui/components/pdp/variant-selection/variant-name-selector.tsx` 的规格选中态与焦点处理。独立编写暖白画廊、细线价格区、稳定宽度的规格勾选、双列服务项及按钮阴影，没有复制源码或引入运行依赖。本地只读参考仓库位于 `D:/qiuzhao/ui-reference-saleor-20261019`。
+2026-10-19 第二轮详情精修：进一步检查 [Saleor Paper Storefront](https://github.com/saleor/storefront)（GitHub页面约1.6k星；源码最新提交 `dcf6f9c`，2026-10-14）。具体参考 `src/styles/brand.css` 的近白/柔灰表面、低阴影和统一边框，以及 `src/ui/components/pdp/variant-selection/variant-name-selector.tsx` 的规格选中态与焦点处理。独立编写暖白画廊、细线价格区、稳定宽度的规格勾选、双列服务项及按钮阴影，没有复制源码或引入运行依赖。本地只读参考仓库位于 `D:/qiuzhao/Project/ui-reference-saleor-20261019`。
 
 2026-10-19 商品详情购买区调整：参考 [shadcn/ui](https://github.com/shadcn-ui/ui) 的紧凑徽章、边框与选中态（查询时 125,943 星，最近推送 2026-10-19），以及 [Vercel Commerce 的商品描述组件](https://github.com/vercel/commerce/blob/main/components/product/product-description.tsx) 的标题与价格分组。自行实现局部 CSS 与 DOM，没有引入组件依赖。售价 42px，折扣及优惠 15px，节省金额随 SKU 更新；数量行横排，减少区块间距。样式在 `web/store-background.css`，逻辑在 `web/c.js`。
 
