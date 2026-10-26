@@ -163,7 +163,18 @@ def run(ctx, cid):
             elif cid == "RE20":
                 product = ctx.fixture()
                 pid = product["id"]
-                ctx.call("POST", "/c/shops/nanzhi/cart", ctx.buyer, {"sku_id": product["skus"][0]["id"], "quantity": 1})
+                cart = ctx.call("POST", "/c/shops/nanzhi/cart", ctx.buyer, {"sku_id": product["skus"][0]["id"], "quantity": 1})
+                item_id = cart["items"][0]["id"]
+                ctx.call("PATCH", f"/c/cart/{item_id}", ctx.buyer, {"quantity": 3})
+                ctx.call("PATCH", f"/b/skus/{product['skus'][0]['id']}", ctx.merchant, {"stock": 2})
+                navigate(ctx.origin + "/c.html?code=nanzhi#/cart")
+                quantity = page.locator(".cart-row .qty").first
+                expect(quantity.locator("button").first).to_be_enabled()
+                expect(quantity.locator("button").last).to_be_disabled()
+                with page.expect_response(lambda r: f"/c/cart/{item_id}" in r.url and r.request.method == "PATCH") as response:
+                    quantity.locator("button").first.click()
+                fresh = response.value.json()["items"][0]
+                ctx.e.check("库存下降后仍可减量恢复可购买", response.value.status == 200 and fresh["quantity"] == 2 and fresh["available"])
                 navigate(ctx.origin + f"/c.html?code=nanzhi#/product/nanzhi/{pid}")
                 expect(page.locator(".detail .info .sku-list button")).to_have_count(2)
                 for sku in product["skus"]:
