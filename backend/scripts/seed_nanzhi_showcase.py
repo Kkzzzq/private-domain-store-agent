@@ -41,7 +41,7 @@ def seed(db,shop_id):
         p=Product(shop_id=shop_id,name='【演示】'+title,description='全管理页多状态演示，非真实交易；'+BATCH,status='on' if i<8 else 'off' if i!=9 else 'draft',category='演示家居',image_url=image,limit_per_user=5 if i==4 else 0,sort_order=950+i)
         db.add(p);db.flush();products.append(p)
         for v in range(3):
-            s=Sku(product_id=p.id,spec=['标准装','礼盒装','停售规格'][v],price_cents=2900+i*500+v*300,stock=0 if i==6 else 2 if i==7 else 100,status='off' if v==2 else 'on',image_url=image,sort_order=v)
+            s=Sku(spu_id=p.id,spec=['标准装','礼盒装','停售规格'][v],price_cents=2900+i*500+v*300,stock=0 if i==6 else 2 if i==7 else 100,status='off' if v==2 else 'on',image_url=image,sort_order=v)
             db.add(s);db.flush();skus.append(s)
     coupons=[]
     for name,start,end,enabled,count in [('可领取满减',-1,60,True,100),('即将开始',3,60,True,100),('历史过期',-30,-1,True,100),('主动停用',-1,60,False,100),('名额已领完',-1,60,True,2),('订单核销与释放',-1,60,True,100)]:
@@ -89,7 +89,7 @@ def verify(db,shop_id):
     for o in orders:
         discount=db.scalar(select(CouponOrder.discount_cents).where(CouponOrder.order_id==o.id)) or 0
         assert o.shop_id==shop_id and o.total_cents==sum(i.price_cents*i.quantity for i in o.items)+o.freight_cents-discount,'订单金额或店铺不一致'
-        assert all(db.get(Sku,i.sku_id).product_id==i.product_id and db.get(Product,i.product_id).shop_id==shop_id for i in o.items),'订单规格归属不一致'
+        assert all(db.get(Sku,i.sku_id).spu_id==i.product_id and db.get(Product,i.product_id).shop_id==shop_id for i in o.items),'订单规格归属不一致'
     ids=[o.id for o in orders]
     shipments=dict(db.execute(select(Shipment.status,func.count()).where(Shipment.order_id.in_(ids)).group_by(Shipment.status)).all())
     sales=dict(db.execute(select(AfterSale.status,func.count()).where(AfterSale.order_id.in_(ids)).group_by(AfterSale.status)).all())
@@ -124,7 +124,7 @@ def govern(info,operator_id,origin):
             with SessionLocal() as db:r=db.get(AccountRestriction,uid);disabled=bool(r and r.disabled)
             if not disabled:post(f'/op/governance/accounts/{uid}',{'action':'disable','reason':'【演示】禁用样例 '+BATCH})
             with SessionLocal() as db:
-                sku=db.scalar(select(Sku).where(Sku.product_id==info['product_ids'][7]).order_by(Sku.id.desc()));sku_id=sku.id;sku_banned=sku.status=='banned'
+                sku=db.scalar(select(Sku).where(Sku.spu_id==info['product_ids'][7]).order_by(Sku.id.desc()));sku_id=sku.id;sku_banned=sku.status=='banned'
             if not sku_banned:post(f'/op/governance/skus/{sku_id}',{'action':'ban','reason':'【演示】单规格禁售样例 '+BATCH})
             pid=info['product_ids'][10]
             with SessionLocal() as db:banned=db.get(Product,pid).status=='banned'

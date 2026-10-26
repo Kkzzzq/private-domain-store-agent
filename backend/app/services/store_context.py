@@ -45,6 +45,11 @@ def collect_records(db, actor, topic):
         from app.agent.merchant_manual import help_records
         return help_records()
     records = []
+    buyer_views = {}
+    if not merchant and topic in {"settings", "reviews"}:
+        from app.services.c_projection import sync_shop, view_rows
+        sync_shop(db, actor.shop_id)
+        buyer_views = {view.spu_id: view for view in view_rows(db, actor.shop_id)}
     if topic == "settings":
         config = storefront_settings(shop).model_dump()
         public = {key: config[key] for key in ("free_shipping_yuan", "base_freight_yuan", "dispatch_text", "return_text") if key in config}
@@ -61,7 +66,7 @@ def collect_records(db, actor, topic):
             for item in db.scalars(query.order_by(model.sort_order, model.id)).all():
                 data = {column.name: getattr(item, column.name) for column in model.__table__.columns if column.name not in {"shop_id", "nickname"}}
                 if isinstance(item, Section):
-                    data["product_ids"] = [entry.product_id for entry in item.items if merchant or (entry.product and listed_on_c(entry.product))]
+                    data["product_ids"] = [entry.product_id for entry in item.items if merchant or entry.product_id in buyer_views]
                 if not merchant:
                     data = {key: value for key, value in data.items() if key not in {"sort_order", "enabled", "source"}}
                 records.append(record(f"{model.__tablename__}-{item.id}", label + json.dumps(data, ensure_ascii=False), {"类型": label, **data}))
@@ -91,9 +96,9 @@ def collect_records(db, actor, topic):
         if not merchant:
             query = query.where(~Review.id.in_(select(ReviewRestriction.review_id).where(ReviewRestriction.hidden.is_(True))))
         for review in db.scalars(query.order_by(Review.id.desc())).all():
-            if not merchant and not listed_on_c(review.product):
+            if not merchant and review.product_id not in buyer_views:
                 continue
-            data = {"类型": "真实购买评价", "商品": review.product.name, "product_id": review.product_id,
+            data = {"类型": "真实购买评价", "商品": review.product.name if merchant else buyer_views[review.product_id].payload["name"], "product_id": review.product_id,
                     "sku_id": review.order_item.sku_id, "规格": review.order_item.sku_spec,
                     "评分": review.rating, "评价": clean_text(review.content)}
             records.append(record(review.id, json.dumps(data, ensure_ascii=False), data))
@@ -102,16 +107,13 @@ def collect_records(db, actor, topic):
                 data = {"类型": "商家维护的展示反馈（不是订单评价）", "评分": item.rating, "内容": clean_text(item.content)}
                 records.append(record(f"testimonial-{item.id}", json.dumps(data, ensure_ascii=False), data))
     elif topic == "cart":
-        query = select(CartItem).where(CartItem.shop_id == actor.shop_id, CartItem.user_id == actor.user_id)
-        for item in db.scalars(query.order_by(CartItem.id.desc())).all():
-            sku = item.sku
-            if sku.product.shop_id != actor.shop_id:
-                continue
-            data = {"product_id": sku.product_id, "sku_id": sku.id, "商品": sku.product.name, "规格": sku.spec,
-                    "数量": item.quantity, "单价": yuan(sku.price_cents), "商品小计": yuan(sku.price_cents * item.quantity),
-                    "当前可购买": listed_on_c(sku.product) and sku.status == "on" and sku.stock >= item.quantity,
-                    "图片": sku.image_url or sku.product.image_url}
-            records.append(record(item.id, f"购物车 {sku.product.name} {sku.spec}", data))
+        from app.services.trade import cart_items
+        for item in cart_items(db, actor.user_id, shop):
+            data = {"product_id": item["product_id"], "sku_id": item["sku_id"], "商品": item["product_name"],
+                    "规格": item["spec"], "数量": item["quantity"], "单价": item["price_yuan"],
+                    "商品小计": round(item["price_yuan"] * item["quantity"], 2),
+                    "当前可购买": item["available"], "图片": item["image_url"]}
+            records.append(record(item["id"], f"购物车 {item['product_name']} {item['spec']}", data))
     elif topic in {"orders", "aftersales"}:
         query = select(Order).where(Order.shop_id == actor.shop_id)
         if not merchant:

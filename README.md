@@ -58,16 +58,28 @@ Homepage customization covers carousel uploads and ordering, product sections, r
 
 ![Merchant business overview](docs/screenshots/admin-dashboard.png)
 
-### Shared Data, Consistent Orders
+### Three Layers: SPU, SKU, and a Buyer-Side Wide Table
 
-Both interfaces read the same `products` and `skus` tables. Product status controls visibility and purchase eligibility. Order items preserve names, variants, and unit prices as snapshots, so later catalog edits do not rewrite purchase history.
+`products` is the SPU table and the authority: name, category, images, status, sales count, purchase limit, and the customer-facing `spu_id`. `skus` holds per-variant price, stock, image, parameters, and points back to its SPU through `spu_id`. Merchant and operations interfaces read and write these two tables directly, so what they see is always the real value.
+
+Buyer-facing product display (home, collections, detail, category filters, search, browsing history, cart, current order images) come from `c_product_views`, one row per SPU holding the assembled card payload. Draft is a status value on the SPU, not a separate table; drafts are not projected at all, so a buyer-side query cannot leak one even if a filter is forgotten.
+
+```text
+products (SPU, authoritative) ──┐
+skus (SKU, spu_id → products.id)┴─→ c_product_views (buyer-side wide table) → buyer pages
+```
+
+The projection is derived data, refreshed three ways: every catalog write (including category renames and tag edits) refreshes the affected rows, before serving the catalog cache, buyer reads check each SPU's display fields and complete SKU payload (including stock, status, images, and parameters) and rebuild any row whose hash moved, and startup rebuilds the whole table. Content is hashed because timestamps only reach the second on MySQL — an edit landing in the same second as the last refresh would otherwise go unnoticed. Shop suspension stays a read-path check rather than a stored field, so freezing a shop takes effect immediately.
+
+Order items preserve names, variants, and unit prices as snapshots, so later catalog edits do not rewrite purchase history. Checkout validates authoritative SKU prices and stock. Stock reservation, cancellation/expiry restoration, and payment sales updates refresh the projection in the same database transaction. Product catalog writes refresh projections explicitly; source tables are also consulted for projection freshness checks, rather than used to assemble buyer display responses.
 
 Unpaid orders expire after 30 minutes. A scheduled sweep runs every 60 seconds to cancel expired orders and restore stock. Product-tag associations use IDs, while category renames update assigned products.
 
 ```text
-Merchant → Store → Products → SKUs
-                 → Categories and product tags
-Buyer → Orders → Order items → Product / SKU snapshots
+Merchant / Operations → Store → products (SPU) → skus
+                                → Categories and product tags
+Buyer → c_product_views (wide table)
+      → Orders → Order items → Product / SKU snapshots
       → Cross-store browsing history in Redis
 ```
 

@@ -8,8 +8,17 @@ from app.db.redis_client import get_redis
 from app.models.tables import Product, ProductTagLink, Shop, ShopAssistantProfile, Sku, SkuParameterProfile, User
 from app.services.assistant_identity import assistant_name
 from app.schemas.dto import ProductIn, ProductUpdate, ShopUpdate, SkuIn, SkuUpdate
+from app.services.c_projection import (
+    listed_categories,
+    refresh_product,
+    refresh_shop,
+    serialize_c,
+    sync_shop,
+    view_row,
+    view_rows,
+)
 from app.services.reviews import rating_map
-from app.services.shelf import assert_merchant_editable, listed_on_c, next_status, ordered_skus, visible_skus
+from app.services.shelf import assert_merchant_editable, next_status, ordered_skus, visible_skus
 from app.services.tags import sync_product_tags, tags_of
 from app.services.governance import shop_open, shop_blocked
 
@@ -125,6 +134,10 @@ def serialize_product(
     audience: str,
     ratings: dict[int, tuple[float, int]] | None = None,
 ) -> dict:
+    """商家端与平台端直接从 SPU/SKU 权威表序列化，拿到的是实时值。
+
+    买家端不调用这里：C 端读的是 c_projection 生成的宽表。
+    """
     if audience == "c":
         skus = visible_skus(product)
         sku_rows = [serialize_sku(sku, purchasable=sku.stock > 0) for sku in skus]
@@ -135,6 +148,7 @@ def serialize_product(
     tags = tags_of(product)
     return {
         "id": product.id,
+        "spu_id": product.spu_id,
         "shop_id": product.shop_id,
         "name": product.name,
         "category": product.category,
@@ -223,6 +237,8 @@ def update_shop(db: Session, user: User, body: ShopUpdate) -> dict:
         shop.promises = json.dumps(aligned, ensure_ascii=False)
     db.commit()
     db.refresh(shop)
+    # 店铺名/营业状态也会进投影，整店刷一次
+    refresh_shop(db, shop.id)
     invalidate_catalog_cache()
     return serialize_shop(shop)
 
@@ -248,26 +264,16 @@ def list_c_products(
     offset: int = 0,
     limit: int | None = None,
 ) -> list[dict]:
+    """买家端商品列表：展示数据全部来自 C 端宽表，先检查投影版本再读取缓存。"""
     shop = shop_by_code(db, share_code)
+    # 店铺营业状态必须在读缓存之前判断，平台冻结店铺才能立刻生效
     if not shop_open(shop):
         return []
     cache_key = f"cache:c-products:{shop.id}:{category or '-'}:{keyword or '-'}:{sort or 'default'}"
+    sync_shop(db, shop.id)
     cached = get_redis().get_json(cache_key)
     if cached is None:
-        products = db.scalars(_product_query().where(Product.shop_id == shop.id)).unique().all()
-        visible = [product for product in products if listed_on_c(product)]
-        if category:
-            visible = [product for product in visible if product.category == category]
-        if keyword:
-            visible = [product for product in visible if keyword in product.name or keyword in product.category]
-        ratings = rating_map(db, [product.id for product in visible])
-        data = [serialize_product(product, audience="c", ratings=ratings) for product in visible]
-        if sort == "price_asc":
-            data.sort(key=lambda item: item["price_from"] or 0)
-        elif sort == "price_desc":
-            data.sort(key=lambda item: item["price_from"] or 0, reverse=True)
-        elif sort == "sales":
-            data.sort(key=lambda item: item["sales_count"], reverse=True)
+        data = [serialize_c(view) for view in view_rows(db, shop.id, keyword=keyword, category=category, sort=sort)]
         get_redis().set_json(cache_key, data, ex=60)
         cached = data
     rows = list(cached)
@@ -281,26 +287,27 @@ def list_categories(db: Session, share_code: str) -> list[str]:
     from app.services.categories import shop_category_names
 
     shop = shop_by_code(db, share_code)
+    if not shop_open(shop):
+        return []
+    sync_shop(db, shop.id)
+    used = listed_categories(db, shop.id)
     registered = shop_category_names(db, shop)
     if registered:
-        used = {product["category"] for product in list_c_products(db, share_code)}
         return [name for name in registered if name in used] + [name for name in used if name and name not in registered]
-    names: list[str] = []
-    for product in list_c_products(db, share_code):
-        if product["category"] and product["category"] not in names:
-            names.append(product["category"])
-    return names
+    return used
 
 
 def get_c_product(db: Session, share_code: str, product_id: int, user: User | None = None) -> dict:
     from fastapi import HTTPException
 
     shop = shop_by_code(db, share_code)
-    product = db.scalars(_product_query().where(Product.id == product_id, Product.shop_id == shop.id)).unique().one_or_none()
-    if product is None or not listed_on_c(product):
+    if not shop_open(shop):
         raise HTTPException(status_code=404, detail="没有找到这个商品")
-    ratings = rating_map(db, [product.id])
-    return serialize_product(product, audience="c", ratings=ratings)
+    sync_shop(db, shop.id)
+    view = view_row(db, shop.id, product_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="没有找到这个商品")
+    return serialize_c(view)
 
 
 def dashboard(db: Session, user: User) -> dict:
@@ -384,6 +391,7 @@ def create_product(db: Session, user: User, body: ProductIn) -> dict:
     sync_product_tags(db, product, body.tag_names)
     db.commit()
     saved = _owned_product(db, user, product.id)
+    refresh_product(db, product.id)
     invalidate_catalog_cache()
     return serialize_product(saved, audience="b")
 
@@ -398,6 +406,7 @@ def add_sku(db: Session, user: User, product_id: int, body: SkuIn) -> dict:
     row.sort_order = max((sku.sort_order or 0 for sku in product.skus), default=0) + 1
     product.skus.append(row)
     db.commit()
+    refresh_product(db, product_id)
     invalidate_catalog_cache()
     return serialize_product(_owned_product(db, user, product_id), audience="b")
 
@@ -424,6 +433,7 @@ def update_product(db: Session, user: User, product_id: int, body: ProductUpdate
         from app.services.categories import register_category_name
 
         register_category_name(db, product.shop_id, product.category)
+    refresh_product(db, product_id)
     invalidate_catalog_cache()
     return serialize_product(_owned_product(db, user, product_id), audience="b")
 
@@ -437,6 +447,7 @@ def change_product_status(db: Session, user: User, product_id: int, action: str)
         raise HTTPException(400, "请至少添加一个可售规格，再完成创建或上架")
     product.status = next_status(product.status, action)
     db.commit()
+    refresh_product(db, product_id)
     invalidate_catalog_cache()
     return serialize_product(_owned_product(db, user, product_id), audience="b")
 
@@ -471,8 +482,9 @@ def update_sku(db: Session, user: User, sku_id: int, body: SkuUpdate) -> dict:
     if body.stock is not None:
         sku.stock = body.stock
     db.commit()
+    refresh_product(db, sku.spu_id)
     invalidate_catalog_cache()
-    return serialize_product(_owned_product(db, user, sku.product_id), audience="b")
+    return serialize_product(_owned_product(db, user, sku.spu_id), audience="b")
 
 
 def change_sku_status(db: Session, user: User, sku_id: int, action: str) -> dict:
@@ -482,15 +494,16 @@ def change_sku_status(db: Session, user: User, sku_id: int, action: str) -> dict
         raise HTTPException(403, "禁售与解禁只能由平台处理")
     sku.status = next_status(sku.status, action)
     db.commit()
+    refresh_product(db, sku.spu_id)
     invalidate_catalog_cache()
-    return serialize_product(_owned_product(db, user, sku.product_id), audience="b")
+    return serialize_product(_owned_product(db, user, sku.spu_id), audience="b")
 
 
 def reorder_skus(db: Session, user: User, product_id: int, ordered_ids: list[int]) -> dict:
     product = _owned_product(db, user, product_id)
     assert_merchant_editable(product)
     db.execute(select(Product.id).where(Product.id == product.id).with_for_update()).all()
-    rows = db.scalars(select(Sku).where(Sku.product_id == product.id).with_for_update()).all()
+    rows = db.scalars(select(Sku).where(Sku.spu_id == product.id).with_for_update()).all()
     by_id = {row.id: row for row in rows}
     if len(set(ordered_ids)) != len(rows) or len(ordered_ids) != len(rows) or set(ordered_ids) != set(by_id):
         raise HTTPException(409, "规格列表已变化或包含其他商品规格，请刷新后重试")
@@ -500,6 +513,7 @@ def reorder_skus(db: Session, user: User, product_id: int, ordered_ids: list[int
         by_id[row_id].sort_order = index + 1
     db.commit()
     db.expire_all()
+    refresh_product(db, product_id)
     invalidate_catalog_cache()
     return serialize_product(_owned_product(db, user, product_id), audience="b")
 
@@ -514,18 +528,17 @@ def load_sku_for_shop(db: Session, shop_id: int, sku_id: int) -> Sku | None:
 
 
 def search_on_sale(db: Session, shop_id: int, keyword: str, limit: int = 5) -> str:
-    products = db.scalars(_product_query().where(Product.shop_id == shop_id).limit(limit * 4)).unique().all()
+    """助手侧在售商品查询，读的是 C 端宽表，口径与买家看到的一致。"""
+    sync_shop(db, shop_id)
     word = keyword.strip()
+    views = view_rows(db, shop_id, keyword=word, listed_only=True)[: limit * 4]
     lines = []
-    for product in products:
-        if not listed_on_c(product):
-            continue
-        if word not in product.name and word not in product.category:
-            continue
+    for view in views:
+        row = serialize_c(view)
         sku_text = "；".join(
-            f"{sku.spec} ¥{yuan(sku.price_cents):.2f} 库存{sku.stock}" for sku in visible_skus(product)
+            f"{sku['spec']} ¥{sku['price_yuan']:.2f} 库存{sku['stock']}" for sku in row["skus"]
         )
-        lines.append(f"{product.name}（商品id {product.id}，{product.category}）：{sku_text}")
+        lines.append(f"{row['name']}（商品id {row['id']}，{row['category']}）：{sku_text}")
     if not lines:
         return f"没有找到在售商品：{keyword}"
     return "在售商品：\n" + "\n".join(lines)

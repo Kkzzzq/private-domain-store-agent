@@ -118,6 +118,8 @@ def update_shop(shop_id: int, body: ShopUpdate, actor: User = Depends(require_op
     row.name, row.notice, row.status = body.name.strip(), body.notice.strip(), body.status
     audit(db, actor, 'shop', row.id, 'update_shop', body.reason.strip())
     db.commit()
+    from app.services.c_projection import refresh_shop
+    refresh_shop(db, row.id)
     invalidate_catalog_cache()
     return {'id': row.id, 'name': row.name, 'status': row.status}
 
@@ -168,7 +170,8 @@ def product_detail(product_id: int, db: Session = Depends(get_db)):
     row = db.get(Product, product_id)
     if row is None:
         raise HTTPException(404, '商品不存在')
-    return dict(id=row.id, name=row.name, category=row.category, description=row.description, status=row.status,
+    return dict(id=row.id, spu_id=row.spu_id, name=row.name, category=row.category, description=row.description,
+                image_url=row.image_url, sales_count=row.sales_count, status=row.status,
                 shop_id=row.shop_id, shop_name=row.shop.name,
                 skus=[dict(id=s.id, spec=s.spec, price_cents=s.price_cents, stock=s.stock, status=s.status) for s in row.skus])
 

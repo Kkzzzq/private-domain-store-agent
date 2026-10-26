@@ -7,8 +7,8 @@ from sqlalchemy import select
 from app.models.tables import Banner, Product, ProductTag, Section, Shop, ShopCategory, Testimonial
 from app.schemas.decoration import DecorationDraft
 from app.services.catalog import _configured_promises, invalidate_catalog_cache, merchant_shop, serialize_product, serialize_shop
-from app.services.home import _replace_items, _visible_products, list_banners, list_sections, list_testimonials
-from app.services.reviews import rating_map
+from app.services.c_projection import refresh_shop, serialize_c
+from app.services.home import _replace_items, _visible_views, list_banners, list_sections, list_testimonials
 from app.services.storefront import save_storefront_settings, storefront_settings
 
 
@@ -66,9 +66,8 @@ def preview_decoration(db, user, draft: DecorationDraft):
     _validate_scope(db, shop, draft)
     shop_payload = serialize_shop(shop)
     shop_payload.update(_appearance(shop, draft))
-    visible = _visible_products(db, shop)
-    ratings = rating_map(db, [product.id for product in visible])
-    products = [serialize_product(product, audience="c", ratings=ratings) for product in visible]
+    visible = _visible_views(db, shop)
+    products = [serialize_c(view) for view in visible]
     by_id = {product["id"]: product for product in products}
     sections = []
     for row in draft.sections:
@@ -145,5 +144,7 @@ def reorder(db, user, kind, ordered_ids):
     for index, row_id in enumerate(ordered_ids):
         by_id[row_id].sort_order = index + 1
     db.commit()
+    if kind == "tags":
+        refresh_shop(db, shop.id)
     invalidate_catalog_cache()
     return {"ok": True, "ordered_ids": ordered_ids}

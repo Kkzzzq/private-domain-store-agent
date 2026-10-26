@@ -30,6 +30,20 @@ def serialize_order(order: Order, *, audience: str) -> dict:
     from sqlalchemy.orm import object_session
     session = object_session(order)
     coupon = session.scalar(select(CouponOrder).where(CouponOrder.order_id == order.id)) if session else None
+    from app.models.tables import CProductView
+    from app.services.governance import shop_open
+    views = {item.product_id: session.get(CProductView, item.product_id) for item in order.items} if audience == "c" and session else {}
+
+    def current_display(item):
+        if audience == "b":
+            return {"image_url": (item.sku.image_url if item.sku else "") or (item.product.image_url if item.product else "") or "",
+                    "available": bool(item.product and listed_on_c(item.product))}
+        view = views.get(item.product_id)
+        payload = view.payload if view else {}
+        sku = next((row for row in payload.get("skus", []) if row["id"] == item.sku_id), {})
+        return {"image_url": sku.get("image_url") or payload.get("image_url", ""),
+                "available": bool(view and view.listed and shop_open(order.shop))}
+
     data = {
         "discount_yuan": yuan(coupon.discount_cents) if coupon else 0,
         "coupon_name": coupon.name if coupon else "",
@@ -54,8 +68,7 @@ def serialize_order(order: Order, *, audience: str) -> dict:
                 "sku_spec": item.sku_spec,
                 "price_yuan": yuan(item.price_cents),
                 "quantity": item.quantity,
-                "image_url": (item.sku.image_url if item.sku else "") or (item.product.image_url if item.product else "") or "",
-                "available": bool(item.product and listed_on_c(item.product)),
+                **current_display(item),
             }
             for item in order.items
         ],
@@ -150,15 +163,15 @@ def create_order(db: Session, user: User, share_code: str, body: OrderCreate) ->
         reason = purchase_block(sku, quantity)
         if reason:
             raise HTTPException(status_code=400, detail=reason)
-        product_quantities[sku.product_id] = product_quantities.get(sku.product_id, 0) + quantity
+        product_quantities[sku.spu_id] = product_quantities.get(sku.spu_id, 0) + quantity
         chosen.append((sku, quantity))
     checked = set()
     for sku, _ in chosen:
-        if sku.product_id in checked:
+        if sku.spu_id in checked:
             continue
-        checked.add(sku.product_id)
+        checked.add(sku.spu_id)
         limit = sku.product.limit_per_user
-        if limit and _bought_quantity(db, user.id, sku.product_id) + product_quantities[sku.product_id] > limit:
+        if limit and _bought_quantity(db, user.id, sku.spu_id) + product_quantities[sku.spu_id] > limit:
             raise HTTPException(status_code=400, detail=f"{sku.product.name} 每人限购 {limit} 件，已经买满了")
     if not chosen:
         raise HTTPException(status_code=400, detail="没有可下单的商品")
@@ -182,7 +195,7 @@ def create_order(db: Session, user: User, share_code: str, body: OrderCreate) ->
         goods_cents += sku.price_cents * quantity
         order.items.append(
             OrderItem(
-                product_id=sku.product_id,
+                product_id=sku.spu_id,
                 sku_id=sku.id,
                 product_name=sku.product.name,
                 sku_spec=sku.spec,
@@ -198,6 +211,7 @@ def create_order(db: Session, user: User, share_code: str, body: OrderCreate) ->
         raise
     order.total_cents = goods_cents + order.freight_cents - discount
     db.add(order)
+    _refresh_order_products(db, order)
     db.commit()
     invalidate_catalog_cache()
     saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
@@ -243,10 +257,18 @@ def pay_order(db: Session, user: User, order_no: str) -> dict:
     for item in order.items:
         db.execute(update(Product).where(Product.id == item.product_id)
             .values(sales_count=Product.sales_count + item.quantity))
+    _refresh_order_products(db, order)
     db.commit()
     invalidate_catalog_cache()
     saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
     return serialize_order(saved, audience="c")
+
+
+def _refresh_order_products(db: Session, order: Order) -> None:
+    from app.services.c_projection import refresh_product
+    db.flush()
+    for product_id in {item.product_id for item in order.items}:
+        refresh_product(db, product_id, commit=False)
 
 
 def _restore_stock(db: Session, order: Order) -> None:
@@ -301,6 +323,7 @@ def cancel_order(db: Session, user: User, order_no: str) -> dict:
     _restore_stock(db, order)
     order.status = "cancelled"
     order.expires_at = None
+    _refresh_order_products(db, order)
     db.commit()
     invalidate_catalog_cache()
     saved = db.scalars(_orders().where(Order.id == order.id)).unique().one()
@@ -323,6 +346,7 @@ def auto_cancel_expired(db: Session, now: datetime | None = None) -> int:
         _restore_stock(db, order)
         order.status = "cancelled"
         order.expires_at = None
+        _refresh_order_products(db, order)
     if expired:
         db.commit()
         invalidate_catalog_cache()

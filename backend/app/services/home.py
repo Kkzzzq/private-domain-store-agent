@@ -4,7 +4,7 @@ from app.services.governance import shop_open
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.tables import Banner, Product, Section, SectionItem, Shop, Testimonial, User
+from app.models.tables import Banner, CProductView, Section, SectionItem, Shop, Testimonial, User
 from app.schemas.dto import (
     BannerIn,
     BannerUpdate,
@@ -13,16 +13,13 @@ from app.schemas.dto import (
     TestimonialIn,
     TestimonialUpdate,
 )
+from app.services.c_projection import serialize_c, sync_shop, view_rows
 from app.services.catalog import (
-    _product_query,
     merchant_shop,
-    serialize_product,
     serialize_shop,
     shop_by_code,
 )
 from app.services.categories import shop_category_names
-from app.services.reviews import rating_map
-from app.services.shelf import listed_on_c, visible_skus
 SECTION_LIMIT = 6
 
 
@@ -67,17 +64,18 @@ def serialize_section(section: Section) -> dict:
 
 
 # ---------- 买家端 ----------
-def _visible_products(db: Session, shop: Shop) -> list[Product]:
-    rows = db.scalars(_product_query().where(Product.shop_id == shop.id)).unique().all()
-    return [product for product in rows if listed_on_c(product)]
+def _visible_views(db: Session, shop: Shop) -> list[CProductView]:
+    """买家端可见商品全部取自 C 端宽表。"""
+    sync_shop(db, shop.id)
+    return view_rows(db, shop.id, listed_only=True)
 
 
-def _section_products(db: Session, section: Section, visible: list[Product]) -> list[Product]:
+def _section_views(section: Section, visible: list[CProductView]) -> list[CProductView]:
     if section.source == "sales":
-        return sorted(visible, key=lambda product: product.sales_count, reverse=True)[:SECTION_LIMIT]
+        return sorted(visible, key=lambda row: row.sales_count or 0, reverse=True)[:SECTION_LIMIT]
     order = {item.product_id: item.sort_order for item in section.items}
-    picked = [product for product in visible if product.id in order]
-    picked.sort(key=lambda product: order[product.id])
+    picked = [row for row in visible if row.spu_id in order]
+    picked.sort(key=lambda row: order[row.spu_id])
     return picked[:SECTION_LIMIT]
 
 
@@ -104,15 +102,10 @@ def home_content(db: Session, share_code: str, user: User | None = None) -> dict
         .order_by(Section.sort_order.asc(), Section.id.asc())
     ).unique().all()
 
-    visible = _visible_products(db, shop)
-    ratings = rating_map(db, [product.id for product in visible])
-
-    def as_dict(product: Product) -> dict:
-        return serialize_product(product, audience="c", ratings=ratings)
-
+    visible = _visible_views(db, shop)
     rows = []
     for section in sections:
-        products = _section_products(db, section, visible)
+        products = _section_views(section, visible)
         if not products:
             continue
         rows.append(
@@ -120,7 +113,7 @@ def home_content(db: Session, share_code: str, user: User | None = None) -> dict
                 "id": section.id,
                 "title": section.title,
                 "subtitle": section.subtitle,
-                "products": [as_dict(product) for product in products],
+                "products": [serialize_c(view) for view in products],
             }
         )
     return {
@@ -148,7 +141,7 @@ def collection_page(
     from fastapi import HTTPException
 
     shop = shop_by_code(db, share_code)
-    visible = _visible_products(db, shop) if shop_open(shop) else []
+    visible = _visible_views(db, shop) if shop_open(shop) else []
     source = "all"
 
     if key == "all":
@@ -168,18 +161,18 @@ def collection_page(
         title, subtitle = section.title, section.subtitle
         source = section.source
         if section.source == "sales":
-            pool = sorted(visible, key=lambda product: product.sales_count, reverse=True)
+            pool = sorted(visible, key=lambda row: row.sales_count or 0, reverse=True)
         else:
             order = {item.product_id: item.sort_order for item in section.items}
-            pool = [product for product in visible if product.id in order]
-            pool.sort(key=lambda product: order[product.id])
+            pool = [row for row in visible if row.spu_id in order]
+            pool.sort(key=lambda row: order[row.spu_id])
 
     # 左侧筛选用的分类标签：商家自己定义的那套顺序优先
     counts: dict[str, int] = {}
-    for product in pool:
-        if not product.category:
+    for view in pool:
+        if not view.category:
             continue
-        counts[product.category] = counts.get(product.category, 0) + 1
+        counts[view.category] = counts.get(view.category, 0) + 1
     registered = shop_category_names(db, shop)
     categories = [name for name in registered if counts.get(name)]
     if key == "all":
@@ -189,18 +182,17 @@ def collection_page(
 
     rows = list(pool)
     if category:
-        rows = [product for product in rows if product.category == category]
+        rows = [view for view in rows if view.category == category]
     if keyword:
         word = keyword.strip()
-        rows = [product for product in rows if word in product.name or word in product.category]
+        rows = [view for view in rows if word in view.name or word in view.category]
     if sort == "price_asc":
-        rows.sort(key=lambda product: min((sku.price_cents for sku in visible_skus(product)), default=0))
+        rows.sort(key=lambda view: view.price_from_cents or 0)
     elif sort == "price_desc":
-        rows.sort(key=lambda product: min((sku.price_cents for sku in visible_skus(product)), default=0), reverse=True)
+        rows.sort(key=lambda view: view.price_from_cents or 0, reverse=True)
     elif sort == "sales":
-        rows.sort(key=lambda product: product.sales_count, reverse=True)
+        rows.sort(key=lambda view: view.sales_count or 0, reverse=True)
 
-    ratings = rating_map(db, [product.id for product in rows])
     return {
         "key": key,
         "title": title,
@@ -209,7 +201,7 @@ def collection_page(
         "categories": categories,
         "category_counts": counts,
         "total": len(pool),
-        "products": [serialize_product(product, audience="c", ratings=ratings) for product in rows],
+        "products": [serialize_c(view) for view in rows],
     }
 
 

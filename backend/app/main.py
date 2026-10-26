@@ -28,11 +28,78 @@ def init_db() -> None:
             _ensure_sqlite_columns()
             _ensure_sku_sort_order()
             _ensure_governance_columns()
+            _ensure_catalog_schema()
             return
         except OperationalError as exc:
             last_error = exc
             time.sleep(1)
     raise last_error or RuntimeError("数据库初始化失败")
+
+
+def _ensure_catalog_schema() -> None:
+    """SPU / SKU / C 端宽表的结构升级。
+
+    SPU 补业务编号与更新时间；SKU 的外键列由 product_id 改名为 spu_id，直接改名
+    而不是新建表，订单与评价里已有的引用保持有效；宽表由 create_all 建表。
+    老数据在这里就地回填，启动即可用。
+    """
+    inspector = inspect(engine)
+    if "products" not in set(inspector.get_table_names()):
+        return
+    product_columns = {column["name"] for column in inspector.get_columns("products")}
+    sku_columns = {column["name"] for column in inspector.get_columns("skus")}
+    with engine.begin() as connection:
+        if "spu_id" not in sku_columns and "product_id" in sku_columns:
+            connection.exec_driver_sql("ALTER TABLE skus RENAME COLUMN product_id TO spu_id")
+        if "spu_id" not in product_columns:
+            connection.exec_driver_sql("ALTER TABLE products ADD COLUMN spu_id VARCHAR(32) NOT NULL DEFAULT ''")
+        if "updated_at" not in product_columns:
+            connection.exec_driver_sql("ALTER TABLE products ADD COLUMN updated_at DATETIME")
+            connection.exec_driver_sql("UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+        if "updated_at" not in sku_columns:
+            connection.exec_driver_sql("ALTER TABLE skus ADD COLUMN updated_at DATETIME")
+            connection.exec_driver_sql("UPDATE skus SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+    _backfill_spu_numbers()
+    _ensure_spu_number_index()
+
+
+def _backfill_spu_numbers() -> None:
+    from sqlalchemy import text
+
+    from app.models.tables import generate_spu_id
+
+    with engine.begin() as connection:
+        rows = connection.execute(text("SELECT id FROM products WHERE spu_id IS NULL OR spu_id = ''")).fetchall()
+        for (product_id,) in rows:
+            connection.execute(
+                text("UPDATE products SET spu_id = :spu WHERE id = :id"),
+                {"spu": generate_spu_id(), "id": product_id},
+            )
+
+
+def _ensure_spu_number_index() -> None:
+    if "ix_products_spu_id" in {index["name"] for index in inspect(engine).get_indexes("products")}:
+        return
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("CREATE UNIQUE INDEX ix_products_spu_id ON products (spu_id)")
+    except OperationalError:
+        if "ix_products_spu_id" not in {index["name"] for index in inspect(engine).get_indexes("products")}:
+            raise
+
+
+def _rebuild_c_projection() -> None:
+    """C 端宽表启动重建一次，首屏读取不用等自愈。"""
+    from app.services.c_projection import rebuild_all
+
+    db = SessionLocal()
+    try:
+        shops = rebuild_all(db)
+        logger.info("C 端商品宽表已重建，覆盖 %s 家店铺", shops)
+    except Exception as exc:  # 读路径还有指纹自愈兜底，不让启动失败
+        logger.warning("C 端宽表重建失败，读路径将按指纹自愈：%s", exc)
+    finally:
+        db.close()
 
 
 def _ensure_sku_sort_order() -> None:
@@ -141,6 +208,7 @@ async def lifespan(_app: FastAPI):
             logger.info("已为 %d 个平台运营账号补齐质量能力授权", granted)
     finally:
         db.close()
+    _rebuild_c_projection()
     scheduler = None
     try:
         scheduler = _start_scheduler()

@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from app.models.tables import Product, Shop, ShopCategory, User
 from app.schemas.dto import CategoryIn, CategoryUpdate
 from app.services.catalog import invalidate_catalog_cache, merchant_shop
+from app.services.c_projection import refresh_shop
 
 
 def serialize_category(row: ShopCategory, count: int = 0) -> dict:
@@ -93,6 +94,7 @@ def update_category(db, user: User, category_id: int, body: CategoryUpdate) -> d
         row.sort_order = body.sort_order
     db.commit()
     db.refresh(row)
+    refresh_shop(db, shop.id)
     invalidate_catalog_cache()
     counts = counts_for_shop(db, shop.id)
     return serialize_category(row, counts.get(row.name, 0))

@@ -96,7 +96,10 @@ def create_review(db: Session, user: User, body: ReviewIn) -> dict:
     )
     db.add(review)
     db.commit()
+    from app.services.c_projection import refresh_product
     from app.services.catalog import invalidate_catalog_cache
+    # 评分与评价数在买家端卡片上显示，投影一起更新
+    refresh_product(db, item.product_id)
     invalidate_catalog_cache()
     db.refresh(review)
     return {

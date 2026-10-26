@@ -45,7 +45,7 @@ def run(ctx,cid):
         if cid=='RA12':
             check('预算推荐非空',bool(cards))
             for card in cards:
-                prices=list(db.scalars(select(Sku.price_cents).where(Sku.product_id==card['id'],Sku.status=='on',Sku.stock>0)))
+                prices=list(db.scalars(select(Sku.price_cents).where(Sku.spu_id==card['id'],Sku.status=='on',Sku.stock>0)))
                 price=card.get('price_from',card.get('price_yuan'))
                 check('推荐价格未超过80且与库一致',price is not None and price<=80 and round(price*100) in prices,prices,price)
     text=answer.get('answer','')

@@ -1,18 +1,19 @@
-from app.services.governance import shop_open, shop_blocked
 """买家的浏览历史。
 
 历史放 Redis，不落库：只保留最近 7 天看过的商品，不分店铺，
 在哪家店看过的都进同一个列表。下架或禁售的商品仍然留在列表里，只是带上标注。
+列表内容取自 C 端宽表，所以展示口径与商品卡片完全一致。
 """
 
 import time
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.db.redis_client import get_redis
-from app.models.tables import Product, User
-from app.services.shelf import listed_on_c
+from app.models.tables import CProductView, Shop, User
+from app.services.c_projection import serialize_saved
+from app.services.governance import shop_open
 
 HISTORY_DAYS = 7
 HISTORY_LIMIT = 60
@@ -50,17 +51,18 @@ def _recent_ids(user_id: int) -> list[int]:
     return ids
 
 
-def history_products(db: Session, user: User) -> list[Product]:
+def history_views(db: Session, user: User) -> list[CProductView]:
+    """浏览记录里的商品来自 C 端宽表；已删除的商品自然不再出现。"""
     ids = _recent_ids(user.id)
     if not ids:
         return []
-    rows = db.scalars(
-        select(Product)
-        .options(joinedload(Product.skus), joinedload(Product.shop))
-        .where(Product.id.in_(ids))
-    ).unique().all()
-    order = {pid: index for index, pid in enumerate(ids)}
-    return sorted(rows, key=lambda product: order.get(product.id, 0))
+    from app.services.c_projection import sync_shop
+    shop_ids = set(db.scalars(select(CProductView.shop_id).where(CProductView.spu_id.in_(ids))))
+    for shop_id in shop_ids:
+        sync_shop(db, shop_id)
+    rows = db.scalars(select(CProductView).where(CProductView.spu_id.in_(ids))).all()
+    by_id = {row.spu_id: row for row in rows}
+    return [by_id[product_id] for product_id in ids if product_id in by_id]
 
 
 def clear_history(user: User) -> None:
@@ -68,63 +70,11 @@ def clear_history(user: User) -> None:
 
 
 # ---------- 序列化 ----------
-def shelf_label(product: Product) -> str:
-    """给浏览记录用的状态标注。"""
-    if product.status == "banned":
-        return "已禁售"
-    if product.status == "off":
-        return "已下架"
-    if product.shop is not None and not shop_open(product.shop):
-        return "店铺停业"
-    return "在售"
-
-
-def serialize_saved(product: Product, *, ratings: dict | None = None) -> dict:
-    """浏览记录列表用。下架的商品也要能看到名称和价格，所以规格不过滤状态。"""
-    from app.services.catalog import yuan
-
-    available = listed_on_c(product)
-    sku_rows = [
-        {
-            "id": sku.id,
-            "spec": sku.spec,
-            "image_url": sku.image_url or "",
-            "price_yuan": yuan(sku.price_cents),
-            "market_price_yuan": yuan(sku.market_price_cents) if sku.market_price_cents else None,
-            "stock": sku.stock,
-            "status": sku.status,
-            # 只有还在售且这家店营业时才能直接加购
-            "purchasable": bool(available and sku.status == "on" and sku.stock > 0),
-        }
-        for sku in product.skus
+def serialize_saved_list(db: Session, user: User, views: list[CProductView]) -> list[dict]:
+    """营业状态每次现查，店铺被冻结后浏览记录立刻标注停业。"""
+    shop_ids = {view.shop_id for view in views}
+    shops = {row.id: row for row in db.scalars(select(Shop).where(Shop.id.in_(shop_ids)))} if shop_ids else {}
+    return [
+        serialize_saved(view, shop_open=shop_open(shops[view.shop_id]) if view.shop_id in shops else False)
+        for view in views
     ]
-    markets = [row["market_price_yuan"] for row in sku_rows if row["market_price_yuan"]]
-    average, count = (ratings or {}).get(product.id, (None, 0))
-    return {
-        "id": product.id,
-        "shop_id": product.shop_id,
-        "shop_name": product.shop.name if product.shop is not None else "",
-        "shop_share_code": product.shop.share_code if product.shop is not None else "",
-        "name": product.name,
-        "category": product.category,
-        "description": product.description,
-        "image_url": product.image_url,
-        "status": product.status,
-        "shelf_label": shelf_label(product),
-        "available": available,
-        "sort_order": product.sort_order,
-        "sales_count": product.sales_count,
-        "limit_per_user": product.limit_per_user,
-        "rating_avg": average,
-        "review_count": count,
-        "price_from": min((row["price_yuan"] for row in sku_rows), default=None),
-        "market_from": min(markets, default=None),
-        "skus": sku_rows,
-    }
-
-
-def serialize_saved_list(db: Session, user: User, products: list[Product]) -> list[dict]:
-    from app.services.reviews import rating_map
-
-    ratings = rating_map(db, [product.id for product in products])
-    return [serialize_saved(product, ratings=ratings) for product in products]

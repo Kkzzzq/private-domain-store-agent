@@ -20,28 +20,42 @@ def _cart_rows(db: Session, user: User, shop_id: int) -> list[CartItem]:
     )
 
 
-def _serialize_row(row: CartItem) -> dict:
-    sku = row.sku
-    product = sku.product
-    reason = purchase_block(sku, row.quantity)
-    return {
-        "id": row.id,
-        "sku_id": sku.id,
-        "product_id": product.id,
-        "product_name": product.name,
-        "spec": sku.spec,
-        "image_url": sku.image_url or product.image_url,
-        "price_yuan": yuan(sku.price_cents),
-        "quantity": row.quantity,
-        "stock": sku.stock,
-        "available": reason is None,
-        "reason": reason or "",
-    }
+def cart_items(db: Session, user_id: int, shop) -> list[dict]:
+    """购物车商品展示只读宽表；加购、结算仍校验权威库存。"""
+    from app.services.c_projection import sync_shop, view_rows
+    from app.services.governance import shop_open
+
+    sync_shop(db, shop.id)
+    by_sku = {sku["id"]: (view, sku) for view in view_rows(db, shop.id, listed_only=False)
+              for sku in view.payload.get("skus", [])}
+    rows = db.scalars(select(CartItem).where(CartItem.user_id == user_id, CartItem.shop_id == shop.id)
+                      .order_by(CartItem.id)).all()
+    items = []
+    for row in rows:
+        match = by_sku.get(row.sku_id)
+        view, sku = match if match else (None, {})
+        product = view.payload if view else {}
+        if not shop_open(shop):
+            reason = "店铺未营业"
+        elif view is None or not view.listed or sku.get("status") != "on":
+            reason = "没有找到这个商品"
+        elif sku.get("stock", 0) < row.quantity:
+            reason = "库存不足"
+        else:
+            reason = ""
+        items.append({
+            "id": row.id, "sku_id": row.sku_id, "product_id": view.spu_id if view else None,
+            "product_name": product.get("name", "商品已不可用"), "spec": sku.get("spec", ""),
+            "image_url": sku.get("image_url") or product.get("image_url", ""),
+            "price_yuan": sku.get("price_yuan", 0), "quantity": row.quantity,
+            "stock": sku.get("stock", 0), "available": not reason, "reason": reason,
+        })
+    return items
 
 
 def cart_view(db: Session, user: User, share_code: str) -> dict:
     shop = shop_by_code(db, share_code)
-    items = [_serialize_row(row) for row in _cart_rows(db, user, shop.id)]
+    items = cart_items(db, user.id, shop)
     goods = sum(int(round(item["price_yuan"] * 100)) * item["quantity"] for item in items if item["available"])
     freight = freight_for(goods, shop) if any(item["available"] for item in items) else 0
     return {

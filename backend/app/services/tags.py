@@ -31,6 +31,17 @@ def _merchant_shop(db, user):
     return merchant_shop(db, user)
 
 
+def _refresh_tagged(db, tag_id: int) -> None:
+    """标签挂在买家端卡片上，改名改色后把用到它的商品投影一起刷。"""
+    from app.services.c_projection import refresh_product
+
+    product_ids = list(db.scalars(select(ProductTagLink.product_id).where(ProductTagLink.tag_id == tag_id)))
+    for product_id in product_ids:
+        refresh_product(db, product_id, commit=False)
+    if product_ids:
+        db.commit()
+
+
 def serialize_tag(row: ProductTag, count: int = 0) -> dict:
     return {
         "id": row.id,
@@ -128,6 +139,7 @@ def update_tag(db, user: User, tag_id: int, body: TagUpdate) -> dict:
     save_style(row, body)
     db.commit()
     db.refresh(row)
+    _refresh_tagged(db, row.id)
     _invalidate()
     counts = counts_for_shop(db, shop.id)
     return serialize_tag(row, counts.get(row.id, 0))
@@ -141,10 +153,17 @@ def delete_tag(db, user: User, tag_id: int) -> None:
     if row is None:
         raise HTTPException(status_code=404, detail="没有找到这个标签")
     # 先摘干净挂着的商品，再删标签本身
+    tagged = list(db.scalars(select(ProductTagLink.product_id).where(ProductTagLink.tag_id == row.id)))
     for link in db.scalars(select(ProductTagLink).where(ProductTagLink.tag_id == row.id)).all():
         db.delete(link)
     db.delete(row)
     db.commit()
+    from app.services.c_projection import refresh_product
+
+    for product_id in tagged:
+        refresh_product(db, product_id, commit=False)
+    if tagged:
+        db.commit()
     _invalidate()
 
 

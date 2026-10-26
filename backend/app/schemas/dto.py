@@ -198,6 +198,7 @@ class TagRef(TagStyle):
 
 class ProductOut(BaseModel):
     id: int
+    spu_id: str = ""
     shop_id: int
     name: str
     category: str

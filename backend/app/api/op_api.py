@@ -76,7 +76,7 @@ def records(resource: str, q: str = '', status: str = '', shop_id: int | None = 
     for row in db.scalars(query.order_by(model.id.desc()).offset((page-1)*size).limit(size)):
         fields = {
             'shops': ['id', 'name', 'share_code', 'status', 'created_at'],
-            'products': ['id', 'shop_id', 'name', 'category', 'status', 'sales_count'],
+            'products': ['id', 'spu_id', 'shop_id', 'name', 'category', 'image_url', 'status', 'sales_count'],
             'orders': ['id', 'shop_id', 'order_no', 'status', 'total_cents', 'freight_cents', 'created_at'],
             'coupons': ['id', 'shop_id', 'name', 'threshold_cents', 'amount_cents', 'claimed_count', 'total_count', 'enabled', 'ends_at'],
             'after-sales': ['id', 'order_id', 'kind', 'reason', 'status', 'created_at'],
@@ -110,6 +110,8 @@ def moderate(product_id: int, body: ModerateIn, user: User = Depends(require_ope
     product.status = 'banned' if body.action == 'ban' else 'off'
     db.add(OperationLog(user_id=user.id, product_id=product.id, action=body.action, reason=body.reason.strip()))
     db.commit()
+    from app.services.c_projection import refresh_product
+    refresh_product(db, product.id)
     invalidate_catalog_cache()
     return {'id': product.id, 'status': product.status}
 

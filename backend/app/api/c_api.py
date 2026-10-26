@@ -30,7 +30,7 @@ from app.services.catalog import get_c_product, list_categories, list_c_products
 from app.services.home import collection_page, home_content
 from app.services.engagement import (
     clear_history,
-    history_products,
+    history_views,
     record_view,
     serialize_saved_list,
 )
@@ -122,7 +122,7 @@ def read_product(
 @router.get("/history", response_model=list[SavedProductOut])
 def read_history(user: User = Depends(require_customer), db: Session = Depends(get_db)):
     """浏览记录跨店铺，只保留最近 7 天。"""
-    return serialize_saved_list(db, user, history_products(db, user))
+    return serialize_saved_list(db, user, history_views(db, user))
 
 
 @router.delete("/history")

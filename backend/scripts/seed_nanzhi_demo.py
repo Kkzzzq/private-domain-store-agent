@@ -57,7 +57,7 @@ def seed(db, shop_id):
             status="on" if index < 5 else "off" if index == 5 else "draft", sort_order=900 + index)
         db.add(product);db.flush();products.append(product)
         for variant, spec in enumerate(["米白 / 标准装", "浅绿 / 加大装", "限定礼盒"]):
-            sku = Sku(product_id=product.id, spec=spec, price_cents=1900 + index*1000 + variant*500,
+            sku = Sku(spu_id=product.id, spec=spec, price_cents=1900 + index*1000 + variant*500,
                 market_price_cents=3900 + index*1000, stock=0 if index == 4 else 3 if index == 3 else 60,
                 image_url=image, sort_order=variant, status="off" if variant == 2 else "on")
             db.add(sku);db.flush();skus.append(sku)

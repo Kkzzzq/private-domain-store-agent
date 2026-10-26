@@ -160,6 +160,9 @@ def control_review(review_id: int, body: Control, actor: User = Depends(require_
     row.hidden, row.reason=body.action=='hide',reason_of(body)
     audit(db,actor,'review',review_id,body.action,row.reason)
     db.commit();invalidate_catalog_cache()
+    # 评价被隐藏后均分变了，买家端卡片跟着重算
+    from app.services.c_projection import refresh_product
+    if (review:=db.get(Review,review_id)) is not None: refresh_product(db,review.product_id)
     return {'id':review_id,'hidden':row.hidden}
 
 
@@ -168,8 +171,10 @@ def customer_records(user_id: int, kind: Literal['addresses','cart','coupons','h
     user=db.get(User,user_id)
     if not user: raise HTTPException(404,'账号不存在')
     if kind=='history':
-        from app.services.engagement import history_products
-        products=history_products(db,user)
+        from app.services.engagement import _recent_ids
+        ids = _recent_ids(user.id)
+        by_id = {p.id: p for p in db.scalars(select(Product).where(Product.id.in_(ids)))}
+        products = [by_id[pid] for pid in ids if pid in by_id]
         return dict(total=len(products),items=[dict(id=p.id,name=p.name,shop_id=p.shop_id,status=p.status) for p in products[(page-1)*20:page*20]])
     model={'addresses':Address,'cart':CartItem,'coupons':UserCoupon}[kind]
     query=select(model).where(model.user_id==user_id)

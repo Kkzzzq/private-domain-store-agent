@@ -5,18 +5,50 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
 
 from app.agent.context import current
-from app.models.tables import Order, Product
+from app.models.tables import Order, Product, Shop
 from app.services.catalog import _product_query, serialize_product, yuan
+from app.services.c_projection import serialize_c, sync_shop, view_rows
 from app.services.engagement import _recent_ids
 from app.services.orders import STATUS_LABELS, _orders
-from app.services.shelf import listed_on_c
+
+
+def _buyer_side_open(db, shop_id: int) -> bool:
+    """买家侧与助手共用一条底线：店铺被冻结时一律看不到货。"""
+    return db.scalar(select(Shop.status).where(Shop.id == shop_id)) == "open"
+
+
+def _catalog_rows(db, actor, *, buyer_view: bool = False) -> list[dict]:
+    """助手取数口径：买家（以及推荐场景）读 C 端宽表，商家看货读 SPU/SKU 权威表。"""
+    if actor.role == "merchant" and not buyer_view:
+        products = db.scalars(_product_query().where(Product.shop_id == actor.shop_id)).unique().all()
+        return [serialize_product(product, audience="b") for product in products]
+    if not _buyer_side_open(db, actor.shop_id):
+        return []
+    sync_shop(db, actor.shop_id)
+    return [serialize_c(view) for view in view_rows(db, actor.shop_id, listed_only=True)]
+
+
+def _reload_rows(db, actor, ids: set[int], *, buyer_view: bool = False) -> dict[int, dict]:
+    """检索耗时之后重新取一次实时值，避免把检索前的旧价格带回回答。"""
+    if not ids:
+        return {}
+    db.expire_all()
+    if actor.role == "merchant" and not buyer_view:
+        products = db.scalars(
+            _product_query().where(Product.shop_id == actor.shop_id, Product.id.in_(ids))
+        ).unique().all()
+        return {product.id: serialize_product(product, audience="b") for product in products}
+    if not _buyer_side_open(db, actor.shop_id):
+        return {}
+    sync_shop(db, actor.shop_id)
+    views = view_rows(db, actor.shop_id, listed_only=True)
+    return {view.spu_id: serialize_c(view) for view in views if view.spu_id in ids}
 
 
 def store_catalog(offset=0, limit=16):
     db, actor = current()
-    products = db.scalars(_product_query().where(Product.shop_id == actor.shop_id)).unique().all()
     merchant = actor.role == "merchant"
-    rows = [serialize_product(product, audience="b" if merchant else "c") for product in products if merchant or listed_on_c(product)]
+    rows = _catalog_rows(db, actor)
     if not merchant:
         for row in rows:
             row["skus"] = [sku for sku in row["skus"] if sku["stock"] > 0]
@@ -25,7 +57,7 @@ def store_catalog(offset=0, limit=16):
     prices = [sku["price_yuan"] for row in rows for sku in row["skus"]]
     page = []
     for row in rows[offset:offset + limit]:
-        item = {"id": row["id"], "name": row["name"], "category": row["category"],
+        item = {"id": row["id"], "spu_id": row["spu_id"], "name": row["name"], "category": row["category"],
                 "status": row["status"], "image_url": row["image_url"],
                 "description": row["description"][:120], "limit_per_user": row["limit_per_user"],
                 "sku_count": len(row["skus"]), "sku_details_truncated": len(row["skus"]) > 4,
@@ -45,17 +77,12 @@ def image_products(question, limit=3):
     from app.rag.product_images import search_product_images
     db, actor = current()
     merchant = actor.role == "merchant"
-    products = db.scalars(_product_query().where(Product.shop_id == actor.shop_id)).unique().all()
-    rows = [serialize_product(product, audience="b" if merchant else "c") for product in products if merchant or listed_on_c(product)]
+    rows = _catalog_rows(db, actor)
     pairs, state = search_product_images(question, rows, db, actor)
     ranks = {(item["product_id"], item["sku_id"]): index for index, item in enumerate(state.get("matching_assets", []))}
-    db.expire_all()
-    fresh = db.scalars(_product_query().where(Product.shop_id == actor.shop_id)).unique().all()
+    fresh = _reload_rows(db, actor, {row["id"] for row in rows})
     candidates = []
-    for product in fresh:
-        if not merchant and not listed_on_c(product):
-            continue
-        row = serialize_product(product, audience="b" if merchant else "c")
+    for row in fresh.values():
         row["skus"] = [sku for sku in row["skus"] if (row["id"], sku["id"]) in pairs or (row["id"], 0) in pairs]
         if row["skus"]:
             row["price_from"] = min(sku["price_yuan"] for sku in row["skus"])
@@ -78,31 +105,28 @@ def product_results(keyword=None, reason=None, product_id=None, budget_yuan=None
                     requirements="", category=None, keywords=None, excluded_keywords=None,
                     min_price_yuan=None, quantity=1):
     db, actor = current()
-    products = db.scalars(_product_query().where(Product.shop_id == actor.shop_id)).unique().all()
-    if actor.role != "merchant" or reason:
-        products = [product for product in products if listed_on_c(product)]
+    buyer_view = actor.role != "merchant" or bool(reason)
+    rows = _catalog_rows(db, actor, buyer_view=buyer_view)
     if reason in ("related", "viewed"):
         ids = [product_id] if reason == "related" else _recent_ids(actor.user_id)
-        reference = next((product for reference_id in ids for product in products if product.id == reference_id), None)
+        reference = next((row for row in rows if row["id"] in ids), None)
         if reason == "related" and reference is None:
             return "没有找到可用于推荐的商品。"
         if reference:
-            products = [product for product in products if product.category == reference.category and product.id != reference.id]
-    rows = [serialize_product(product, audience="b" if actor.role == "merchant" and not reason else "c") for product in products]
+            rows = [row for row in rows if row["category"] == reference["category"] and row["id"] != reference["id"]]
     if keyword:
         from app.services.product_search import search_rows
         rows = search_rows(keyword, rows, db, actor)
         matched = {row["id"]: {sku["id"] for sku in row["skus"]} for row in rows}
         order = {product_id: index for index, product_id in enumerate(matched)}
         if matched:
-            db.expire_all()
-            refreshed = db.scalars(_product_query().where(Product.shop_id == actor.shop_id, Product.id.in_(matched))).unique().all()
+            fresh = _reload_rows(db, actor, set(matched), buyer_view=buyer_view)
             rows = []
-            for product in refreshed:
-                if (actor.role != "merchant" or reason) and not listed_on_c(product):
+            for product_id, sku_ids in matched.items():
+                row = fresh.get(product_id)
+                if row is None:
                     continue
-                row = serialize_product(product, audience="b" if actor.role == "merchant" and not reason else "c")
-                row["skus"] = [sku for sku in row["skus"] if sku["id"] in matched[row["id"]]]
+                row["skus"] = [sku for sku in row["skus"] if sku["id"] in sku_ids]
                 if row["skus"]:
                     rows.append(row)
             rows.sort(key=lambda row: order[row["id"]])

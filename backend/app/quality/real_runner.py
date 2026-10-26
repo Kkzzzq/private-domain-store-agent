@@ -111,7 +111,7 @@ class RealCase:
                     with SessionLocal() as db:
                         row=db.get(Sku,sku['id'])
                         expected_db={'product_id':p['id'],'price_yuan':row.price_cents/100,'stock':row.stock,'spec':row.spec}
-                        actual_db={'product_id':row.product_id,'price_yuan':sku['price_yuan'],'stock':sku['stock'],'spec':sku['spec']}
+                        actual_db={'product_id':row.spu_id,'price_yuan':sku['price_yuan'],'stock':sku['stock'],'spec':sku['spec']}
                         self.e.check('SKU数据库原值核对 '+str(sku['id']),expected_db==actual_db,expected_db,actual_db)
             return
         if cid=='RF12':
@@ -125,7 +125,7 @@ class RealCase:
                 self.e.check('演示订单共12条',len(orders)==12,12,len(orders))
                 for o in orders:
                     self.e.check(o.order_no+' 金额与明细一致',o.total_cents==sum(i.price_cents*i.quantity for i in o.items)+o.freight_cents)
-                    self.e.check(o.order_no+' SKU归属一致',all(db.get(Sku,i.sku_id).product_id==i.product_id for i in o.items))
+                    self.e.check(o.order_no+' SKU归属一致',all(db.get(Sku,i.sku_id).spu_id==i.product_id for i in o.items))
                 for model in (Shipment,AfterSale,Message,Review):self.e.check(model.__tablename__+' 有实际记录',db.scalar(select(func.count()).select_from(model))>0)
                 actual=verify(db,self.shop_id)
                 self.e.check('全管理页演示批次金额归属与多状态完整',actual['amounts_and_ownership'],True,actual)

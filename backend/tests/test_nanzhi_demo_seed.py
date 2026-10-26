@@ -17,7 +17,7 @@ def test_demo_seed_persists_consistent_data_and_is_idempotent(client):
         for order in db.scalars(select(Order).where(Order.order_no.in_(result["order_numbers"]))):
             assert order.total_cents == sum(item.price_cents*item.quantity for item in order.items)+order.freight_cents
             for item in order.items:
-                assert item.product_id == db.get(Sku,item.sku_id).product_id
+                assert item.product_id == db.get(Sku,item.sku_id).spu_id
             shipment = db.scalar(select(Shipment).where(Shipment.order_id==order.id))
             assert bool(shipment) == (order.status in ("shipped","completed"))
         for review in db.scalars(select(Review).where(Review.user_id.in_(result["user_ids"]))):

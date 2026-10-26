@@ -1,3 +1,4 @@
+from uuid import uuid4
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, ForeignKey, JSON, String, Text, UniqueConstraint
@@ -8,6 +9,11 @@ from app.db.base import Base
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def generate_spu_id() -> str:
+    """32 位商品编号；随机部分跨进程有效，数据库唯一索引兜底。"""
+    return f"SP{utcnow():%y%m%d}{uuid4().hex[:24]}"
 
 
 class Coupon(Base):
@@ -124,31 +130,44 @@ class ShopStorefrontProfile(Base):
 
 
 class Product(Base):
+    """SPU 主表。商家端与平台端直接读写这张表，C 端不读它。
+
+    `spu_id` 是对客商品编号（如 SP2610261234），`id` 是内部自增主键，
+    SKU 与订单等内部关联一律用 `id`，编号只用于展示与人工沟通。
+    """
+
     __tablename__ = "products"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    spu_id: Mapped[str] = mapped_column(String(32), unique=True, index=True, default=generate_spu_id)
     shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
     name: Mapped[str] = mapped_column(String(128), index=True)
     category: Mapped[str] = mapped_column(String(64), default="")
     description: Mapped[str] = mapped_column(Text, default="")
     image_url: Mapped[str] = mapped_column(String(500), default="")
+    # 商品状态：draft（草稿）/ on（上架）/ off（下架）/ banned（平台禁售）。
+    # 草稿不是另一张表，只是这里的一个状态值。
     status: Mapped[str] = mapped_column(String(16), default="off")
     sort_order: Mapped[int] = mapped_column(default=0)
     sales_count: Mapped[int] = mapped_column(default=0)
     limit_per_user: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     shop: Mapped[Shop] = relationship(back_populates="products")
+    c_view: Mapped["CProductView | None"] = relationship(cascade="all, delete-orphan", uselist=False)
     skus: Mapped[list["Sku"]] = relationship(back_populates="product", cascade="all, delete-orphan", order_by=lambda: (Sku.sort_order, Sku.id))
     tag_links: Mapped[list["ProductTagLink"]] = relationship(cascade="all, delete-orphan")
 
 
 class Sku(Base):
+    """SKU 主表。每个 SKU 属于一个 SPU（`spu_id` 外键指向 products.id）。"""
+
     __tablename__ = "skus"
-    __table_args__ = (UniqueConstraint("product_id", "spec", name="uq_sku_spec"),)
+    __table_args__ = (UniqueConstraint("spu_id", "spec", name="uq_sku_spec"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    spu_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     spec: Mapped[str] = mapped_column(String(64))
     # 每个规格可以有自己的图，买家端详情页选到哪个规格就显示哪张
     image_url: Mapped[str] = mapped_column(String(500), default="")
@@ -157,9 +176,38 @@ class Sku(Base):
     stock: Mapped[int] = mapped_column(default=0)
     sort_order: Mapped[int] = mapped_column(default=0)
     status: Mapped[str] = mapped_column(String(16), default="on")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     product: Mapped[Product] = relationship(back_populates="skus")
     parameter_profile: Mapped["SkuParameterProfile | None"] = relationship(cascade="all, delete-orphan", uselist=False, lazy="selectin")
+
+
+class CProductView(Base):
+    """C 端商品宽表：一行一个 SPU，买家端所有商品数据只从这里读。
+
+    这是投影表，不是事实来源：价格、库存、状态的权威值在 products/skus。
+    不投影 draft 状态的商品，所以草稿连"忘记过滤"的机会都没有。
+    `listed` 只表示 SPU 自身是否进目录（在售且至少一个在售规格），
+    店铺营业状态仍在读路径判断，平台冻结店铺因此立即生效。
+    """
+
+    __tablename__ = "c_product_views"
+
+    spu_id: Mapped[int] = mapped_column(ForeignKey("products.id"), primary_key=True)
+    shop_id: Mapped[int] = mapped_column(ForeignKey("shops.id"), index=True)
+    spu_no: Mapped[str] = mapped_column(String(32), default="")
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    listed: Mapped[bool] = mapped_column(default=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), default="")
+    category: Mapped[str] = mapped_column(String(64), default="")
+    sort_order: Mapped[int] = mapped_column(default=0)
+    sales_count: Mapped[int] = mapped_column(default=0)
+    price_from_cents: Mapped[int | None] = mapped_column(nullable=True)
+    # 完整展示载荷，含全部规格（含已下架规格），由读取方按场景过滤
+    payload: Mapped[dict] = mapped_column(JSON)
+    # 生成这份投影时权威表的版本指纹，读时用它发现过期投影
+    source_version: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class SkuParameterProfile(Base):
