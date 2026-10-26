@@ -274,7 +274,9 @@ def run_out(db, run, light=False):
     """
     from datetime import timedelta
     from app.quality.case_docs import doc_for
-    results = db.scalars(select(QualityResult).where(QualityResult.run_id == run.id).order_by(QualityResult.id)).all()
+    # Evidence JSON can exceed MySQL's sort buffer. Sort the small result set in
+    # Python instead of asking MySQL to filesort whole rows carrying that JSON.
+    results = sorted(db.scalars(select(QualityResult).where(QualityResult.run_id == run.id)).all(), key=lambda row: row.id)
     plan = db.get(QualityPlan, run.plan_id)
     target = {key: plan.payload.get(key) for key in ("target_revision", "environment_id", "fixture_version", "catalog_version", "case_snapshots", "model_profiles", "functional_driver", "unmapped_cases", "case_ids")}
     if light:

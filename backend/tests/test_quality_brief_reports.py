@@ -2,6 +2,37 @@ import json
 from app.quality.report_batches import brief_report
 
 
+def test_large_evidence_detail_preserves_order_without_database_json_filesort(client):
+    from sqlalchemy import event, select
+    from app.db.session import SessionLocal, engine
+    from app.models.quality import QualityResult
+    from test_quality import operator
+    from test_quality_report_batches import fixture_run
+
+    headers, uid = operator(client)
+    evidence = {"cleanup_ok": True, "transcript": "large evidence " * 20000}
+    with SessionLocal() as db:
+        run_id = fixture_run(db, uid, "RF02")
+        first = db.scalar(select(QualityResult).where(QualityResult.run_id == run_id))
+        first.evidence = evidence
+        db.add(QualityResult(run_id=run_id, case_id="RF01", kind="functional", status="passed", evidence=evidence))
+        db.commit()
+
+    def guard_sort(_connection, _cursor, statement, *_args):
+        if "FROM qa_results" in statement and "qa_results.evidence" in statement:
+            assert "ORDER BY" not in statement, "MySQL cannot filesort rows containing large evidence JSON"
+
+    event.listen(engine, "before_cursor_execute", guard_sort)
+    try:
+        response = client.get("/api/v1/op/qa/runs/" + run_id, headers=headers)
+        assert response.status_code == 200
+        rows = response.json()["results"]
+        assert [row["id"] for row in rows] == ["RF02", "RF01"]
+        assert all(row["evidence"] == evidence for row in rows)
+    finally:
+        event.remove(engine, "before_cursor_execute", guard_sort)
+
+
 def test_brief_report_preserves_counts_and_drops_transcripts_without_mutating_source():
     original={'id':'report','kind':'joint','status':'failed','created_at':'2026-10-21',
               'summary':{'groups':{'functional':{'counts':{'passed':1,'failed':1}}}},
