@@ -7,6 +7,16 @@ CASES = {
 }
 
 
+def first_report_row(page):
+    group = page.locator("details.qa-hour-report").first
+    group.wait_for(state="attached")
+    if group.get_attribute("open") is None:
+        group.locator("summary").first.click()
+    row = group.locator("[data-run-id]").first
+    row.wait_for(state="visible")
+    return row
+
+
 def execute(case_id, page, origin, evidence, shop_code="nanzhi"):
     from playwright.sync_api import expect
 

@@ -207,6 +207,8 @@ def allowed_tools(role):
 def langchain_tools(intent="unclear"):
     from langchain_core.tools import StructuredTool
 
+    if intent == "foreign_shop":
+        return []
     if current()[1].role != "merchant" and intent in ("product_write", "overview", "low_inventory", "merchant_help"):
         return []
 

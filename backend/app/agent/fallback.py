@@ -41,6 +41,8 @@ def extract_keyword(text: str) -> str:
 
 def fallback_reply(message: str) -> tuple[str, list[dict]]:
     from app.agent.context import current
+    if classify(message) == "foreign_shop":
+        return "我只能帮您查询本店的商品和服务，其他店铺的信息无法查看。您想了解本店哪类商品呢？", []
     if current()[1].role != "merchant":
         if classify(message) in ("product_write", "overview", "low_inventory", "merchant_help") or any(word in message for word in ("修改价格", "调整库存", "帮我上架", "帮我下架", "修改库存")):
             return "我在这里帮您选购商品和查询您自己的订单，店铺经营相关的问题可以联系商家。", []

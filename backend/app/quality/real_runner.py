@@ -249,7 +249,8 @@ class RealCase:
                     page.goto(self.origin+'/op.html#/testing/cases')
                     for name in ('Agent 测试用例','接口测试用例','UI 测试用例'):
                         page.get_by_role('button',name=name,exact=True).click();expect(page.locator('.qa-case-item').first).to_be_visible()
-                    page.goto(self.origin+'/op.html#/testing/runs');row=page.locator('[data-run-id]').first;row.locator('button').first.click()
+                    from app.quality.browser_extra import first_report_row
+                    page.goto(self.origin+'/op.html#/testing/runs');row=first_report_row(page);row.locator('button').first.click()
                     expect(page.locator('.qa-run-detail')).to_be_visible()
                     self.e.check('报告详情紧随当前报告',row.evaluate('n=>n.nextElementSibling.classList.contains("qa-run-detail")'))
                     row.locator('button').first.click();expect(page.locator('.qa-run-detail')).to_have_count(0)
