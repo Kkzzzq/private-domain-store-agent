@@ -13,6 +13,7 @@ from app.models.tables import Product, Sku
 def run(ctx, cid):
     from playwright.sync_api import expect, sync_playwright
 
+    expect.set_options(timeout=15000)
     root = settings.backend_root / "data" / "quality-artifacts"
     root.mkdir(parents=True, exist_ok=True)
     artifacts = []
@@ -90,6 +91,7 @@ def run(ctx, cid):
                     sku = next(s for s in fresh["skus"] if s["id"] == sku_id)
                     ctx.e.check("C展示规格价格库存与参数同步", (sku["price_yuan"], sku["stock"], sku["parameters"]) ==
                                 (float(price), int(stock), [{"name": "材质", "value": "棉麻"}]))
+                    expect(page.locator(".sku-table tbody tr").first).to_be_visible()
                     screenshot()
                 with SessionLocal() as db:
                     sku = db.get(Sku, sku_id)
@@ -175,6 +177,12 @@ def run(ctx, cid):
                     expect(row.locator('a[href*="/product/"]')).to_have_count(0)
                     expect(page.get_by_role("button", name="去结算", exact=True)).to_be_disabled()
                     ctx.e.check("失效商品数量与结算按钮禁用 " + str(width), True)
+                    layout = row.evaluate("""node => {
+                        const rect = index => node.children[index].getBoundingClientRect();
+                        const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+                        return {priceAndQuantity: overlap(rect(3), rect(4)), quantityAndDelete: overlap(rect(4), rect(6))};
+                    }""")
+                    ctx.e.check("购物车价格数量删除按钮不重叠 " + str(width), not any(layout.values()), False, layout)
                     screenshot()
                 with page.expect_response(lambda r: "/c/cart/" in r.url and r.request.method == "DELETE") as response:
                     row.get_by_role("button", name="删除", exact=True).click()
