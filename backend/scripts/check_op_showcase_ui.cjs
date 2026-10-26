@@ -37,9 +37,9 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
       }
       if(process.env.QA_SCREENSHOT_DIR){fs.mkdirSync(process.env.QA_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:process.env.QA_SCREENSHOT_DIR+'/'+id+'.png',fullPage:true});}
     }
-    const result=await context.request.get(origin+'/api/v1/op/qa/cases',{headers:{Authorization:'Bearer '+token}});assert(result.ok());const cases=await result.json();assert.equal(cases.length,72);
-    for(const [prefix,count] of [['RF',40],['RA',16],['RE',16]])assert.equal(cases.filter(r=>r.id.startsWith(prefix)).length,count);
-    assert.deepEqual(errors,[]);console.log(JSON.stringify({opened:opened.slice(0,13),state_checks:checks,cases:72,script_errors:errors,business_writes:false}));
+    const result=await context.request.get(origin+'/api/v1/op/qa/cases',{headers:{Authorization:'Bearer '+token}});assert(result.ok());const cases=await result.json();assert.equal(cases.length,76);
+    for(const [prefix,count] of [['RF',40],['RA',16],['RE',20]])assert.equal(cases.filter(r=>r.id.startsWith(prefix)).length,count);
+    assert.deepEqual(errors,[]);console.log(JSON.stringify({opened:opened.slice(0,13),state_checks:checks,cases:76,script_errors:errors,business_writes:false}));
   }finally{
     if(token)await context.request.post(origin+'/api/v1/auth/logout',{headers:{Authorization:'Bearer '+token}});
     await browser.close();

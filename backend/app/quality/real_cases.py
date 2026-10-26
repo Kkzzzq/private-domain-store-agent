@@ -51,6 +51,8 @@ def cases():
 def doc_for(case_id):
     title,steps,expected,writes=SPECS[case_id]
     file='real_scenarios_agent.py' if case_id in MORE_SPECS and case_id.startswith('RA') else 'real_scenarios_ui.py' if case_id in MORE_SPECS and case_id.startswith('RE') else 'real_scenarios_extended.py' if case_id in MORE_SPECS else 'real_runner.py'
+    if case_id in ('RE17','RE18','RE19','RE20'):
+        file='catalog_ui.py'
     return {"steps":steps,"expected":expected,"risk":"writes" if writes else "read-only",
             "code_file":"backend/app/quality/"+file,"code_node":f"execute({case_id})"}
 

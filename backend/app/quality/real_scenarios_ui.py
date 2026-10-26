@@ -10,6 +10,9 @@ from app.models.tables import CartItem
 
 
 def run(ctx,cid):
+    if cid in ("RE17", "RE18", "RE19", "RE20"):
+        from app.quality.catalog_ui import run as run_catalog_ui
+        return run_catalog_ui(ctx, cid)
     from playwright.sync_api import sync_playwright, expect
     call=ctx.call;check=ctx.e.check;root=settings.backend_root/'data'/'quality-artifacts';root.mkdir(parents=True,exist_ok=True)
     artifact=uuid4().hex+'.png'

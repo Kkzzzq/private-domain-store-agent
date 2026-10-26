@@ -443,16 +443,19 @@ def serialize_saved(view: CProductView, *, shop_open: bool) -> dict:
         label = "已下架"
     elif not shop_open:
         label = "店铺停业"
+    elif not view.listed:
+        label = "暂无在售规格"
     skus = [
         {**row, "purchasable": bool(available and row.get("status") == "on" and row.get("stock", 0) > 0)}
         for row in payload.get("skus", [])
     ]
-    markets = [row["market_price_yuan"] for row in skus if row.get("market_price_yuan")]
+    price_skus = [row for row in skus if row.get("status") == "on"] or skus
+    starting = min(price_skus, key=lambda row: (row["price_yuan"], row["id"]), default=None)
     payload["skus"] = skus
     payload["available"] = available
     payload["shelf_label"] = label
-    payload["price_from"] = min((row["price_yuan"] for row in skus if row.get("status") == "on"), default=None)
-    payload["market_from"] = min(markets, default=None)
+    payload["price_from"] = starting["price_yuan"] if starting else None
+    payload["market_from"] = starting["market_price_yuan"] if starting else None
     return payload
 
 

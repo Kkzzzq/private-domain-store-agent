@@ -1658,8 +1658,8 @@ async function renderCart() {
     image.src = cover(item.image_url);
     image.alt = item.product_name;
     const name = h("div");
-    const title = h("a", "", item.product_name);
-    title.href = `#/product/${code}/${item.product_id}`;
+    const title = h(item.available && item.product_id ? "a" : "span", "", item.product_name);
+    if (item.available && item.product_id) title.href = `#/product/${code}/${item.product_id}`;
     title.className = "link";
     name.append(title, h("div", "muted", `规格：${item.spec}`));
     if (!item.available) name.append(h("div", "pill banned", item.reason));
@@ -1670,6 +1670,8 @@ async function renderCart() {
     value.value = String(item.quantity);
     value.readOnly = true;
     const plus = h("button", "", "+");
+    minus.disabled = !item.available || item.quantity <= 1;
+    plus.disabled = !item.available || item.quantity >= Math.min(20, item.stock);
     const change = async (delta) => {
       try {
         await api(`/api/v1/c/cart/${item.id}`, {

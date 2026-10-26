@@ -1744,7 +1744,7 @@ async function productList() {
   const low = p => p.skus.some(sku => sku.status === "on" && sku.stock <= 5);
   function paint() {
     const query = productFilters.keyword.trim().toLowerCase();
-    const rows = products.filter(p => (!query || p.name.toLowerCase().includes(query) || String(p.id).includes(query)) && (!productFilters.status || p.status === productFilters.status) && (!productFilters.category || p.category === productFilters.category) && (!productFilters.stock || (productFilters.stock === "zero" ? stock(p) === 0 : low(p))));
+    const rows = products.filter(p => (!query || p.name.toLowerCase().includes(query) || String(p.spu_id || "").toLowerCase().includes(query) || String(p.id).includes(query)) && (!productFilters.status || p.status === productFilters.status) && (!productFilters.category || p.category === productFilters.category) && (!productFilters.stock || (productFilters.stock === "zero" ? stock(p) === 0 : low(p))));
     if (productFilters.sort === "sales") rows.sort((a, b) => b.sales_count - a.sales_count);
     if (productFilters.sort === "stock") rows.sort((a, b) => stock(a) - stock(b));
     if (productFilters.sort === "price") rows.sort((a, b) => (a.price_from ?? Infinity) - (b.price_from ?? Infinity));
@@ -1804,7 +1804,7 @@ function productTable(products, options = {}) {
     image.alt = product.name;
     const words = h("div");
     words.append(h("div", "name", product.name));
-    words.append(h("div", "muted", `#${product.id} · ${product.skus.length} 个规格`));
+    words.append(h("div", "muted", `${product.spu_id || "#" + product.id} · ${product.skus.length} 个规格`));
     row.append(image, words);
     info.append(row);
 
@@ -2082,7 +2082,6 @@ function renderSkuPanel(product, reload = render) {
           stock: Number(stockInput.value),
           image_url: imageWrap.querySelector("input").value.trim(),
         };
-        if (!parameterInput.disabled) payload.parameters = readSkuParameters(parameterInput.value);
         payload.market_price_yuan = marketInput.value ? Number(marketInput.value) : null;
         await api(`/api/v1/b/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify(payload) });
         toast(`${payload.spec} 已更新`, "ok");

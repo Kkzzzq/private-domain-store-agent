@@ -189,3 +189,37 @@ def test_deleting_spu_removes_projection(client):
         db.delete(product)
         db.commit()
         assert db.get(CProductView, product_id) is None
+
+
+def test_history_keeps_same_sku_price_when_all_skus_are_hidden(client):
+    merchant, buyer = login(client, "merchant"), login(client, "alice")
+    product = find(client.get("/api/v1/c/shops/nanzhi/products").json(), "亚麻抱枕套")
+    client.get(f"/api/v1/c/shops/nanzhi/products/{product['id']}", headers=buyer)
+    for index, sku in enumerate(product["skus"]):
+        updated = client.patch(f"/api/v1/b/skus/{sku['id']}", headers=merchant,
+                               json={"price_yuan": 29 + index * 10, "market_price_yuan": 99 - index * 10})
+        assert updated.status_code == 200
+        assert client.post(f"/api/v1/b/skus/{sku['id']}/status", headers=merchant,
+                           json={"action": "off"}).status_code == 200
+    saved = find(client.get("/api/v1/c/history", headers=buyer).json(), product["name"])
+    assert (saved["price_from"], saved["market_from"]) == (29, 99)
+    assert saved["available"] is False
+    assert saved["shelf_label"] == "暂无在售规格"
+    assert all(not sku["purchasable"] for sku in saved["skus"])
+
+
+def test_operations_can_search_business_spu_number_and_internal_id(client):
+    from test_operations import operator
+    merchant, op = login(client, "merchant"), operator(client)
+    product = find(client.get("/api/v1/b/products", headers=merchant).json(), "亚麻抱枕套")
+    for query in (product["spu_id"], str(product["id"])):
+        response = client.get("/api/v1/op/records/products", headers=op, params={"q": query})
+        assert response.status_code == 200, response.text
+        assert product["id"] in [row["id"] for row in response.json()["items"]]
+
+
+def test_operations_long_numeric_product_search_does_not_raise(client):
+    from test_operations import operator
+    response = client.get("/api/v1/op/records/products", headers=operator(client), params={"q": "9" * 80})
+    assert response.status_code == 200
+    assert response.json()["items"] == []

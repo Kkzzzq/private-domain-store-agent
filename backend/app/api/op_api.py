@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
 from app.core.deps import get_current_user, get_db
 from app.models.tables import User, Shop, Product, Sku, Order, Coupon, AgentToolLog, utcnow
@@ -69,7 +69,13 @@ def records(resource: str, q: str = '', status: str = '', shop_id: int | None = 
             field = getattr(model, 'tool', None)
         if field is None:
             field = getattr(model, 'reason', None)
-        if field is not None:
+        if resource == 'products':
+            term = q.strip()
+            filters = [Product.name.contains(term, autoescape=True), Product.spu_id.contains(term, autoescape=True)]
+            if term.isdecimal() and len(term) <= 10:
+                filters.append(Product.id == int(term))
+            query = query.where(or_(*filters))
+        elif field is not None:
             query = query.where(field.contains(q.strip(), autoescape=True))
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     items = []
