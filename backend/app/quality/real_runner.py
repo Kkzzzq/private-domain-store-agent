@@ -113,6 +113,12 @@ class RealCase:
                         expected_db={'product_id':p['id'],'price_yuan':row.price_cents/100,'stock':row.stock,'spec':row.spec}
                         actual_db={'product_id':row.spu_id,'price_yuan':sku['price_yuan'],'stock':sku['stock'],'spec':sku['spec']}
                         self.e.check('SKU数据库原值核对 '+str(sku['id']),expected_db==actual_db,expected_db,actual_db)
+            for sort in ('price_asc', 'price_desc', 'sales'):
+                listing = self.call('GET', '/c/shops/nanzhi/products?sort=' + sort)
+                collection = self.call('GET', '/c/shops/nanzhi/collections/all?sort=' + sort)['products']
+                expected = [product['id'] for product in collection]
+                actual = [product['id'] for product in listing]
+                self.e.check('列表与合集并列值排序一致 ' + sort, actual == expected, expected, actual)
             return
         if cid=='RF12':
             from scripts.seed_nanzhi_demo import seed

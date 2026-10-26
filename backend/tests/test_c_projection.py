@@ -223,3 +223,19 @@ def test_operations_long_numeric_product_search_does_not_raise(client):
     response = client.get("/api/v1/op/records/products", headers=operator(client), params={"q": "9" * 80})
     assert response.status_code == 200
     assert response.json()["items"] == []
+
+
+def test_catalog_and_collection_use_same_tiebreakers_for_price_and_sales(client):
+    merchant = login(client, "merchant")
+    for index, sort_order in enumerate((90, 10)):
+        response = client.post("/api/v1/b/products", headers=merchant, json={
+            "name": f"同价同销量排序{index}", "status": "off", "category": "家居",
+            "skus": [{"spec": "标准", "price_yuan": 17.89, "stock": 10}]})
+        assert response.status_code == 200
+        pid = response.json()["id"]
+        assert client.patch(f"/api/v1/b/products/{pid}", headers=merchant, json={"sort_order": sort_order}).status_code == 200
+        assert client.post(f"/api/v1/b/products/{pid}/status", headers=merchant, json={"action": "on"}).status_code == 200
+    for sort in ("price_asc", "price_desc", "sales"):
+        listing = client.get("/api/v1/c/shops/nanzhi/products", params={"sort": sort}).json()
+        collection = client.get("/api/v1/c/shops/nanzhi/collections/all", params={"sort": sort}).json()["products"]
+        assert [p["id"] for p in listing] == [p["id"] for p in collection], sort

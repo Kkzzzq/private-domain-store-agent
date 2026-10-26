@@ -384,11 +384,11 @@ def view_rows(
         word = keyword.strip()
         query = query.where(CProductView.name.like(f"%{word}%") | CProductView.category.like(f"%{word}%"))
     if sort == "price_asc":
-        query = query.order_by(CProductView.price_from_cents.asc())
+        query = query.order_by(CProductView.price_from_cents.asc(), CProductView.sort_order.asc(), CProductView.spu_id.asc())
     elif sort == "price_desc":
-        query = query.order_by(CProductView.price_from_cents.desc())
+        query = query.order_by(CProductView.price_from_cents.desc(), CProductView.sort_order.asc(), CProductView.spu_id.asc())
     elif sort == "sales":
-        query = query.order_by(CProductView.sales_count.desc())
+        query = query.order_by(CProductView.sales_count.desc(), CProductView.sort_order.asc(), CProductView.spu_id.asc())
     else:
         query = query.order_by(CProductView.sort_order.asc(), CProductView.spu_id.asc())
     return list(db.scalars(query))
