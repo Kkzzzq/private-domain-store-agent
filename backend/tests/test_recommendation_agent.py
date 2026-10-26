@@ -44,6 +44,17 @@ def test_catalog_is_paged_and_does_not_create_recommendation_cards(catalog_actor
     assert "测试下架杯" not in execute_tool("get_store_catalog", {"limit": 20})
 
 
+def test_empty_recommendation_explains_and_filters_without_relaxing_them(catalog_actor):
+    _, actor = catalog_actor
+    execute_tool("get_store_catalog", {})
+    result = execute_tool("recommend_products", {
+        "reason": "budget", "budget_yuan": 100, "keywords": ["陶瓷", "香薰"],
+    })
+    assert "没有找到" in result and "AND" in result
+    assert "用户要求同时满足时不得放宽" in result
+    assert not actor.products
+
+
 def test_customer_scope_has_no_merchant_tools_or_fallback_guidance(catalog_actor):
     from app.agent.fallback import fallback_reply
     from app.agent.tools import langchain_tools

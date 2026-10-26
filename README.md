@@ -162,7 +162,9 @@ The lightweight configuration uses SQLite and in-process conversation storage wh
 
 ### AI Setup
 
-The default local-model option uses Ollama:
+Business chat, quality planning/judging, and the quality target model use the `qwen-flash` profile in `.env.example`. Keep credentials in an external file and set all three key-file settings for your environment. Embedding uses its dedicated Qwen embedding model. See [the Qwen profile](docs/qwen-flash-profile.md).
+
+The local-model option uses Ollama:
 
 ```powershell
 ollama pull qwen2.5:7b

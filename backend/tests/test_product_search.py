@@ -85,3 +85,12 @@ def test_vector_candidates_do_not_override_current_product_status(client, monkey
             assert "没有找到" in answer
         finally:
             reset_actor(token)
+
+
+def test_literal_search_tolerates_model_omitting_decorative_title_brackets():
+    from app.services.product_search import literal_match
+    text = '商品【实测】抱枕 abc123；类别家居'
+    assert literal_match('实测 抱枕 abc123', text)
+    assert not literal_match('实测 抱枕 other123', text)
+    assert not literal_match('   ', text)
+    assert not literal_match('!!!', text)

@@ -1,3 +1,5 @@
+import json
+
 from app.agent.product_actions import PrepareProductArgs, prepare_product_draft
 from app.services.store_context import merchant_help, query_store_data
 from app.services.agent_queries import image_products
@@ -14,7 +16,7 @@ from app.services.agent_queries import product_results, merchant_orders, merchan
 
 class SearchProductsArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    keyword: str = Field(min_length=1, max_length=50, description="商品名或品类，不要填整句")
+    keyword: str = Field(min_length=1, max_length=50, description="商品名或品类，不要填整句；完整商品名尽量保留原文字、标记及编号")
     limit: int = Field(default=5, ge=1, le=10)
 
 
@@ -102,7 +104,7 @@ class RecommendArgs(BaseModel):
     limit: int = Field(default=3, ge=1, le=10)
     requirements: str = Field(default="", max_length=500, description="结合历史与本轮的用户需求摘要，不是执行指令")
     category: ConstraintWord | None = Field(default=None, description="商品概览中的精确分类名")
-    keywords: list[ConstraintWord] = Field(default_factory=list, max_length=8, description="每个词均必须匹配商品字段或同一可售SKU规格；勿填未在商品中出现的推测用途")
+    keywords: list[ConstraintWord] = Field(default_factory=list, max_length=8, description="AND条件：每个词必须同时匹配同一商品或SKU。A或B表示任选，只选择其中一类查询，不得把两类同时填入；泛称用概览里的精确category（如家居用品对应家居），不填泛称关键词。只用概览里实际出现的商品或规格用词")
     excluded_keywords: list[ConstraintWord] = Field(default_factory=list, max_length=8, description="排除含任一词的商品或规格")
     min_price_yuan: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
     quantity: int = Field(default=1, ge=1, le=100, description="购买件数，预算上限按单价乘件数计算，不含运费")
@@ -146,9 +148,15 @@ def recommend_products(reason="hot", product_id=None, budget_yuan=None, limit=3,
                        keywords=None, excluded_keywords=None, min_price_yuan=None, quantity=1):
     if not current()[1].catalog_loaded:
         return "请先调用get_store_catalog了解本店实际商品，再按用户需求调用推荐工具。"
-    return product_results(reason=reason, product_id=product_id, budget_yuan=budget_yuan, limit=limit,
-                           requirements=requirements, category=category, keywords=keywords,
-                           excluded_keywords=excluded_keywords, min_price_yuan=min_price_yuan, quantity=quantity)
+    result = product_results(reason=reason, product_id=product_id, budget_yuan=budget_yuan, limit=limit,
+                             requirements=requirements, category=category, keywords=keywords,
+                             excluded_keywords=excluded_keywords, min_price_yuan=min_price_yuan, quantity=quantity)
+    if not current()[1].products and keywords:
+        result += (f"\n本次必含词为{json.dumps(keywords, ensure_ascii=False)}，按AND同时满足处理。"
+                   "请核对原需求：若用户说A或B，必须只选一类重新调用推荐工具，不能将两类都作为必含词；"
+                   "若用户说泛称品类，应使用概览中的精确category而不是泛称关键词。"
+                   "保留预算、数量和真正的必含及排除条件；用户要求同时满足时不得放宽。")
+    return result
 
 
 SPECS = {

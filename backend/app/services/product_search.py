@@ -1,4 +1,5 @@
 import json
+import re
 from hashlib import sha256
 from pathlib import Path
 
@@ -22,8 +23,18 @@ def sku_text(sku):
 
 def literal_match(keyword, text):
     term = keyword.strip().casefold()
+    if not term:
+        return False
     terms = next((group for group in SYNONYMS if term in group), (term,))
-    return any(candidate.casefold() in text.casefold() for candidate in terms)
+    folded = text.casefold()
+    # Models may omit decorative brackets in a title; preserve all words and IDs.
+    searchable = re.sub(r"[\W_]+", " ", folded).strip()
+    for candidate in terms:
+        candidate = candidate.casefold()
+        normalized = re.sub(r"[\W_]+", " ", candidate).strip()
+        if candidate in folded or (normalized and normalized in searchable):
+            return True
+    return False
 
 
 def documents(rows):

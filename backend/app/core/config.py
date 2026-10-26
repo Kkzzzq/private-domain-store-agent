@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     cloud_api_key_file: str = ""
     cloud_api_style: Literal["qwen", "zhipu", "deepseek"] = "qwen"
     cloud_base_url: str = ""
-    cloud_model: str = "qwen-plus-2025-04-28"
+    cloud_model: str = "qwen-flash"
     cloud_max_tokens: int = 800
     cloud_fallback_models: str = ""
     cloud_fallback_cooldown_seconds: int = Field(default=300, ge=1, le=3600)
@@ -65,12 +65,12 @@ class Settings(BaseSettings):
     qa_native_enabled: bool = False
     qa_native_mysql_password: str = ""
     qa_chat_model: str = ""
-    qa_chat_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
-    qa_chat_api_style: Literal["qwen", "zhipu", "deepseek"] = "zhipu"
+    qa_chat_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    qa_chat_api_style: Literal["qwen", "zhipu", "deepseek"] = "qwen"
     qa_chat_api_key_file: str = ""
     qa_target_chat_model: str = ""
-    qa_target_chat_base_url: str = ""
-    qa_target_chat_api_style: Literal["qwen", "zhipu", "deepseek"] = "deepseek"
+    qa_target_chat_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    qa_target_chat_api_style: Literal["qwen", "zhipu", "deepseek"] = "qwen"
     qa_target_chat_api_key_file: str = ""
 
     model_config = SettingsConfigDict(
