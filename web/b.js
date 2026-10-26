@@ -627,7 +627,13 @@ function imageField(label, name, value) {
   preview.style.background = "#f7f7f7";
   const refresh = () => {
     // 没填路径时给一个空图，别让预览挂着别的商品的图
-    preview.src = input.value || "";
+    if (input.value.trim()) {
+      preview.src = input.value;
+      preview.style.visibility = "visible";
+    } else {
+      preview.removeAttribute("src");
+      preview.style.visibility = "hidden";
+    }
   };
   input.addEventListener("input", refresh);
   refresh();

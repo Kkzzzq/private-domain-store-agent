@@ -92,6 +92,11 @@ def run(ctx, cid):
                     ctx.e.check("C展示规格价格库存与参数同步", (sku["price_yuan"], sku["stock"], sku["parameters"]) ==
                                 (float(price), int(stock), [{"name": "材质", "value": "棉麻"}]))
                     expect(page.locator(".sku-table tbody tr").first).to_be_visible()
+                    preview_size = page.locator(".sku-image-preview").first.bounding_box()
+                    ctx.e.check("空规格图保持紧凑尺寸", preview_size["width"] <= 48 and preview_size["height"] <= 48,
+                                "width/height <=48", preview_size)
+                    if op:
+                        expect(page.locator("form .form-grid img").first).to_be_hidden()
                     screenshot()
                 with SessionLocal() as db:
                     sku = db.get(Sku, sku_id)

@@ -730,6 +730,7 @@ wa-rating.stars-widget::part(rating) { gap: 1px; }
   background: #f2f4f6 center / cover no-repeat; border: 1px solid var(--line);
 }
 .sku-image-preview.empty {
+  padding: 0;
   background-image: none;
   border-style: dashed;
   background-image: linear-gradient(45deg, transparent 46%, var(--line) 46%, var(--line) 54%, transparent 54%), linear-gradient(-45deg, transparent 46%, var(--line) 46%, var(--line) 54%, transparent 54%);
