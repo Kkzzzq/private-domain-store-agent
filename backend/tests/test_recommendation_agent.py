@@ -95,6 +95,17 @@ def test_explicit_or_choices_preserve_quantity_budget_and_other_and_constraints(
     assert not actor.products, 'a negative OR phrase must never become a positive alternative'
 
 
+def test_require_stock_is_an_explicit_non_optional_safety_condition(catalog_actor):
+    _, actor = catalog_actor
+    execute_tool('get_store_catalog', {})
+    execute_tool('recommend_products', {'keywords': ['测试陶瓷杯'], 'require_stock': True})
+    assert actor.products and all(s['stock'] > 0 for r in actor.products for s in r['skus'])
+    result = execute_tool('recommend_products', {'require_stock': False})
+    assert '参数缺失或无效' in result and 'require_stock' in result and 'True' in result
+    result = execute_tool('recommend_products', {'allow_out_of_stock': True})
+    assert 'allow_out_of_stock' in result and 'Extra inputs are not permitted' in result
+
+
 def test_customer_scope_has_no_merchant_tools_or_fallback_guidance(catalog_actor):
     from app.agent.fallback import fallback_reply
     from app.agent.tools import langchain_tools

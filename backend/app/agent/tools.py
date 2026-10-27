@@ -109,6 +109,7 @@ class RecommendArgs(BaseModel):
     excluded_keywords: list[ConstraintWord] = Field(default_factory=list, max_length=8, description="排除含任一词的商品或规格")
     min_price_yuan: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
     quantity: int = Field(default=1, ge=1, le=100, description="购买件数，预算上限按单价乘件数计算，不含运费")
+    require_stock: Literal[True] = Field(default=True, description="推荐固定只返回满足购买数量的有货SKU；只能为true，不能关闭库存检查")
 
     @model_validator(mode="after")
     def required_slots(self):
@@ -146,7 +147,8 @@ class LowInventoryArgs(OverviewArgs):
 
 
 def recommend_products(reason="hot", product_id=None, budget_yuan=None, limit=3, requirements="", category=None,
-                       keywords=None, excluded_keywords=None, min_price_yuan=None, quantity=1, keyword_groups=None):
+                       keywords=None, excluded_keywords=None, min_price_yuan=None, quantity=1, keyword_groups=None,
+                       require_stock=True):
     if not current()[1].catalog_loaded:
         return "请先调用get_store_catalog了解本店实际商品，再按用户需求调用推荐工具。"
     from app.agent.recommendation_constraints import alternatives_from_request

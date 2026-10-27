@@ -49,8 +49,9 @@ def execute_tool(name: str, raw_args) -> str:
         parsed = spec.model_validate(args)
     except ValidationError as exc:
         error = exc.errors()[0]
-        loc = ".".join(str(part) for part in error["loc"]) or error["msg"]
-        return finish(f"参数缺失或无效：{loc}", False, "invalid_args")
+        loc = ".".join(str(part) for part in error["loc"])
+        detail = f"{loc}：{error['msg']}" if loc else error['msg']
+        return finish(f"参数缺失或无效：{detail}", False, "invalid_args")
 
     if name in ("recommend_products", "clarify_recommendation") and not current()[1].catalog_loaded:
         return finish("请先调用get_store_catalog了解本店商品。", False, "catalog_required")
