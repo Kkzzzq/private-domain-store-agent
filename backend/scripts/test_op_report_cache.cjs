@@ -1,8 +1,8 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 let token='operator',listeners={};
-const context=vm.createContext({window:{addEventListener:(name,fn)=>listeners[name]=fn},sessionStorage:{getItem:()=>token},document:{createElement:()=>({isConnected:true,replaceChildren(){}})},URL:{revokeObjectURL(){}},setTimeout,clearTimeout,AbortController});
+const context=vm.createContext({window:{addEventListener:(name,fn)=>{const previous=listeners[name];listeners[name]=()=>{previous?.();fn();};}},sessionStorage:{getItem:()=>token},document:{createElement:()=>({isConnected:true,replaceChildren(){}})},URL:{revokeObjectURL(){}},setTimeout,clearTimeout,AbortController});
 let source=fs.readFileSync('web/op-quality.js','utf8');
-source=source.replace('    const error=message=>','    window.cacheTest={loadRun,root,runDetails};return;\n    const error=message=>');
+source=source.replace('    const error=message=>','    window.cacheTest={loadRun,root,runDetails,api,workspaces};return;\n    const error=message=>');
 vm.runInContext(source,context);
 const mount=api=>{context.window.OPQuality.mount({replaceChildren(){}},{api});return context.window.cacheTest;};
 (async()=>{
@@ -14,5 +14,9 @@ const mount=api=>{context.window.OPQuality.mount({replaceChildren(){}},{api});re
  b.root.isConnected=false;const c=mount(api);assert.equal((await c.loadRun('r1')).id,'r1');assert.equal(requests,1,'return navigation must reuse download');
  const stale=c.loadRun('r2');listeners['op-session-ended']();token='another';const d=mount(api);finish({id:'r2'});await stale;assert.equal(d.runDetails.size,0,'old account response must not populate new cache');
  let fresh=0;const e=mount(async()=>{fresh++;return {id:'r1'};});await e.loadRun('r1');assert.equal(fresh,1,'new login must download its own report');
+ e.workspaces.set('',{at:Date.now()});await e.api('/cases',{title:'change'});
+ assert.equal(e.workspaces.size,0,'mutations must invalidate workspace metadata');
+ e.workspaces.set('',{at:Date.now()});listeners['op-session-ended']();
+ assert.equal(e.workspaces.size,0,'logout must remove workspace metadata');
  console.log('Cross-page cache: completed reuse, in-flight reuse, logout and stale-account isolation passed.');
 })().catch(err=>{console.error(err);process.exitCode=1;});

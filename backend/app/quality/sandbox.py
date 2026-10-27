@@ -22,20 +22,7 @@ def safe(value, depth=0):
     return value
 
 
-def ensure_sqlite():
-    """仅隔离执行器使用兼容 SQLite；老系统的系统库不满足 Chroma 要求。"""
-    import sqlite3
-    if sqlite3.sqlite_version_info >= (3, 35, 0):
-        return
-    import sys
-    try:
-        import pysqlite3
-    except ImportError:
-        raise RuntimeError("测试环境的 SQLite 版本过旧，请安装 requirements-e2e.txt 中的 pysqlite3-binary") from None
-    if pysqlite3.sqlite_version_info < (3, 35, 0):
-        raise RuntimeError("测试环境需要 SQLite 3.35 或更新版本")
-    sys.modules["sqlite3"] = pysqlite3
-    sys.modules["sqlite3.dbapi2"] = pysqlite3.dbapi2
+from app.core.sqlite_runtime import ensure_sqlite
 
 
 def configure_environment():

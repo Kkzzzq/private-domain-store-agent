@@ -8,6 +8,10 @@ window.OPQuality = (() => {
   const label = value => names[value] || value;
   // Keep downloads alive across workspace mounts, scoped to the current login.
   let reportsOwner;
+  let workspaceOwner;
+  const workspaces=new Map();
+  const clearWorkspaces=()=>{workspaceOwner=undefined;workspaces.clear();};
+  window.addEventListener("op-session-ended",clearWorkspaces);
   let reports={details:new Map(),downloads:new Map(),errors:new Map()};
   function clearReportCache(){reportsOwner=undefined;reports={details:new Map(),downloads:new Map(),errors:new Map()};releaseShots();}
   window.addEventListener("op-session-ended",clearReportCache);
@@ -50,6 +54,7 @@ window.OPQuality = (() => {
   function mount(host, options) {
     const root=el("section","qa-workspace"); host.replaceChildren(root);
     const identity=sessionStorage.getItem("token_op");
+    if(workspaceOwner!==identity){clearWorkspaces();workspaceOwner=identity;}
     const valid=()=>root.isConnected&&sessionStorage.getItem("token_op")===identity;
     if(shotsOwner!==identity){releaseShots();shotsOwner=identity;}
     const AGENT_TABS=["testing-overview","testing-business","testing-evaluator","testing-functional"];
@@ -73,6 +78,7 @@ window.OPQuality = (() => {
     const cacheSession=reports;
     const api=async(path,body,method="POST")=>{
       if(!valid())throw Error("账号或页面已变化");
+      if(body)workspaces.clear();
       const controller=new AbortController();
       const timeout=setTimeout(()=>controller.abort(),requestTimeout(path));
       try{return await options.api(path,{...(body?{method,body:JSON.stringify(body)}:{}),signal:controller.signal});}
@@ -160,6 +166,8 @@ window.OPQuality = (() => {
         data={capabilities,cases,plans,runs:runs.map(run=>runDetails.get(run.id)||run)};
         RUN_ENVIRONMENT=capabilities.real_shop?"real-nanzhi":"isolated-local";
         agents=agentsPayload?.agents;
+        if(agents)workspaces.set(reportDate,{at:Date.now(),data:{capabilities,cases,plans,runs},agents});
+        while(workspaces.size>3)workspaces.delete(workspaces.keys().next().value);
         paint();poll();
       }catch(err){
         if(!data){
@@ -637,7 +645,12 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       form.onsubmit=async event=>{event.preventDefault();submit.disabled=true;try{const ids=Array.from(choices.querySelectorAll("input:checked")).map(node=>node.value);const plan=await api("/plans",{goal:goal.value,kind,mode:mode.value,planner:planner.value,diagnostic:planner.value==="fixed"||kind!=="functional"&&mode.value==="rules",environment_id:environment.value,case_ids:ids,max_tokens:Number(budget.value)});selectedPlan=plan.id;dialog.close();await refresh();}catch(err){message.textContent=err.message;}finally{submit.disabled=false;}};
       dialog.append(form);dialog.addEventListener("close",()=>dialog.remove(),{once:true});root.append(dialog);dialog.showModal();
     }
-    root.append(el("p","qa-muted","正在读取OP测试能力…"));refresh();
+    const cached=workspaces.get(reportDate);
+    if(cached&&Date.now()-cached.at<10000&&AGENT_TABS.includes(options.tab)){
+      data={...cached.data,runs:cached.data.runs.slice()};agents=cached.agents;
+      RUN_ENVIRONMENT=data.capabilities.real_shop?"real-nanzhi":"isolated-local";
+      paint();poll();
+    }else{root.append(el("p","qa-muted","正在读取OP测试能力…"));refresh();}
   }
   return {mount};
 })();

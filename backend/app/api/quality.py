@@ -65,7 +65,12 @@ def list_agents(user=Depends(quality_user), db=Depends(get_db)):
     from app.quality.case_versions import all_cases
     from app.db.redis_client import get_redis
     rows = all_cases(db)
-    runs = db.scalars(select(QualityRun).order_by(QualityRun.created_at.desc()).limit(200)).all()
+    runs = db.execute(select(QualityRun.id, QualityRun.plan_id, QualityRun.kind, QualityRun.status,
+                             QualityRun.mode, QualityRun.created_at,
+                             QualityRun.summary['decision'].label('decision'))
+                      .order_by(QualityRun.created_at.desc()).limit(200)).all()
+    diagnostics = dict(db.execute(select(QualityPlan.id, QualityPlan.payload['diagnostic'].as_boolean())
+                                 .where(QualityPlan.id.in_({run.plan_id for run in runs}))).all()) if runs else {}
     out = []
     for agent in descriptors():
         active = [row for row in rows if row["kind"] == agent["kind"] and row["state"] == "active"]
@@ -82,12 +87,12 @@ def list_agents(user=Depends(quality_user), db=Depends(get_db)):
                           "documented_cases": sum(1 for row in active if row["id"] in CASE_DOCS or row.get("definition") or row.get("adapter", "").startswith("real_shop_")),
                           "custom_cases": sum(bool(row.get("definition")) for row in active),
                           "runs": len(kind_runs),
-                          "formal_runs": sum(not db.get(QualityPlan, run.plan_id).payload.get("diagnostic", True) for run in kind_runs),
-                          "diagnostic_runs": sum(db.get(QualityPlan, run.plan_id).payload.get("diagnostic", True) for run in kind_runs),
+                          "formal_runs": sum(diagnostics.get(run.plan_id) is False for run in kind_runs),
+                          "diagnostic_runs": sum(diagnostics.get(run.plan_id) is not False for run in kind_runs),
                           "last_run": None if latest is None else {
                               "id": latest.id, "status": latest.status, "mode": latest.mode,
                               "created_at": latest.created_at.isoformat(),
-                              "decision": (latest.summary or {}).get("decision")}}
+                              "decision": latest.decision}}
         out.append(entry)
     from app.quality.reporting import RETENTION_DAYS
     return {"agents": out, "retention_days": RETENTION_DAYS}
@@ -157,8 +162,7 @@ def create_report_batch(body: ReportBatchIn, user=Depends(quality_user), db=Depe
 
 @router.get("/runs")
 def list_runs(report_date: date | None = Query(default=None), brief: bool = Query(default=False), user=Depends(quality_user), db=Depends(get_db)):
-    reports = report_batches.listing(db,report_date)
-    return [report_batches.brief_report(report) for report in reports] if brief else reports
+    return report_batches.listing(db,report_date,brief=True) if brief else report_batches.listing(db,report_date)
 
 
 @router.get("/runs/{run_id}")

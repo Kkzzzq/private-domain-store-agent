@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from app.models.quality import QualityPlan,QualityRun,QualityReportBatch,QualityReportMember
+from app.models.quality import QualityPlan,QualityRun,QualityResult,QualityReportBatch,QualityReportMember
 from app.quality import service
 
 
@@ -49,6 +49,11 @@ def output(db,batch,light=False):
         run=db.get(QualityRun,link.run_id)
         if run:children.append(service.run_out(db,run,light=light))
         else:missing.append(link.run_id)
+    return aggregate(batch,links,children,missing)
+
+
+def aggregate(batch,links,children,missing):
+    """Share status/cleanup rules between metadata lists and full evidence."""
     results=[];snapshots=[];seen=set()
     for child in children:
         snapshots.extend(child['target'].get('case_snapshots') or [])
@@ -93,7 +98,7 @@ def brief_report(report):
     return result
 
 
-def listing(db,report_date=None):
+def listing(db,report_date=None,brief=False):
     hidden=select(QualityReportMember.run_id)
     runs=select(QualityRun).where(QualityRun.id.not_in(hidden));batches=select(QualityReportBatch)
     if report_date:
@@ -112,8 +117,54 @@ def listing(db,report_date=None):
     if cutoff is None:return []
     runs=runs.where(QualityRun.created_at>=cutoff)
     batches=batches.where(QualityReportBatch.created_at>=cutoff)
+    if brief:
+        return metadata_listing(db,runs,batches)
     rows=[service.run_out(db,r,light=True) for r in db.scalars(runs.order_by(QualityRun.created_at.desc()))]
     rows.extend(output(db,b,light=True) for b in db.scalars(batches.order_by(QualityReportBatch.created_at.desc())) if any(db.get(QualityRun,m.run_id) for m in members(db,b.id)))
+    return sorted(rows,key=lambda r:r['created_at'],reverse=True)
+
+
+def metadata_listing(db,runs_query,batches_query):
+    """Read list metadata in bulk; never fetch transcripts or plan catalogs.
+
+    JSON projections run in SQL, so large historical evidence never crosses the
+    database connection. Full reports remain on the existing detail endpoint.
+    """
+    batches=list(db.scalars(batches_query))
+    links=list(db.scalars(select(QualityReportMember).where(
+        QualityReportMember.batch_id.in_([b.id for b in batches])).order_by(QualityReportMember.position))) if batches else []
+    runs=list(db.scalars(runs_query))
+    standalone={r.id for r in runs}
+    child_ids={link.run_id for link in links}-standalone
+    if child_ids:runs.extend(db.scalars(select(QualityRun).where(QualityRun.id.in_(child_ids))))
+    if not runs:return []
+    keys=('environment_id','target_revision','fixture_version','catalog_version','diagnostic')
+    plans={row.id:row for row in db.execute(select(QualityPlan.id,*[
+        QualityPlan.payload[key].label(key) for key in keys
+    ]).where(QualityPlan.id.in_({r.plan_id for r in runs})))}
+    results={r.id:[] for r in runs}
+    query=select(QualityResult.run_id,QualityResult.case_id,QualityResult.kind,QualityResult.status,
+                 QualityResult.evidence['cleanup_ok'].as_boolean().label('cleanup_ok')).where(
+                     QualityResult.run_id.in_(results)).order_by(QualityResult.id)
+    for row in db.execute(query):
+        results[row.run_id].append({'id':row.case_id,'kind':row.kind,'status':row.status,
+                                   'evidence':{'cleanup_ok':row.cleanup_ok}})
+    reports={}
+    for run in runs:
+        plan=plans.get(run.plan_id)
+        reports[run.id]=dict(id=run.id,name=(run.created_at+timedelta(hours=8)).strftime('%Y-%m-%d %H:%M 测试报告')+f'（{len(results[run.id])}条用例） · {run.id[:6]}',
+            plan_id=run.plan_id,kind=run.kind,mode=run.mode,status=run.status,
+            diagnostic=plan.diagnostic if plan and plan.diagnostic is not None else True,
+            cancel_requested=run.cancel_requested,created_at=run.created_at,started_at=run.started_at,
+            finished_at=run.finished_at,summary=run.summary,
+            target={key:getattr(plan,key) if plan else None for key in keys[:-1]},results=results[run.id])
+    rows=[brief_report(reports[rid]) for rid in standalone]
+    by_batch={b.id:[] for b in batches}
+    for link in links:by_batch[link.batch_id].append(link)
+    for batch in batches:
+        owned=by_batch[batch.id];children=[reports[m.run_id] for m in owned if m.run_id in reports]
+        if children:
+            rows.append(brief_report(aggregate(batch,owned,children,[m.run_id for m in owned if m.run_id not in reports])))
     return sorted(rows,key=lambda r:r['created_at'],reverse=True)
 
 

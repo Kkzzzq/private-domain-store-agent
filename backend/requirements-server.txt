@@ -1,4 +1,4 @@
-# Dependencies for the server's CPU Ollama deployment (keyword RAG).
+# API runtime, including persistent Chroma vector retrieval.
 fastapi>=0.115,<1
 uvicorn[standard]>=0.32,<1
 sqlalchemy>=2.0.36,<3
@@ -15,3 +15,5 @@ python-multipart>=0.0.20
 langchain-core>=0.3.40,<2
 langchain-ollama>=0.2,<2
 filelock>=3.16,<4
+chromadb>=1.0.0
+pysqlite3-binary>=0.5.4; sys_platform == "linux"

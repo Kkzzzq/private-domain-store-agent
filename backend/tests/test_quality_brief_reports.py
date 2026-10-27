@@ -1,5 +1,36 @@
 import json
+import re
 from app.quality.report_batches import brief_report
+
+
+def test_metadata_list_matches_reports_without_loading_evidence_or_n_plus_one(client):
+    from sqlalchemy import event
+    from app.db.session import SessionLocal, engine
+    from app.models.quality import QualityRun
+    from app.quality import report_batches
+    from test_quality import operator
+    from test_quality_report_batches import fixture_run
+
+    _, uid = operator(client)
+    with SessionLocal() as db:
+        ids = [fixture_run(db, uid, 'RF01'), fixture_run(db, uid, 'RA01', kind='assistant')]
+        batch = report_batches.create(db, uid, ids, 'metadata-batch-key', ['RF01', 'RA01', 'RE01'])
+        # Include missing execution evidence, a failed run, and many single reports.
+        db.delete(db.get(QualityRun, ids[1])); db.commit()
+        for _ in range(20): fixture_run(db, uid, 'RF02', status='failed')
+    with SessionLocal() as db:
+        expected = [brief_report(r) for r in report_batches.listing(db)]
+    statements = []
+    def capture(_connection, _cursor, statement, *_args): statements.append(statement)
+    event.listen(engine, 'before_cursor_execute', capture)
+    try:
+        with SessionLocal() as db: actual = report_batches.listing(db, brief=True)
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture)
+    assert {r['id']: r for r in actual} == {r['id']: r for r in expected}
+    assert len(statements) <= 10, 'report list SQL must not grow per report'
+    assert not any(re.search(r'(?:SELECT |, )qa_(?:results\.evidence|plans\.payload)(?:,|\s+FROM)', s) for s in statements)
+    assert next(r for r in actual if r['id'] == batch['id'])['status'] == 'blocked'
 
 
 def test_large_evidence_detail_preserves_order_without_database_json_filesort(client):
@@ -54,7 +85,7 @@ def test_brief_list_is_opt_in_and_detail_retains_evidence(client,monkeypatch):
     headers,_=operator(client)
     report={'id':'r','kind':'functional','status':'passed','target':{'environment_id':'isolated-local'},
             'results':[{'id':'F11','kind':'functional','status':'passed','evidence':{'assertions':[{'passed':True}]}}]}
-    monkeypatch.setattr(report_batches,'listing',lambda db,day:[report])
+    monkeypatch.setattr(report_batches,'listing',lambda db,day,brief=False:[brief_report(report)] if brief else [report])
     monkeypatch.setattr(report_batches,'get',lambda db,ident:report)
     path='/api/v1/op/qa/runs'
     assert client.get(path+'?brief=true').status_code==401

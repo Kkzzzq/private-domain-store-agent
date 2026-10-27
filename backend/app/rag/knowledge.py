@@ -2,6 +2,7 @@ from pathlib import Path
 from hashlib import sha256
 
 from app.core.config import settings
+from app.core.sqlite_runtime import ensure_sqlite
 from app.core.logging import logger
 from app.rag.cleaner import structured_chunks
 
@@ -23,6 +24,7 @@ class KnowledgeBase:
         return chunks
 
     def rebuild(self, chunks: list[dict], embedder) -> int:
+        ensure_sqlite()
         import chromadb
 
         self.persist_dir.mkdir(parents=True, exist_ok=True)
@@ -59,6 +61,7 @@ class KnowledgeBase:
 
     def has_vectors(self) -> bool:
         try:
+            ensure_sqlite()
             import chromadb
 
             client = chromadb.PersistentClient(path=str(self.persist_dir))
@@ -70,12 +73,14 @@ class KnowledgeBase:
     def export_chunks(self):
         if not self.has_vectors():
             return []
+        ensure_sqlite()
         import chromadb
         rows = chromadb.PersistentClient(path=str(self.persist_dir)).get_collection(self.collection).get(include=["documents", "metadatas"])
         return [{"id": chunk_id, "content": document, "source": (metadata or {}).get("source", "chroma"), "heading_path": (metadata or {}).get("heading_path", "正文")}
                 for chunk_id, document, metadata in zip(rows["ids"], rows["documents"], rows["metadatas"])]
 
     def semantic_search(self, question: str, embedder, k: int = 3) -> list[dict]:
+        ensure_sqlite()
         import chromadb
 
         client = chromadb.PersistentClient(path=str(self.persist_dir))
