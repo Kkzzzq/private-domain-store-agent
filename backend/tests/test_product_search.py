@@ -94,3 +94,19 @@ def test_literal_search_tolerates_model_omitting_decorative_title_brackets():
     assert not literal_match('实测 抱枕 other123', text)
     assert not literal_match('   ', text)
     assert not literal_match('!!!', text)
+
+
+def test_unknown_product_code_cannot_semantically_recall_unrelated_cards(monkeypatch):
+    def unexpected(*args):
+        raise AssertionError('A missing exact identifier needs no embedding request')
+    monkeypatch.setattr('app.services.product_search.semantic_matches', unexpected)
+    assert search_rows('完全不存在0362afa759eb', sample_rows(), None, None) == []
+    assert search_rows('编号12345678', sample_rows(), None, None) == []
+
+
+def test_semantic_query_keeps_exact_model_code_at_sku_level(monkeypatch):
+    rows = sample_rows()
+    rows[0]['skus'][0]['parameters'].append({'name': '型号', 'value': 'AB123456'})
+    monkeypatch.setattr('app.services.product_search.semantic_matches', lambda *args: {(7, 71), (7, 72)})
+    result = search_rows('适合午睡的 AB123456', rows, None, None)
+    assert [sku['id'] for sku in result[0]['skus']] == [71]

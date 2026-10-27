@@ -90,20 +90,29 @@ def semantic_matches(keyword, rows, db, actor):
 
 
 def search_rows(keyword, rows, db, actor):
+    # Model numbers / unique reference codes are hard constraints, not meanings
+    # that embeddings may substitute with a nearby product.
+    identifiers = [term.casefold() for term in re.findall(r"[A-Za-z0-9_-]{8,}", keyword)
+                   if re.search(r"\d", term)]
+    def code_matches(row, sku):
+        text = (product_text(row) + " " + sku_text(sku)).casefold()
+        return all(term in text for term in identifiers)
     matches = []
     for row in rows:
         common = literal_match(keyword, product_text(row))
         skus = [sku for sku in row["skus"] if common or literal_match(keyword, sku_text(sku))]
         if skus:
             matches.append({**row, "skus": skus})
+    if identifiers and not any(code_matches(row, sku) for row in rows for sku in row["skus"]):
+        return matches
     try:
         pairs = semantic_matches(keyword, rows, db, actor)
     except Exception:
         if matches:
             return matches
         raise
-    found = [{**row, "skus": [sku for sku in row["skus"] if (row["id"], sku["id"]) in pairs]}
-             for row in rows if any((row["id"], sku["id"]) in pairs for sku in row["skus"])]
+    found = [{**row, "skus": [sku for sku in row["skus"] if (row["id"], sku["id"]) in pairs and code_matches(row, sku)]}
+             for row in rows if any((row["id"], sku["id"]) in pairs and code_matches(row, sku) for sku in row["skus"])]
     if isinstance(pairs, dict):
         found.sort(key=lambda row: min(pairs[(row["id"], sku["id"])] for sku in row["skus"]))
     merged = {row['id']: row for row in matches}
