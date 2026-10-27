@@ -55,6 +55,46 @@ def test_empty_recommendation_explains_and_filters_without_relaxing_them(catalog
     assert not actor.products
 
 
+def test_category_generic_noun_is_redundant_but_specific_constraints_stay(catalog_actor):
+    _, actor = catalog_actor
+    execute_tool("get_store_catalog", {})
+    execute_tool("recommend_products", {"reason": "budget", "category": "测试杯具",
+        "keywords": ["测试杯具用品", "陶瓷"], "budget_yuan": 100, "quantity": 2})
+    assert [r['name'] for r in actor.products] == ['测试陶瓷杯']
+    assert [sku['spec'] for sku in actor.products[0]['skus']] == ['蓝色']
+    result = execute_tool("recommend_products", {"reason": "budget", "category": "测试杯具",
+        "keywords": ["测试杯具用品", "陶瓷"], "excluded_keywords": ["陶瓷"], "budget_yuan": 50})
+    assert "没有找到" in result and not actor.products
+
+
+def test_exhausted_tool_loop_cannot_be_labelled_as_a_completed_llm_answer(catalog_actor, monkeypatch):
+    from app.agent.assistant import ModelOutputError, run_tool_loop
+    monkeypatch.setattr(settings, 'agent_require_llm', False)
+    class LoopingModel:
+        def bind_tools(self, tools): return self
+        def invoke(self, messages):
+            return AIMessage(content='', tool_calls=[{'name': 'get_store_catalog', 'args': {}, 'id': 'loop'}])
+    with pytest.raises(ModelOutputError, match='步骤上限'):
+        run_tool_loop([], '', '推荐家居用品', llm=LoopingModel(), max_steps=1)
+
+
+def test_explicit_or_choices_preserve_quantity_budget_and_other_and_constraints(catalog_actor):
+    _, actor = catalog_actor
+    execute_tool('get_store_catalog', {})
+    actor.request_text = '预算100元买2件，陶瓷或香薰都可以'
+    execute_tool('recommend_products', {'reason': 'budget', 'category': '测试杯具',
+        'budget_yuan': 100, 'quantity': 2, 'keywords': ['陶瓷', '香薰']})
+    assert {r['name'] for r in actor.products} == {'测试陶瓷杯', '测试香薰杯'}
+    assert all(s['stock'] >= 2 and s['price_yuan'] * 2 <= 100 for r in actor.products for s in r['skus'])
+    execute_tool('recommend_products', {'reason': 'budget', 'category': '测试杯具',
+        'budget_yuan': 100, 'quantity': 2, 'keywords': ['蓝色'], 'keyword_groups': [['陶瓷', '香薰']]})
+    assert [r['name'] for r in actor.products] == ['测试陶瓷杯']
+    assert [s['spec'] for s in actor.products[0]['skus']] == ['蓝色']
+    actor.request_text = '不要陶瓷或香薰'
+    execute_tool('recommend_products', {'keywords': ['陶瓷', '香薰']})
+    assert not actor.products, 'a negative OR phrase must never become a positive alternative'
+
+
 def test_customer_scope_has_no_merchant_tools_or_fallback_guidance(catalog_actor):
     from app.agent.fallback import fallback_reply
     from app.agent.tools import langchain_tools

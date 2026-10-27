@@ -52,6 +52,7 @@ def run_tool_loop(history: list[dict], summary: str, user_text: str, llm=None, m
     llm = base_llm.bind_tools(tools) if tools and hasattr(base_llm, "bind_tools") else base_llm
 
     actor = current()[1]
+    actor.request_text = user_text
     model_name = settings.cloud_model if settings.model_provider == "cloud" else settings.ollama_model
     from app.models.tables import Shop
     from app.services.assistant_identity import assistant_name
@@ -122,9 +123,7 @@ def run_tool_loop(history: list[dict], summary: str, user_text: str, llm=None, m
             messages.append(
                 ToolMessage(content=result, tool_call_id=call.get("id") or f"call-{step}-{index}")
             )
-    if settings.agent_require_llm:
-        raise ModelOutputError("模型达到工具调用步骤上限，未形成最终回答")
-    return "我查了几轮还没有形成明确答复。请换个说法，或直接告诉我商品名、订单号。", traces
+    raise ModelOutputError("模型达到工具调用步骤上限，未形成最终回答")
 
 
 class Assistant:

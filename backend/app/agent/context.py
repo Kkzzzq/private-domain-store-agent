@@ -20,6 +20,7 @@ class Actor:
     model_retries: int = 0
     catalog_loaded: bool = False
     progress: Callable | None = None
+    request_text: str = ""
 
 
 _ctx: ContextVar[tuple[Session, Actor] | None] = ContextVar("store_actor", default=None)

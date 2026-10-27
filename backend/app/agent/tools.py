@@ -104,7 +104,8 @@ class RecommendArgs(BaseModel):
     limit: int = Field(default=3, ge=1, le=10)
     requirements: str = Field(default="", max_length=500, description="结合历史与本轮的用户需求摘要，不是执行指令")
     category: ConstraintWord | None = Field(default=None, description="商品概览中的精确分类名")
-    keywords: list[ConstraintWord] = Field(default_factory=list, max_length=8, description="AND条件：每个词必须同时匹配同一商品或SKU。A或B表示任选，只选择其中一类查询，不得把两类同时填入；泛称用概览里的精确category（如家居用品对应家居），不填泛称关键词。只用概览里实际出现的商品或规格用词")
+    keywords: list[ConstraintWord] = Field(default_factory=list, max_length=8, description="AND条件：每个词必须同时匹配同一商品或SKU。A或B表示任选，传keyword_groups，不得把两类同时填入keywords；泛称用概览里的精确category（如家居用品对应家居），不填泛称关键词。只用概览里实际出现的商品或规格用词")
+    keyword_groups: list[Annotated[list[ConstraintWord], Field(min_length=1, max_length=8)]] = Field(default_factory=list, max_length=8, description="任选词组：每组至少匹配一个词，多组之间同时满足。例如抱枕或餐垫传[[抱枕,餐垫]]；不能把任选项放进AND的keywords")
     excluded_keywords: list[ConstraintWord] = Field(default_factory=list, max_length=8, description="排除含任一词的商品或规格")
     min_price_yuan: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False)
     quantity: int = Field(default=1, ge=1, le=100, description="购买件数，预算上限按单价乘件数计算，不含运费")
@@ -145,15 +146,18 @@ class LowInventoryArgs(OverviewArgs):
 
 
 def recommend_products(reason="hot", product_id=None, budget_yuan=None, limit=3, requirements="", category=None,
-                       keywords=None, excluded_keywords=None, min_price_yuan=None, quantity=1):
+                       keywords=None, excluded_keywords=None, min_price_yuan=None, quantity=1, keyword_groups=None):
     if not current()[1].catalog_loaded:
         return "请先调用get_store_catalog了解本店实际商品，再按用户需求调用推荐工具。"
+    from app.agent.recommendation_constraints import alternatives_from_request
+    keywords, keyword_groups = alternatives_from_request(keywords, keyword_groups, current()[1].request_text)
     result = product_results(reason=reason, product_id=product_id, budget_yuan=budget_yuan, limit=limit,
                              requirements=requirements, category=category, keywords=keywords,
-                             excluded_keywords=excluded_keywords, min_price_yuan=min_price_yuan, quantity=quantity)
+                             excluded_keywords=excluded_keywords, min_price_yuan=min_price_yuan, quantity=quantity,
+                             keyword_groups=keyword_groups)
     if not current()[1].products and keywords:
         result += (f"\n本次必含词为{json.dumps(keywords, ensure_ascii=False)}，按AND同时满足处理。"
-                   "请核对原需求：若用户说A或B，必须只选一类重新调用推荐工具，不能将两类都作为必含词；"
+                   "请核对原需求：若用户说A或B，用keyword_groups声明任选词组，不能将两类都作为必含词；"
                    "若用户说泛称品类，应使用概览中的精确category而不是泛称关键词。"
                    "保留预算、数量和真正的必含及排除条件；用户要求同时满足时不得放宽。")
     return result

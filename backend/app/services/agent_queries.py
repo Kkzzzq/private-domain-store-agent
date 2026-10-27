@@ -103,7 +103,12 @@ def image_products(question, limit=3):
 
 def product_results(keyword=None, reason=None, product_id=None, budget_yuan=None, limit=3,
                     requirements="", category=None, keywords=None, excluded_keywords=None,
-                    min_price_yuan=None, quantity=1):
+                    min_price_yuan=None, quantity=1, keyword_groups=None):
+    if category:
+        # An exact category already enforces its scope. Models sometimes add
+        # its generic noun again as a literal keyword, hiding valid products.
+        redundant = {category, category + "用品", category + "商品", category + "类商品"}
+        keywords = [word for word in keywords or [] if word not in redundant]
     db, actor = current()
     buyer_view = actor.role != "merchant" or bool(reason)
     rows = _catalog_rows(db, actor, buyer_view=buyer_view)
@@ -141,7 +146,8 @@ def product_results(keyword=None, reason=None, product_id=None, budget_yuan=None
                 continue
             from app.services.product_search import product_text as searchable_product, sku_text
             product_text = searchable_product(row).casefold()
-            sku_terms = {term.casefold() for term in (keywords or []) + (excluded_keywords or [])
+            alternatives = [term for group in keyword_groups or [] for term in group]
+            sku_terms = {term.casefold() for term in (keywords or []) + (excluded_keywords or []) + alternatives
                          if any(term.casefold() in sku["spec"].casefold() for sku in row["skus"])}
             matching_skus = []
             for sku in row["skus"]:
@@ -153,6 +159,9 @@ def product_results(keyword=None, reason=None, product_id=None, budget_yuan=None
                 if min_price_yuan is not None and sku["price_yuan"] < min_price_yuan:
                     continue
                 if not all(term.casefold() in (sku["spec"].casefold() if term.casefold() in sku_terms else searchable) for term in keywords or []):
+                    continue
+                if not all(any(term.casefold() in (sku["spec"].casefold() if term.casefold() in sku_terms else searchable)
+                               for term in group) for group in keyword_groups or []):
                     continue
                 if any(term.casefold() in (sku["spec"].casefold() if term.casefold() in sku_terms else searchable) for term in excluded_keywords or []):
                     continue
