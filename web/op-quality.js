@@ -652,5 +652,5 @@ const addTurn=(saved={})=>{if(fields.length>=5)return;const section=el('section'
       paint();poll();
     }else{root.append(el("p","qa-muted","正在读取OP测试能力…"));refresh();}
   }
-  return {mount};
+  return {mount,invalidate:()=>workspaces.clear()};
 })();

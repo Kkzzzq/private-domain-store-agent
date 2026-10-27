@@ -16,6 +16,8 @@ const mount=api=>{context.window.OPQuality.mount({replaceChildren(){}},{api});re
  let fresh=0;const e=mount(async()=>{fresh++;return {id:'r1'};});await e.loadRun('r1');assert.equal(fresh,1,'new login must download its own report');
  e.workspaces.set('',{at:Date.now()});await e.api('/cases',{title:'change'});
  assert.equal(e.workspaces.size,0,'mutations must invalidate workspace metadata');
+ e.workspaces.set('',{at:Date.now()});context.window.OPQuality.invalidate();
+ assert.equal(e.workspaces.size,0,'explicit refresh must invalidate workspace metadata');
  e.workspaces.set('',{at:Date.now()});listeners['op-session-ended']();
  assert.equal(e.workspaces.size,0,'logout must remove workspace metadata');
  console.log('Cross-page cache: completed reuse, in-flight reuse, logout and stale-account isolation passed.');
